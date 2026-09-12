@@ -1,0 +1,137 @@
+:root {
+  /* Takeda corporate palette (primary) */
+  --takeda-red: #e1242a;
+  --azuki-maroon: #891515;
+  --black: #000000;
+  --white: #ffffff;
+  --dark-grey: #34373f;
+  --medium-grey: #a1a4ac;
+  --light-grey: #edf2f4;
+
+  /* Tints */
+  --light-pink: #f78c85;
+  --dark-red: #bd120a;
+  --dark-maroon: #450a0a;
+
+  /* Accents (internal materials only, used sparingly for status) */
+  --akane-red: #ea5532;
+  --sakura-pink: #da5283;
+  --fuji-purple: #9b72b0;
+  --asagi-blue: #51b1bf;
+  --matsuba-green: #abb436;
+  --yamabuki-yellow: #eba800;
+  --sorairo-blue: #4c9bcf;
+
+  /* Semantic tokens */
+  --bg: var(--light-grey);
+  --surface: var(--white);
+  --border: #d7dee2;
+  --text: var(--dark-grey);
+  --muted: #6b6f79;
+  --brand: var(--takeda-red);
+  --brand-dark: var(--azuki-maroon);
+  --brand-soft: rgba(225, 36, 42, 0.1);
+  --danger: var(--dark-red);
+  --success: #7f8a1f;
+  --warn: #a97a00;
+  --info: var(--sorairo-blue);
+
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+a {
+  color: var(--brand);
+}
+
+button {
+  font: inherit;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--white);
+}
+
+button.primary:hover {
+  background: var(--brand-dark);
+  border-color: var(--brand-dark);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--takeda-red);
+  outline-offset: 1px;
+}
+
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--white);
+  color: var(--text);
+}
+
+textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 0.3rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
