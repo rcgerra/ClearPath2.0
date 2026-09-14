@@ -13,6 +13,8 @@ interface Props {
   otherLabel?: string;
   /** Hide the upper band when there is no "this project" split to show. */
   showThis?: boolean;
+  /** Pin the y-axis to a fixed maximum instead of scaling to the data. */
+  maxY?: number;
 }
 
 const FALLBACK_COL_WIDTH = 16;
@@ -30,6 +32,7 @@ export default function PersonDemandChart({
   thisLabel = 'This project',
   otherLabel = 'All other projects',
   showThis = true,
+  maxY,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -46,7 +49,7 @@ export default function PersonDemandChart({
   const width = PAD_LEFT + weeks * colWidth + 12;
   const plotHeight = height - PAD_TOP - PAD_BOTTOM;
   const stacked = Array.from({ length: weeks }, (_, i) => (thisProject[i] ?? 0) + (otherProjects[i] ?? 0));
-  const peak = Math.max(1, ...stacked, ...availability.slice(0, weeks));
+  const peak = maxY ?? Math.max(1, ...stacked, ...availability.slice(0, weeks));
   const scale = (value: number) => (value / peak) * plotHeight;
   const y = (value: number) => PAD_TOP + plotHeight - scale(value);
 

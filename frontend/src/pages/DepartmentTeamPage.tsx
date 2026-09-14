@@ -758,6 +758,7 @@ export default function DepartmentTeamPage() {
             availability={selected.weeks}
             showThis={false}
             otherLabel="Demand (all projects)"
+            maxY={MAX_HOURS}
           />
 
           <div className="matrix-scroll">
