@@ -376,7 +376,7 @@ export default function ProjectTeamPage() {
                               ⧉
                             </button>
                             <button
-                              className={row.isActive === false ? '' : 'danger'}
+                              className={row.isActive === false ? 'success' : 'danger'}
                               title={
                                 row.isActive === false
                                   ? `Reactivate ${row.personName ?? 'this person'} on the team`

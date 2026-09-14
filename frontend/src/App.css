@@ -92,9 +92,7 @@
 .app-main {
   padding: 1.5rem;
   flex: 1;
-  max-width: 1400px;
   width: 100%;
-  margin: 0 auto;
 }
 
 .back-button {
@@ -501,6 +499,8 @@
 .matrix-demand-row td.demand-only-cell {
   height: 16px;
   box-sizing: border-box;
+  padding-top: 0.1rem;
+  padding-bottom: 0.1rem;
   color: var(--muted);
   font-style: italic;
   font-size: 0.72rem;
@@ -582,6 +582,56 @@ button.danger-solid:hover:not(:disabled) {
   font-size: 0.7rem;
   font-weight: 400;
   color: var(--medium-grey);
+}
+
+.person-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.person-name-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.person-name-row .icon-button {
+  width: 20px;
+  height: 20px;
+  font-size: 0.85rem;
+}
+
+.icon-button.icon-button-plain {
+  border: none;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+}
+
+.icon-button.icon-button-plain:hover {
+  border: none;
+  background: none;
+}
+
+.person-stat-line {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: var(--medium-grey);
+  white-space: nowrap;
+}
+
+.person-stat-line strong {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.person-stat-line strong.stat-over {
+  color: var(--dark-red);
 }
 
 .person-actions {
@@ -857,6 +907,11 @@ button.danger-solid:hover:not(:disabled) {
   padding: 0.1rem 0.2rem;
   font-size: 0.8rem;
   -moz-appearance: textfield;
+}
+
+.assignment-demand-cell input {
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .demand-grid td input::-webkit-outer-spin-button,

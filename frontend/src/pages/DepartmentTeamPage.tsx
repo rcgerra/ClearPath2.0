@@ -331,6 +331,19 @@ export default function DepartmentTeamPage() {
   const selected = rows.find((row) => row.id === selectedRow);
   const selectedDemand = selected ? demandByPerson.get(selected.personId?.toLowerCase() ?? '') ?? emptyWeeks() : [];
 
+  /** Equalize is pointless once there's no demand, or availability already matches demand every week. */
+  const selectedEqualizeDisabled = (() => {
+    if (!selected) return true;
+    let hasDemand = false;
+    let alreadyMatches = true;
+    for (let week = 0; week < WEEKS; week += 1) {
+      const demandHours = selectedDemand[week] ?? 0;
+      if (demandHours > 0) hasDemand = true;
+      if ((selected.weeks[week] ?? 0) !== demandHours) alreadyMatches = false;
+    }
+    return !hasDemand || alreadyMatches;
+  })();
+
   /** Demand for the selected person, split out per project for the detail table. */
   const selectedProjectDemand = useMemo(() => {
     const personId = selected?.personId?.toLowerCase();
@@ -408,16 +421,22 @@ export default function DepartmentTeamPage() {
         </div>
         <div className="row-actions">
           <button
-            className={checkInClass}
+            type="button"
+            className={['icon-button', 'icon-button-add', 'icon-button-add-labeled', checkInClass].filter(Boolean).join(' ')}
             onClick={() => checkIn.mutate()}
             disabled={!canEditDepartment(user, details) || checkIn.isPending}
             title={
               Number.isFinite(daysSinceCheckIn)
-                ? `Last checked in ${daysSinceCheckIn} days ago`
-                : 'This department has never been checked in'
+                ? `Last periodic team review was ${daysSinceCheckIn} days ago`
+                : 'This department has never had a periodic team review logged'
             }
           >
-            {checkIn.isPending ? 'Checking in…' : 'Check in department'}
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z" />
+              <rect x="5" y="6" width="14" height="15" rx="2" />
+              <polyline points="9 14 11 16 15 12" />
+            </svg>
+            <span>{checkIn.isPending ? 'Logging review…' : 'Log team review'}</span>
           </button>
         </div>
       </div>
@@ -448,12 +467,11 @@ export default function DepartmentTeamPage() {
 
       <div className="card">
         <div className="toolbar" style={{ marginBottom: '0.75rem' }}>
-          <h2 style={{ margin: 0 }}>Team overview</h2>
+          <h2 style={{ margin: 0, flex: 1 }}>Team overview</h2>
           {editable && (
             <button
               type="button"
               className="icon-button icon-button-add icon-button-add-labeled"
-              style={{ marginLeft: '1rem' }}
               title="Add new person"
               aria-label="Add new person"
               onClick={() => {
@@ -469,17 +487,6 @@ export default function DepartmentTeamPage() {
               <span>Add person</span>
             </button>
           )}
-          <div style={{ flex: 1 }} />
-          <label className="switch">
-            <input type="checkbox" checked={showInactive} onChange={(event) => setShowInactive(event.target.checked)} />
-            <span className="switch-track" aria-hidden="true" />
-            <span className="switch-label">Show inactive members</span>
-          </label>
-          <label className="switch">
-            <input type="checkbox" checked={fteOnly} onChange={(event) => setFteOnly(event.target.checked)} />
-            <span className="switch-track" aria-hidden="true" />
-            <span className="switch-label">FTE only</span>
-          </label>
         </div>
 
         {adding && (
@@ -519,15 +526,6 @@ export default function DepartmentTeamPage() {
             <thead>
               <tr>
                 <th className="matrix-label">Person</th>
-                <th className="matrix-stat-head">
-                  <span className="rotated-head">Weeks over</span>
-                </th>
-                <th className="matrix-stat-head">
-                  <span className="rotated-head">Hours over</span>
-                </th>
-                <th className="matrix-stat-head">
-                  <span className="rotated-head">Assignments</span>
-                </th>
                 {columns.map((week) => (
                   <th key={week}>
                     <span className="week-head">
@@ -536,7 +534,6 @@ export default function DepartmentTeamPage() {
                     </span>
                   </th>
                 ))}
-                {canManageRoster && <th className="matrix-actions-head">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -562,25 +559,48 @@ export default function DepartmentTeamPage() {
                       <th rowSpan={2} scope="rowgroup" className="matrix-label">
                         <span className="person-row">
                           <span className="person-identity">
-                            <span className={isMe ? 'person-name person-me' : 'person-name'}>
-                              {row.personName ?? 'Unassigned'}
+                            <span className="person-name-row">
+                              <span className="person-name-group">
+                                <span className={isMe ? 'person-name person-me' : 'person-name'}>
+                                  {row.personName ?? 'Unassigned'}
+                                </span>
+                                {row.isActive === false && <span className="badge danger">Inactive</span>}
+                              </span>
+                              {canManageRoster && (
+                                <button
+                                  className={['icon-button', 'icon-button-plain', row.isActive === false ? 'success' : 'danger'].join(' ')}
+                                  aria-label={
+                                    row.isActive === false
+                                      ? `Reactivate ${row.personName ?? 'this person'}'s availability`
+                                      : `Inactivate ${row.personName ?? 'this person'}'s availability`
+                                  }
+                                  title={
+                                    row.isActive === false
+                                      ? `Reactivate ${row.personName ?? 'this person'}'s availability`
+                                      : `Inactivate ${row.personName ?? 'this person'}'s availability`
+                                  }
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setRowActive.mutate({ capacityId: row.id, isActive: row.isActive === false });
+                                  }}
+                                >
+                                  {row.isActive === false ? '↻' : '⊘'}
+                                </button>
+                              )}
                             </span>
                             <span className="person-department">
                               {person?.functionName ?? person?.employmentType ?? '—'}
                             </span>
+                            <span className="person-stat-line">
+                              Weeks over: <strong className={weeksOver > 0 ? 'stat-over' : undefined}>{weeksOver}</strong>
+                              {' · '}
+                              Hours over: <strong className={hoursOver > 0 ? 'stat-over' : undefined}>{hoursOver}</strong>
+                              {' · '}
+                              Assignments: <strong>{assignments}</strong>
+                            </span>
                           </span>
-                          {row.isActive === false && <span className="badge danger">Inactive</span>}
                         </span>
                       </th>
-                      <td rowSpan={2} className={['matrix-stat-cell', weeksOver > 0 ? 'over-allocated' : ''].filter(Boolean).join(' ')}>
-                        {weeksOver}
-                      </td>
-                      <td rowSpan={2} className={['matrix-stat-cell', hoursOver > 0 ? 'over-allocated' : ''].filter(Boolean).join(' ')}>
-                        {hoursOver}
-                      </td>
-                      <td rowSpan={2} className="matrix-stat-cell">
-                        {assignments}
-                      </td>
                       {columns.map((week) => {
                         const utilization = utilizationFor(row, week);
                         const over = utilization !== null && utilization > 1;
@@ -594,42 +614,6 @@ export default function DepartmentTeamPage() {
                           </td>
                         );
                       })}
-                      {canManageRoster && (
-                        <td rowSpan={2} className="matrix-actions-cell">
-                          <span className="person-actions">
-                            <button
-                              className="icon-button"
-                              aria-label={`Normalize ${row.personName ?? 'this person'}'s availability to match demand`}
-                              title={`Set ${row.personName ?? 'this person'}'s availability to match total demand for the weeks shown`}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                normalizeAvailability(row);
-                              }}
-                            >
-                              ⇄
-                            </button>
-                            <button
-                              className={['icon-button', row.isActive === false ? '' : 'danger'].filter(Boolean).join(' ')}
-                              aria-label={
-                                row.isActive === false
-                                  ? `Reactivate ${row.personName ?? 'this person'}'s availability`
-                                  : `Inactivate ${row.personName ?? 'this person'}'s availability`
-                              }
-                              title={
-                                row.isActive === false
-                                  ? `Reactivate ${row.personName ?? 'this person'}'s availability`
-                                  : `Inactivate ${row.personName ?? 'this person'}'s availability`
-                              }
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setRowActive.mutate({ capacityId: row.id, isActive: row.isActive === false });
-                              }}
-                            >
-                              {row.isActive === false ? '↻' : '⊘'}
-                            </button>
-                          </span>
-                        </td>
-                      )}
                     </tr>
                     <tr
                       className={[isSelected ? 'row-selected' : '', row.isActive === false ? 'row-inactive' : '']
@@ -684,7 +668,7 @@ export default function DepartmentTeamPage() {
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={canManageRoster ? WEEKS + 5 : WEEKS + 4} className="muted">
+                  <td colSpan={WEEKS + 1} className="muted">
                     No availability recorded for this department yet.
                   </td>
                 </tr>
@@ -695,16 +679,24 @@ export default function DepartmentTeamPage() {
                 <th scope="row" className="matrix-label">
                   Total availability
                 </th>
-                <td />
-                <td />
-                <td />
                 {columns.map((week) => (
                   <td key={week}>{totals[week] || ''}</td>
                 ))}
-                {canManageRoster && <td />}
               </tr>
             </tfoot>
           </table>
+        </div>
+        <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
+          <label className="switch">
+            <input type="checkbox" checked={showInactive} onChange={(event) => setShowInactive(event.target.checked)} />
+            <span className="switch-track" aria-hidden="true" />
+            <span className="switch-label">Show inactive members</span>
+          </label>
+          <label className="switch">
+            <input type="checkbox" checked={fteOnly} onChange={(event) => setFteOnly(event.target.checked)} />
+            <span className="switch-track" aria-hidden="true" />
+            <span className="switch-label">FTE only</span>
+          </label>
         </div>
         <p className="muted table-count">
           {rows.length} {rows.length === 1 ? 'person' : 'people'} · hours per week, maximum {MAX_HOURS} · top row is
@@ -715,9 +707,50 @@ export default function DepartmentTeamPage() {
 
       {selected && (
         <div className="card">
-          <h2>
-            {selected.personName ?? 'Person'} <span className="muted">· next {CHART_WEEKS} weeks</span>
-          </h2>
+          <div className="toolbar" style={{ marginBottom: '0.85rem' }}>
+            <h2 style={{ margin: 0, flex: 1 }}>
+              {selected.personName ?? 'Person'} <span className="muted">· next {CHART_WEEKS} weeks</span>
+            </h2>
+            {canManageRoster && (
+              <button
+                type="button"
+                className="icon-button icon-button-add icon-button-add-labeled"
+                aria-label={`Normalize ${selected.personName ?? 'this person'}'s availability`}
+                title={
+                  selectedEqualizeDisabled
+                    ? `${selected.personName ?? 'This person'}'s availability already matches demand`
+                    : `Set ${selected.personName ?? "this person's"} availability to equal its demand`
+                }
+                disabled={selectedEqualizeDisabled}
+                onClick={() => normalizeAvailability(selected)}
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="17 2 21 6 17 10" />
+                  <path d="M3 12v-2a4 4 0 0 1 4-4h14" />
+                  <polyline points="7 22 3 18 7 14" />
+                  <path d="M21 12v2a4 4 0 0 1-4 4H3" />
+                </svg>
+                <span>Equalize</span>
+              </button>
+            )}
+            {canManageRoster && (
+              <button
+                type="button"
+                className="icon-button icon-button-add icon-button-add-labeled"
+                title={`Assign ${selected.personName ?? 'this person'} to a new project`}
+                aria-label={`Assign ${selected.personName ?? 'this person'} to a new project`}
+                onClick={() => setAddingAssignment((value) => !value)}
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z" />
+                  <rect x="5" y="6" width="14" height="15" rx="2" />
+                  <line x1="12" y1="11" x2="12" y2="17" />
+                  <line x1="9" y1="14" x2="15" y2="14" />
+                </svg>
+                <span>Add assignment</span>
+              </button>
+            )}
+          </div>
           <PersonDemandChart
             weeks={CHART_WEEKS}
             thisProject={emptyWeeks()}
@@ -734,24 +767,6 @@ export default function DepartmentTeamPage() {
                   <th className="matrix-label detail-head-label">
                     <span className="matrix-section-label-row">
                       <span>Upcoming demand</span>
-                      {canManageRoster && (
-                        <button
-                          type="button"
-                          className="icon-button icon-button-add icon-button-add-labeled matrix-section-action"
-                          style={{ marginLeft: '1rem' }}
-                          title={`Assign ${selected.personName ?? 'this person'} to a new project`}
-                          aria-label={`Assign ${selected.personName ?? 'this person'} to a new project`}
-                          onClick={() => setAddingAssignment((value) => !value)}
-                        >
-                          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z" />
-                            <rect x="5" y="6" width="14" height="15" rx="2" />
-                            <line x1="12" y1="11" x2="12" y2="17" />
-                            <line x1="9" y1="14" x2="15" y2="14" />
-                          </svg>
-                          <span>Add assignment</span>
-                        </button>
-                      )}
                     </span>
                   </th>
                   {chartColumns.map((week) => (
@@ -811,7 +826,7 @@ export default function DepartmentTeamPage() {
                       const currentHours = project.weeks[week] ?? 0;
                       const value = draftDemand[key] ?? String(currentHours);
                       return (
-                        <td key={week}>
+                        <td key={week} className="assignment-demand-cell">
                           <input
                             type="number"
                             min={0}
