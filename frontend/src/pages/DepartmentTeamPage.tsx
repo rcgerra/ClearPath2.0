@@ -192,6 +192,22 @@ export default function DepartmentTeamPage() {
   const selected = rows.find((row) => row.id === selectedRow);
   const selectedDemand = selected ? demandByPerson.get(selected.personId?.toLowerCase() ?? '') ?? emptyWeeks() : [];
 
+  /** Demand for the selected person, split out per project for the detail table. */
+  const selectedProjectDemand = useMemo(() => {
+    const personId = selected?.personId?.toLowerCase();
+    if (!personId) return [] as { projectId: string; projectName?: string; weeks: number[] }[];
+    const map = new Map<string, { projectId: string; projectName?: string; weeks: number[] }>();
+    for (const row of allDemand.data ?? []) {
+      if (row.personId?.toLowerCase() !== personId) continue;
+      const existing = map.get(row.projectId);
+      if (existing) addInto(existing.weeks, row.weeks);
+      else map.set(row.projectId, { projectId: row.projectId, projectName: row.projectName, weeks: addInto(emptyWeeks(), row.weeks) });
+    }
+    return Array.from(map.values()).sort((a, b) => (a.projectName ?? '').localeCompare(b.projectName ?? ''));
+  }, [allDemand.data, selected?.personId]);
+
+  const chartColumns = useMemo(() => Array.from({ length: CHART_WEEKS }, (_, index) => index), []);
+
   if (department.isLoading) return <p className="muted">Loading…</p>;
 
   const details = department.data;
@@ -424,6 +440,70 @@ export default function DepartmentTeamPage() {
             showThis={false}
             otherLabel="Demand (all projects)"
           />
+
+          <div className="matrix-scroll">
+            <table className="weekly-matrix demand-grid">
+              <thead>
+                <tr>
+                  <th className="matrix-label">Weekly detail</th>
+                  {chartColumns.map((week) => (
+                    <th key={week}>
+                      <span className="week-head">
+                        <span>{weekLabelShort(week)}</span>
+                        <span className="week-year">{weekLabel(week).slice(-2)}</span>
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row" className="matrix-label">
+                    Availability
+                  </th>
+                  {chartColumns.map((week) => (
+                    <td key={week}>{selected.weeks[week] || ''}</td>
+                  ))}
+                </tr>
+                {selectedProjectDemand.map((project) => (
+                  <tr key={project.projectId}>
+                    <th scope="row" className="matrix-label">
+                      {project.projectName ?? 'Project'}
+                    </th>
+                    {chartColumns.map((week) => (
+                      <td key={week}>{project.weeks[week] || ''}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="matrix-total">
+                  <th scope="row" className="matrix-label">
+                    Total demand
+                  </th>
+                  {chartColumns.map((week) => (
+                    <td key={week}>{selectedDemand[week] || ''}</td>
+                  ))}
+                </tr>
+                <tr>
+                  <th scope="row" className="matrix-label">
+                    Utilization
+                  </th>
+                  {chartColumns.map((week) => {
+                    const availability = selected.weeks[week] ?? 0;
+                    const demandHours = selectedDemand[week] ?? 0;
+                    const utilization = availability > 0 ? demandHours / availability : demandHours > 0 ? Infinity : null;
+                    const over = utilization !== null && utilization > 1;
+                    return (
+                      <td key={week} className={over ? 'over-allocated' : undefined}>
+                        {utilization === null ? '—' : Number.isFinite(utilization) ? `${Math.round(utilization * 100)}%` : '∞'}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
       )}
 
