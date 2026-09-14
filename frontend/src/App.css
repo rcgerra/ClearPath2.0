@@ -97,9 +97,48 @@
   margin: 0 auto;
 }
 
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  padding: 0.3rem 0.7rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.back-button:hover {
+  color: var(--accent-ink, var(--takeda-red));
+  border-color: var(--accent, var(--takeda-red));
+  background: var(--accent-wash, var(--brand-soft));
+}
+
 .page-title {
   margin: 0 0 0.25rem;
   font-size: 1.4rem;
+}
+
+.title-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--white);
+  color: var(--accent-ink, var(--text));
+  font-size: 0.85rem;
+  text-decoration: none;
+  vertical-align: middle;
+}
+
+.title-icon-button:hover {
+  border-color: var(--accent);
+  background: var(--accent-wash);
 }
 
 .page-subtitle {
@@ -267,6 +306,12 @@
 .chart-scroll {
   overflow-x: auto;
   padding-bottom: 0.25rem;
+  width: 100%;
+}
+
+.chart-scroll svg {
+  display: block;
+  width: 100%;
 }
 
 .chart-bar {
@@ -361,6 +406,11 @@
   background: var(--sorairo-blue);
 }
 
+.team-chart-legend {
+  flex-wrap: wrap;
+  row-gap: 0.3rem;
+}
+
 /* ---------- Weekly matrix ---------- */
 
 .matrix-scroll {
@@ -387,7 +437,7 @@
 .weekly-matrix thead th {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 5;
   background: var(--surface);
   font-size: 0.7rem;
   text-transform: none;
@@ -396,13 +446,18 @@
 .weekly-matrix .matrix-label {
   position: sticky;
   left: 0;
-  z-index: 3;
+  z-index: 1;
   background: var(--surface);
   text-align: left;
   min-width: 200px;
   font-weight: 600;
   color: var(--text);
   border-right: 1px solid var(--border);
+}
+
+/* The corner cell is sticky both ways, so it must sit above the plain sticky header/label cells. */
+.weekly-matrix thead th.matrix-label {
+  z-index: 6;
 }
 
 .weekly-matrix .matrix-availability td,
@@ -421,6 +476,35 @@
   background: rgba(171, 180, 54, 0.16);
   font-weight: 600;
   color: #6d7420;
+}
+
+/* Banded rows: applied at the row level so per-cell highlights (demand/availability/over-allocated) still paint on top. */
+.weekly-matrix tbody tr:nth-child(even) {
+  background: var(--light-grey);
+}
+
+.weekly-matrix tbody tr:nth-child(even) .matrix-label {
+  background: var(--light-grey);
+}
+
+/* Paired-row tables (demand + availability per person): band every other person, not every row. */
+.paired-rows tbody tr:nth-child(4n+3),
+.paired-rows tbody tr:nth-child(4n+4) {
+  background: var(--light-grey);
+}
+
+.paired-rows tbody tr:nth-child(4n+3) .matrix-label,
+.paired-rows tbody tr:nth-child(4n+4) .matrix-label {
+  background: var(--light-grey);
+}
+
+.matrix-demand-row td.demand-only-cell {
+  height: 16px;
+  box-sizing: border-box;
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.72rem;
+  border-bottom: none;
 }
 
 .project-header .detail-grid {
@@ -512,6 +596,61 @@ button.danger-solid:hover:not(:disabled) {
   border-radius: 4px;
 }
 
+.matrix-actions-head,
+.matrix-actions-cell {
+  text-align: center;
+  min-width: 68px;
+  padding-left: 0.6rem;
+  padding-right: 0.6rem;
+  background: var(--surface);
+}
+
+.matrix-actions-cell .person-actions {
+  gap: 0.3rem;
+  justify-content: center;
+}
+
+.matrix-actions-cell .icon-button {
+  width: 26px;
+  height: 26px;
+  font-size: 0.85rem;
+}
+
+.matrix-stat-head {
+  min-width: 5px;
+  max-width: 5px;
+  padding: 0.35rem 0.02rem;
+  vertical-align: bottom;
+}
+
+.rotated-head {
+  display: inline-block;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  white-space: nowrap;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.matrix-stat-cell {
+  min-width: 5px;
+  max-width: 5px;
+  padding: 0.35rem 0.02rem;
+  text-align: center;
+  font-weight: 600;
+  background: var(--surface);
+}
+
+.weekly-matrix tbody tr.row-inactive {
+  opacity: 0.55;
+}
+
+.weekly-matrix tbody tr.row-inactive .person-name {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
 .week-head {
   display: flex;
   flex-direction: column;
@@ -526,8 +665,12 @@ button.danger-solid:hover:not(:disabled) {
 .weekly-matrix tbody tr.row-selected .matrix-label,
 .weekly-matrix tbody tr.row-selected td {
   background: var(--accent-wash, var(--brand-soft));
-  border-top: 1px solid var(--accent, var(--takeda-red));
-  border-bottom: 1px solid var(--accent, var(--takeda-red));
+}
+
+/* The sticky label's tint must stay opaque, or cells scrolling underneath show through it. */
+.weekly-matrix tbody tr.row-selected .matrix-label {
+  background-color: var(--surface);
+  background-image: linear-gradient(var(--accent-wash, var(--brand-soft)), var(--accent-wash, var(--brand-soft)));
 }
 
 /* Accent edge marks which person the chart below is showing. */
@@ -539,21 +682,136 @@ button.danger-solid:hover:not(:disabled) {
   color: var(--accent-ink, var(--text));
 }
 
+/* Subtle top/bottom border framing each person's demand+availability pair; emphasized for the selected person. */
+.paired-rows tbody tr.matrix-demand-row > * {
+  border-top: 1px solid var(--border);
+}
+
+.paired-rows tbody tr.matrix-demand-row + tr > * {
+  border-bottom: 1px solid var(--border);
+}
+
+.paired-rows tbody tr.matrix-demand-row.row-selected > * {
+  border-top: 2px solid var(--accent, var(--takeda-red));
+}
+
+.paired-rows tbody tr.matrix-demand-row.row-selected + tr > * {
+  border-bottom: 2px solid var(--accent, var(--takeda-red));
+}
+
 .weekly-matrix tfoot .matrix-total td,
 .weekly-matrix tfoot .matrix-total .matrix-label {
   position: sticky;
   bottom: 0;
+  z-index: 5;
   background: var(--light-grey);
   font-weight: 700;
   border-top: 2px solid var(--accent, var(--border));
 }
 
+.weekly-matrix tfoot .matrix-total .matrix-label {
+  z-index: 6;
+}
+
+.matrix-section-label {
+  background: var(--light-grey);
+  color: var(--muted);
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.3rem 0.45rem;
+  border-right: none;
+}
+
+.matrix-section-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.matrix-section-action {
+  width: 22px;
+  height: 22px;
+  font-size: 1.2rem;
+  line-height: 1;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.weekly-matrix thead th.detail-head-label {
+  background: var(--dark-grey);
+  color: var(--white);
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-bottom: 2px solid var(--dark-grey);
+}
+
+.weekly-matrix thead th.detail-head-week {
+  background: rgba(52, 55, 63, 0.12);
+  border-bottom: 2px solid var(--dark-grey);
+}
+
+/* Weekly detail summary rows: shaded fill on the label, faded 80-90% tint on the values. */
+.row-total-demand .matrix-label {
+  background: var(--sorairo-blue);
+  color: var(--white);
+}
+
+.weekly-matrix tfoot .row-total-demand .matrix-label {
+  background: var(--sorairo-blue);
+  color: var(--white);
+}
+
+.row-total-demand td {
+  background: rgba(76, 155, 207, 0.12);
+}
+
+.weekly-matrix tfoot .row-total-demand td {
+  background: rgba(76, 155, 207, 0.12);
+}
+
+.row-availability .matrix-label {
+  background: var(--matsuba-green);
+  color: var(--white);
+}
+
+.row-availability td {
+  background: rgba(171, 180, 54, 0.12);
+}
+
+.row-utilization .matrix-label {
+  background: var(--fuji-purple);
+  color: var(--white);
+}
+
+.row-utilization td {
+  background: rgba(155, 114, 176, 0.12);
+}
+
 .demand-grid td.over-allocated {
   background: rgba(189, 18, 10, 0.16);
-  box-shadow: inset 0 0 0 1px rgba(189, 18, 10, 0.35);
 }
 
 .demand-grid td.over-allocated input {
+  color: var(--dark-red);
+  font-weight: 700;
+}
+
+.weekly-matrix td.utilization-warn {
+  background: rgba(235, 168, 0, 0.18);
+  color: #7a5900;
+  font-weight: 700;
+}
+
+.weekly-matrix td.utilization-danger {
+  background: rgba(189, 18, 10, 0.18);
   color: var(--dark-red);
   font-weight: 700;
 }
@@ -569,18 +827,34 @@ button.danger-solid:hover:not(:disabled) {
   margin-left: 0;
 }
 
+.legend-entry-button {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.legend-entry-button:hover {
+  color: var(--accent-ink, var(--text));
+  text-decoration: underline;
+}
+
 .demand-grid td {
   padding: 0;
 }
 
 .demand-grid td input {
   width: 100%;
+  height: 16px;
   min-width: 46px;
+  box-sizing: border-box;
   border: none;
   border-radius: 0;
   background: transparent;
   text-align: center;
-  padding: 0.35rem 0.2rem;
+  padding: 0.1rem 0.2rem;
   font-size: 0.8rem;
   -moz-appearance: textfield;
 }
@@ -904,6 +1178,30 @@ button.danger-solid:hover:not(:disabled) {
   border: 1px solid rgba(225, 36, 42, 0.3);
 }
 
+.pill-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--light-grey);
+}
+
+.pill-toggle button {
+  border: none;
+  background: none;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.pill-toggle button.active {
+  background: var(--surface);
+  color: var(--accent-ink, var(--text));
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
 .row-legend {
   display: flex;
   gap: 1rem;
@@ -1165,6 +1463,15 @@ button.danger-solid:hover:not(:disabled) {
   background: var(--accent-wash);
 }
 
+/* Banded rows */
+.data-table tbody tr:nth-child(even):not(.row-inactive) {
+  background: var(--light-grey);
+}
+
+.data-table tbody tr:nth-child(even):not(.row-inactive):hover {
+  background: var(--accent-wash);
+}
+
 .sort-header {
   display: inline-flex;
   align-items: center;
@@ -1217,6 +1524,51 @@ button.danger-solid:hover:not(:disabled) {
 .icon-button:hover {
   border-color: var(--accent);
   background: var(--accent-wash);
+}
+
+.icon-button-add {
+  width: 38px;
+  height: 38px;
+  border-width: 2px;
+  border-color: var(--accent, var(--takeda-red));
+  background: var(--accent, var(--takeda-red));
+  color: var(--white);
+  font-size: 1.4rem;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.icon-button-add svg {
+  display: block;
+}
+
+.icon-button-add:hover {
+  border-color: var(--accent-ink, var(--brand-dark));
+  background: var(--accent-ink, var(--brand-dark));
+  color: var(--white);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.icon-button-add-labeled {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  height: auto;
+  padding: 0.2rem 0.75rem 0.2rem 0.5rem;
+  border-radius: 999px;
+  gap: 0.4rem;
+}
+
+.icon-button-add-labeled svg {
+  width: 16px;
+  height: 16px;
+}
+
+.icon-button-add-labeled span {
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .table-count {

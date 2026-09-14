@@ -1,4 +1,4 @@
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 
 /** Highest-privilege role first; shown as a pill beside the logo. */
@@ -27,12 +27,21 @@ const USER_NAV = [
   { to: '/requests', label: 'Requests', end: false, accent: 'accent-requests' },
 ] as const;
 
+/** Landing/dashboard pages reached directly from nav — these don't get a back button. */
+function isDashboardPath(pathname: string) {
+  if (['/', '/me', '/admin', '/department', '/admin/portfolio'].includes(pathname)) return true;
+  if (/^\/projects\/[^/]+\/team$/.test(pathname)) return true;
+  return false;
+}
+
 export default function Layout() {
   const user = useAuthStore((state) => state.user);
   const location = useLocation();
+  const navigate = useNavigate();
   const isAdmin = Boolean(user?.roles.includes('admin'));
   const inAdminArea = location.pathname.startsWith('/admin');
   const topRole = ROLE_LABELS.find(([value]) => user?.roles.includes(value as never));
+  const showBack = !isDashboardPath(location.pathname);
 
   const links = isAdmin && inAdminArea ? ADMIN_NAV : USER_NAV;
 
@@ -65,6 +74,11 @@ export default function Layout() {
         </nav>
       </header>
       <main className="app-main">
+        {showBack && (
+          <button type="button" className="back-button" onClick={() => navigate(-1)} aria-label="Go back">
+            ← Back
+          </button>
+        )}
         <Outlet />
       </main>
       <footer className="app-footer">
@@ -78,3 +92,4 @@ export default function Layout() {
     </div>
   );
 }
+

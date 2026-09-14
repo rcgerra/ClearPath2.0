@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { capacityApi, demandApi, departmentsApi, errorMessage, peopleApi } from '../api/client';
+import { capacityApi, demandApi, departmentsApi, errorMessage, peopleApi, projectsApi } from '../api/client';
 import PersonDemandChart from '../components/PersonDemandChart';
+import TeamDemandChart from '../components/TeamDemandChart';
 import { useAuthStore } from '../store/authStore';
 import { weekLabel, weekLabelShort } from '../utils/arrayParser';
 import { formatDate } from '../utils/dates';
 import { canEditAvailability, canEditDepartment } from '../utils/permissions';
-import type { CapacityRow, Person } from '../types';
+import type { CapacityRow, DemandRow, Person } from '../types';
 
 const WEEKS = 104;
 const CHART_WEEKS = 52;
@@ -29,10 +30,13 @@ export default function DepartmentTeamPage() {
   const user = useAuthStore((state) => state.user);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [draftDemand, setDraftDemand] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [fteOnly, setFteOnly] = useState(false);
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
+  const [teamChartMode, setTeamChartMode] = useState<'person' | 'project'>('person');
+  const [addingAssignment, setAddingAssignment] = useState(false);
   const gridRef = useRef<HTMLTableElement>(null);
 
   const department = useQuery({
@@ -47,8 +51,15 @@ export default function DepartmentTeamPage() {
   });
   const people = useQuery({ queryKey: ['people'], queryFn: () => peopleApi.list() });
   const allDemand = useQuery({ queryKey: ['demand', 'all'], queryFn: () => demandApi.list() });
+  const projects = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => projectsApi.list(),
+    enabled: addingAssignment,
+  });
 
   const editable = canEditAvailability(user, { department: department.data });
+  /** Roster actions (normalize/inactivate) are admin, availability-moderator or department-lead territory — not self-service. */
+  const canManageRoster = canEditDepartment(user, department.data) || Boolean(user?.roles.includes('availability_moderator'));
   const capacityKey = ['capacity', 'department', id];
 
   const peopleById = useMemo(() => {
@@ -83,6 +94,61 @@ export default function DepartmentTeamPage() {
     return total;
   }, [rows]);
 
+  /** Overallocation and activity-count KPIs for the visible (filtered) roster, across the weeks shown in the table. */
+  const kpis = useMemo(() => {
+    const overAllocatedWeeks = new Set<number>();
+    let hoursOverAllocated = 0;
+    for (const row of rows) {
+      const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks();
+      for (let week = 0; week < WEEKS; week += 1) {
+        const over = (demandWeeks[week] ?? 0) - (row.weeks[week] ?? 0);
+        if (over > 0) {
+          overAllocatedWeeks.add(week);
+          hoursOverAllocated += over;
+        }
+      }
+    }
+
+    const personIds = new Set(rows.map((row) => row.personId?.toLowerCase()).filter(Boolean) as string[]);
+    const projectIds = new Set<string>();
+    for (const demandRow of allDemand.data ?? []) {
+      if (!demandRow.personId || !personIds.has(demandRow.personId.toLowerCase())) continue;
+      if (demandRow.weeks.slice(0, WEEKS).some((value) => value > 0)) projectIds.add(demandRow.projectId);
+    }
+
+    return { weeksOverAllocated: overAllocatedWeeks.size, hoursOverAllocated, activityCount: projectIds.size };
+  }, [rows, demandByPerson, allDemand.data]);
+
+  /** Distinct projects with demand > 0 in the table window, per person. */
+  const assignmentCountByPerson = useMemo(() => {
+    const projectsByPerson = new Map<string, Set<string>>();
+    for (const demandRow of allDemand.data ?? []) {
+      if (!demandRow.personId) continue;
+      if (!demandRow.weeks.slice(0, WEEKS).some((value) => value > 0)) continue;
+      const key = demandRow.personId.toLowerCase();
+      const set = projectsByPerson.get(key) ?? new Set<string>();
+      set.add(demandRow.projectId);
+      projectsByPerson.set(key, set);
+    }
+    const counts = new Map<string, number>();
+    for (const [key, set] of projectsByPerson) counts.set(key, set.size);
+    return counts;
+  }, [allDemand.data]);
+
+  /** Per-person overallocation across the weeks shown in the table. */
+  function overallocationFor(row: CapacityRow, demandWeeks: number[]) {
+    let weeksOver = 0;
+    let hoursOver = 0;
+    for (let week = 0; week < WEEKS; week += 1) {
+      const over = (demandWeeks[week] ?? 0) - (row.weeks[week] ?? 0);
+      if (over > 0) {
+        weeksOver += 1;
+        hoursOver += over;
+      }
+    }
+    return { weeksOver, hoursOver };
+  }
+
   const assigned = new Set((capacity.data ?? []).map((row) => row.personId?.toLowerCase()).filter(Boolean) as string[]);
   const available = (people.data ?? []).filter(
     (person) => !assigned.has(person.id.toLowerCase()) && person.isActive !== false,
@@ -98,6 +164,10 @@ export default function DepartmentTeamPage() {
     setSelectedRow((current) => (current && rows.some((row) => row.id === current) ? current : rows[0].id));
   }, [rows]);
 
+  useEffect(() => {
+    setAddingAssignment(false);
+  }, [selectedRow]);
+
   const setWeek = useMutation({
     mutationFn: ({ capacityId, week, hours }: { capacityId: string; week: number; hours: number }) =>
       capacityApi.setWeeks(capacityId, { week, hours }),
@@ -105,6 +175,21 @@ export default function DepartmentTeamPage() {
       queryClient.setQueryData<CapacityRow[]>(capacityKey, (current) =>
         current?.map((row) =>
           row.id === variables.capacityId
+            ? { ...row, weeks: row.weeks.map((value, index) => (index === variables.week ? variables.hours : value)) }
+            : row,
+        ),
+      );
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+
+  const setDemandWeek = useMutation({
+    mutationFn: ({ demandId, week, hours }: { demandId: string; week: number; hours: number }) =>
+      demandApi.setWeeks(demandId, { week, hours }),
+    onSuccess: (_result, variables) => {
+      queryClient.setQueryData<DemandRow[]>(['demand', 'all'], (current) =>
+        current?.map((row) =>
+          row.id === variables.demandId
             ? { ...row, weeks: row.weeks.map((value, index) => (index === variables.week ? variables.hours : value)) }
             : row,
         ),
@@ -123,12 +208,50 @@ export default function DepartmentTeamPage() {
     onError: (err) => setError(errorMessage(err)),
   });
 
+  const addAssignment = useMutation({
+    mutationFn: (body: { projectId: string; personId: string }) => demandApi.create(body),
+    onSuccess: () => {
+      setAddingAssignment(false);
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ['demand', 'all'] });
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+
   const setRowActive = useMutation({
     mutationFn: ({ capacityId, isActive }: { capacityId: string; isActive: boolean }) =>
       capacityApi.update(capacityId, { isActive }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: capacityKey }),
     onError: (err) => setError(errorMessage(err)),
   });
+
+  const normalize = useMutation({
+    mutationFn: ({ capacityId, weeks }: { capacityId: string; weeks: number[] }) =>
+      capacityApi.update(capacityId, { weeks }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: capacityKey }),
+    onError: (err) => setError(errorMessage(err)),
+  });
+
+  /** Sets this week's availability to match total demand, only across the weeks shown in the table. */
+  function normalizeAvailability(row: CapacityRow) {
+    const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks();
+    const nextWeeks = row.weeks.slice();
+    for (let week = 0; week < WEEKS; week += 1) {
+      nextWeeks[week] = Math.max(0, Math.min(MAX_HOURS, Math.round(demandWeeks[week] ?? 0)));
+    }
+    const weeksAbove50 = nextWeeks.slice(0, WEEKS).filter((hours) => hours > 50).length;
+    if (
+      weeksAbove50 > 0 &&
+      !window.confirm(
+        `Normalizing ${row.personName ?? 'this person'}'s availability will set ${weeksAbove50} week${
+          weeksAbove50 === 1 ? '' : 's'
+        } above 50 hours. Continue?`,
+      )
+    ) {
+      return;
+    }
+    normalize.mutate({ capacityId: row.id, weeks: nextWeeks });
+  }
 
   const checkIn = useMutation({
     mutationFn: () => departmentsApi.update(id, { lastCheckIn: new Date().toISOString().slice(0, 10) }),
@@ -153,6 +276,22 @@ export default function DepartmentTeamPage() {
     });
     const hours = Math.max(0, Math.min(MAX_HOURS, Math.round(Number(raw) || 0)));
     if (hours !== (row.weeks[week] ?? 0)) setWeek.mutate({ capacityId: row.id, week, hours });
+  }
+
+  function commitDemand(demandId: string, currentHours: number, week: number, raw: string) {
+    const key = `${demandId}:${week}`;
+    setDraftDemand((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    const hours = Math.max(0, Math.min(MAX_HOURS, Math.round(Number(raw) || 0)));
+    if (hours !== currentHours) setDemandWeek.mutate({ demandId, week, hours });
+  }
+
+  /** Availability is whole hours only — block minus/plus/decimal/exponent keys before they're typed. */
+  function blockNonIntegerKeys(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (['-', '+', '.', 'e', 'E'].includes(event.key)) event.preventDefault();
   }
 
   function handleKey(event: React.KeyboardEvent<HTMLInputElement>, rowIndex: number, week: number) {
@@ -195,18 +334,59 @@ export default function DepartmentTeamPage() {
   /** Demand for the selected person, split out per project for the detail table. */
   const selectedProjectDemand = useMemo(() => {
     const personId = selected?.personId?.toLowerCase();
-    if (!personId) return [] as { projectId: string; projectName?: string; weeks: number[] }[];
-    const map = new Map<string, { projectId: string; projectName?: string; weeks: number[] }>();
+    if (!personId) return [] as { demandId: string; projectId: string; projectName?: string; weeks: number[] }[];
+    const map = new Map<string, { demandId: string; projectId: string; projectName?: string; weeks: number[] }>();
     for (const row of allDemand.data ?? []) {
       if (row.personId?.toLowerCase() !== personId) continue;
       const existing = map.get(row.projectId);
       if (existing) addInto(existing.weeks, row.weeks);
-      else map.set(row.projectId, { projectId: row.projectId, projectName: row.projectName, weeks: addInto(emptyWeeks(), row.weeks) });
+      else
+        map.set(row.projectId, {
+          demandId: row.id,
+          projectId: row.projectId,
+          projectName: row.projectName,
+          weeks: addInto(emptyWeeks(), row.weeks),
+        });
     }
     return Array.from(map.values()).sort((a, b) => (a.projectName ?? '').localeCompare(b.projectName ?? ''));
   }, [allDemand.data, selected?.personId]);
 
+  /** Projects the selected person isn't already staffed on, for the "add assignment" picker. */
+  const availableProjectsForAssignment = useMemo(() => {
+    const assignedProjectIds = new Set(selectedProjectDemand.map((project) => project.projectId));
+    return (projects.data ?? []).filter((project) => !assignedProjectIds.has(project.id));
+  }, [projects.data, selectedProjectDemand]);
+
   const chartColumns = useMemo(() => Array.from({ length: CHART_WEEKS }, (_, index) => index), []);
+
+  /** One demand series per visible person, respecting the show-inactive/FTE-only filters. */
+  const teamSeries = useMemo(
+    () =>
+      rows.map((row) => ({
+        id: row.id,
+        label: row.personName ?? 'Unassigned',
+        weeks: demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks(),
+      })),
+    [rows, demandByPerson],
+  );
+
+  /** Same demand, sliced by project instead of person — only from projects the visible roster is staffed on. */
+  const teamSeriesByProject = useMemo(() => {
+    const personIds = new Set(rows.map((row) => row.personId?.toLowerCase()).filter(Boolean) as string[]);
+    const map = new Map<string, { id: string; label: string; weeks: number[] }>();
+    for (const demandRow of allDemand.data ?? []) {
+      if (!demandRow.personId || !personIds.has(demandRow.personId.toLowerCase())) continue;
+      const existing = map.get(demandRow.projectId);
+      if (existing) addInto(existing.weeks, demandRow.weeks);
+      else
+        map.set(demandRow.projectId, {
+          id: demandRow.projectId,
+          label: demandRow.projectName ?? 'Project',
+          weeks: addInto(emptyWeeks(), demandRow.weeks),
+        });
+    }
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [rows, allDemand.data]);
 
   if (department.isLoading) return <p className="muted">Loading…</p>;
 
@@ -216,19 +396,17 @@ export default function DepartmentTeamPage() {
     <section className="accent-section accent-departments">
       <div className="accent-section-header">
         <div>
-          <h1 className="page-title">{details?.name ?? 'Department'}</h1>
+          <h1 className="page-title">
+            {details?.name ?? 'Department'}
+            {canEditDepartment(user, details) && (
+              <Link to={`/departments/${id}/edit`} className="icon-button title-icon-button" title="Edit department details" aria-label="Edit department details">
+                ✎
+              </Link>
+            )}
+          </h1>
           <p className="page-subtitle">Team availability, {WEEKS} weeks from this Monday.</p>
         </div>
         <div className="row-actions">
-          {editable && (
-            <button
-              onClick={() => {
-                setAdding((value) => !value);
-              }}
-            >
-              + Add new person
-            </button>
-          )}
           <button
             className={checkInClass}
             onClick={() => checkIn.mutate()}
@@ -241,19 +419,57 @@ export default function DepartmentTeamPage() {
           >
             {checkIn.isPending ? 'Checking in…' : 'Check in department'}
           </button>
-          {canEditDepartment(user, details) && (
-            <Link to={`/departments/${id}/edit`}>
-              <button className="accent-button">Edit details</button>
-            </Link>
-          )}
         </div>
       </div>
 
       {error && <div className="alert error">{error}</div>}
 
       <div className="card">
+        <h2>Overallocation &amp; activity KPIs</h2>
+        <div className="grid cols-3">
+          <div className="stat">
+            <div className="label">Weeks overallocated</div>
+            <div className="value" style={{ color: kpis.weeksOverAllocated > 0 ? 'var(--danger)' : undefined }}>
+              {kpis.weeksOverAllocated}
+            </div>
+          </div>
+          <div className="stat">
+            <div className="label">Hours overallocated</div>
+            <div className="value" style={{ color: kpis.hoursOverAllocated > 0 ? 'var(--danger)' : undefined }}>
+              {kpis.hoursOverAllocated}
+            </div>
+          </div>
+          <div className="stat">
+            <div className="label">Activities supported</div>
+            <div className="value">{kpis.activityCount}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
         <div className="toolbar" style={{ marginBottom: '0.75rem' }}>
-          <h2 style={{ margin: 0, flex: 1 }}>Team availability</h2>
+          <h2 style={{ margin: 0 }}>Team overview</h2>
+          {editable && (
+            <button
+              type="button"
+              className="icon-button icon-button-add icon-button-add-labeled"
+              style={{ marginLeft: '1rem' }}
+              title="Add new person"
+              aria-label="Add new person"
+              onClick={() => {
+                setAdding((value) => !value);
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="7" r="3" />
+                <path d="M3 20v-1a6 6 0 0 1 6-6h0a6 6 0 0 1 4.2 1.7" />
+                <line x1="18" y1="8" x2="18" y2="14" />
+                <line x1="15" y1="11" x2="21" y2="11" />
+              </svg>
+              <span>Add person</span>
+            </button>
+          )}
+          <div style={{ flex: 1 }} />
           <label className="switch">
             <input type="checkbox" checked={showInactive} onChange={(event) => setShowInactive(event.target.checked)} />
             <span className="switch-track" aria-hidden="true" />
@@ -299,10 +515,19 @@ export default function DepartmentTeamPage() {
         )}
 
         <div className="matrix-scroll">
-          <table className="weekly-matrix demand-grid" ref={gridRef}>
+          <table className="weekly-matrix demand-grid paired-rows" ref={gridRef}>
             <thead>
               <tr>
                 <th className="matrix-label">Person</th>
+                <th className="matrix-stat-head">
+                  <span className="rotated-head">Weeks over</span>
+                </th>
+                <th className="matrix-stat-head">
+                  <span className="rotated-head">Hours over</span>
+                </th>
+                <th className="matrix-stat-head">
+                  <span className="rotated-head">Assignments</span>
+                </th>
                 {columns.map((week) => (
                   <th key={week}>
                     <span className="week-head">
@@ -311,33 +536,85 @@ export default function DepartmentTeamPage() {
                     </span>
                   </th>
                 ))}
+                {canManageRoster && <th className="matrix-actions-head">Actions</th>}
               </tr>
             </thead>
             <tbody>
               {rows.map((row, rowIndex) => {
                 const person = row.personId ? peopleById.get(row.personId.toLowerCase()) : undefined;
                 const isMe = Boolean(user?.personId && row.personId?.toLowerCase() === user.personId.toLowerCase());
+                const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks();
+                const isSelected = selectedRow === row.id;
+                const { weeksOver, hoursOver } = overallocationFor(row, demandWeeks);
+                const assignments = assignmentCountByPerson.get(row.personId?.toLowerCase() ?? '') ?? 0;
                 return (
-                  <tr
-                    key={row.id}
-                    className={selectedRow === row.id ? 'row-selected' : undefined}
-                    onClick={() => setSelectedRow(row.id)}
-                  >
-                    <th scope="row" className="matrix-label">
-                      <span className="person-row">
-                        <span className="person-identity">
-                          <span className={isMe ? 'person-name person-me' : 'person-name'}>
-                            {row.personName ?? 'Unassigned'}
+                  <Fragment key={row.id}>
+                    <tr
+                      className={[
+                        'matrix-demand-row',
+                        isSelected ? 'row-selected' : '',
+                        row.isActive === false ? 'row-inactive' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick={() => setSelectedRow(row.id)}
+                    >
+                      <th rowSpan={2} scope="rowgroup" className="matrix-label">
+                        <span className="person-row">
+                          <span className="person-identity">
+                            <span className={isMe ? 'person-name person-me' : 'person-name'}>
+                              {row.personName ?? 'Unassigned'}
+                            </span>
+                            <span className="person-department">
+                              {person?.functionName ?? person?.employmentType ?? '—'}
+                            </span>
                           </span>
-                          <span className="person-department">
-                            {person?.functionName ?? person?.employmentType ?? '—'}
-                            {row.isActive === false && ' · inactive'}
-                          </span>
+                          {row.isActive === false && <span className="badge danger">Inactive</span>}
                         </span>
-                        {editable && (
+                      </th>
+                      <td rowSpan={2} className={['matrix-stat-cell', weeksOver > 0 ? 'over-allocated' : ''].filter(Boolean).join(' ')}>
+                        {weeksOver}
+                      </td>
+                      <td rowSpan={2} className={['matrix-stat-cell', hoursOver > 0 ? 'over-allocated' : ''].filter(Boolean).join(' ')}>
+                        {hoursOver}
+                      </td>
+                      <td rowSpan={2} className="matrix-stat-cell">
+                        {assignments}
+                      </td>
+                      {columns.map((week) => {
+                        const utilization = utilizationFor(row, week);
+                        const over = utilization !== null && utilization > 1;
+                        return (
+                          <td
+                            key={week}
+                            className={['demand-only-cell', over ? 'over-allocated' : ''].filter(Boolean).join(' ')}
+                            title={`Total demand, week of ${weekLabel(week)}`}
+                          >
+                            {demandWeeks[week] ?? 0}
+                          </td>
+                        );
+                      })}
+                      {canManageRoster && (
+                        <td rowSpan={2} className="matrix-actions-cell">
                           <span className="person-actions">
                             <button
-                              className={row.isActive === false ? '' : 'danger'}
+                              className="icon-button"
+                              aria-label={`Normalize ${row.personName ?? 'this person'}'s availability to match demand`}
+                              title={`Set ${row.personName ?? 'this person'}'s availability to match total demand for the weeks shown`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                normalizeAvailability(row);
+                              }}
+                            >
+                              ⇄
+                            </button>
+                            <button
+                              className={['icon-button', row.isActive === false ? '' : 'danger'].filter(Boolean).join(' ')}
+                              aria-label={
+                                row.isActive === false
+                                  ? `Reactivate ${row.personName ?? 'this person'}'s availability`
+                                  : `Inactivate ${row.personName ?? 'this person'}'s availability`
+                              }
                               title={
                                 row.isActive === false
                                   ? `Reactivate ${row.personName ?? 'this person'}'s availability`
@@ -345,65 +622,69 @@ export default function DepartmentTeamPage() {
                               }
                               onClick={(event) => {
                                 event.stopPropagation();
-                                const reactivating = row.isActive === false;
-                                if (
-                                  reactivating ||
-                                  window.confirm(`Inactivate ${row.personName ?? 'this person'}'s availability?`)
-                                ) {
-                                  setRowActive.mutate({ capacityId: row.id, isActive: reactivating });
-                                }
+                                setRowActive.mutate({ capacityId: row.id, isActive: row.isActive === false });
                               }}
                             >
                               {row.isActive === false ? '↻' : '⊘'}
                             </button>
                           </span>
-                        )}
-                      </span>
-                    </th>
-                    {columns.map((week) => {
-                      const key = `${row.id}:${week}`;
-                      const value = draft[key] ?? String(row.weeks[week] ?? 0);
-                      const utilization = utilizationFor(row, week);
-                      const over = utilization !== null && utilization > 1;
-                      return (
-                        <td
-                          key={week}
-                          className={[Number(value) > 0 ? 'has-availability' : '', over ? 'over-allocated' : '']
-                            .filter(Boolean)
-                            .join(' ')}
-                          title={
-                            utilization === null
-                              ? undefined
-                              : `Utilization ${
-                                  Number.isFinite(utilization) ? `${Math.round(utilization * 100)}%` : 'no availability'
-                                } in week of ${weekLabel(week)}`
-                          }
-                        >
-                          <input
-                            type="number"
-                            min={0}
-                            max={MAX_HOURS}
-                            step={1}
-                            data-row={rowIndex}
-                            data-week={week}
-                            value={value === '0' ? '' : value}
-                            readOnly={!editable}
-                            onClick={(event) => event.stopPropagation()}
-                            onChange={(event) => setDraft((prev) => ({ ...prev, [key]: event.target.value }))}
-                            onFocus={(event) => event.target.select()}
-                            onBlur={(event) => commit(row, week, event.target.value)}
-                            onKeyDown={(event) => handleKey(event, rowIndex, week)}
-                            aria-label={`${row.personName ?? 'Person'} week of ${weekLabel(week)}`}
-                          />
                         </td>
-                      );
-                    })}
-                  </tr>
+                      )}
+                    </tr>
+                    <tr
+                      className={[isSelected ? 'row-selected' : '', row.isActive === false ? 'row-inactive' : '']
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick={() => setSelectedRow(row.id)}
+                    >
+                      {columns.map((week) => {
+                        const key = `${row.id}:${week}`;
+                        const value = draft[key] ?? String(row.weeks[week] ?? 0);
+                        const utilization = utilizationFor(row, week);
+                        const over = utilization !== null && utilization > 1;
+                        return (
+                          <td
+                            key={week}
+                            className={[Number(value) > 0 ? 'has-availability' : '', over ? 'over-allocated' : '']
+                              .filter(Boolean)
+                              .join(' ')}
+                            title={
+                              utilization === null
+                                ? undefined
+                                : `Utilization ${
+                                    Number.isFinite(utilization) ? `${Math.round(utilization * 100)}%` : 'no availability'
+                                  } in week of ${weekLabel(week)}`
+                            }
+                          >
+                            <input
+                              type="number"
+                              min={0}
+                              max={MAX_HOURS}
+                              step={1}
+                              data-row={rowIndex}
+                              data-week={week}
+                              value={value}
+                              readOnly={!editable}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => setDraft((prev) => ({ ...prev, [key]: event.target.value }))}
+                              onFocus={(event) => event.target.select()}
+                              onBlur={(event) => commit(row, week, event.target.value)}
+                              onKeyDown={(event) => {
+                                blockNonIntegerKeys(event);
+                                handleKey(event, rowIndex, week);
+                              }}
+                              aria-label={`${row.personName ?? 'Person'} week of ${weekLabel(week)}`}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  </Fragment>
                 );
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={WEEKS + 1} className="muted">
+                  <td colSpan={canManageRoster ? WEEKS + 5 : WEEKS + 4} className="muted">
                     No availability recorded for this department yet.
                   </td>
                 </tr>
@@ -414,16 +695,21 @@ export default function DepartmentTeamPage() {
                 <th scope="row" className="matrix-label">
                   Total availability
                 </th>
+                <td />
+                <td />
+                <td />
                 {columns.map((week) => (
                   <td key={week}>{totals[week] || ''}</td>
                 ))}
+                {canManageRoster && <td />}
               </tr>
             </tfoot>
           </table>
         </div>
         <p className="muted table-count">
-          {rows.length} {rows.length === 1 ? 'person' : 'people'} · hours per week, maximum {MAX_HOURS} · shaded cells
-          are weeks where demand exceeds availability
+          {rows.length} {rows.length === 1 ? 'person' : 'people'} · hours per week, maximum {MAX_HOURS} · top row is
+          total demand (reference only), bottom row is editable availability · shaded cells are weeks where demand
+          exceeds availability
         </p>
       </div>
 
@@ -445,9 +731,31 @@ export default function DepartmentTeamPage() {
             <table className="weekly-matrix demand-grid">
               <thead>
                 <tr>
-                  <th className="matrix-label">Weekly detail</th>
+                  <th className="matrix-label detail-head-label">
+                    <span className="matrix-section-label-row">
+                      <span>Upcoming demand</span>
+                      {canManageRoster && (
+                        <button
+                          type="button"
+                          className="icon-button icon-button-add icon-button-add-labeled matrix-section-action"
+                          style={{ marginLeft: '1rem' }}
+                          title={`Assign ${selected.personName ?? 'this person'} to a new project`}
+                          aria-label={`Assign ${selected.personName ?? 'this person'} to a new project`}
+                          onClick={() => setAddingAssignment((value) => !value)}
+                        >
+                          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z" />
+                            <rect x="5" y="6" width="14" height="15" rx="2" />
+                            <line x1="12" y1="11" x2="12" y2="17" />
+                            <line x1="9" y1="14" x2="15" y2="14" />
+                          </svg>
+                          <span>Add assignment</span>
+                        </button>
+                      )}
+                    </span>
+                  </th>
                   {chartColumns.map((week) => (
-                    <th key={week}>
+                    <th key={week} className="detail-head-week">
                       <span className="week-head">
                         <span>{weekLabelShort(week)}</span>
                         <span className="week-year">{weekLabel(week).slice(-2)}</span>
@@ -457,27 +765,74 @@ export default function DepartmentTeamPage() {
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <th scope="row" className="matrix-label">
-                    Availability
-                  </th>
-                  {chartColumns.map((week) => (
-                    <td key={week}>{selected.weeks[week] || ''}</td>
-                  ))}
-                </tr>
+                {canManageRoster && addingAssignment && (
+                  <tr className="matrix-section-row">
+                    <td colSpan={chartColumns.length + 1}>
+                      <form
+                        className="toolbar"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          const form = new FormData(event.currentTarget);
+                          const projectId = String(form.get('projectId') || '');
+                          if (!projectId || !selected.personId) return;
+                          addAssignment.mutate({ projectId, personId: selected.personId });
+                        }}
+                      >
+                        <div style={{ flex: '0 1 25vw' }}>
+                          <label htmlFor="assignmentProjectId">Project</label>
+                          <select id="assignmentProjectId" name="projectId" required defaultValue="">
+                            <option value="" disabled>
+                              {projects.isLoading ? 'Loading projects…' : 'Select…'}
+                            </option>
+                            {availableProjectsForAssignment.map((project) => (
+                              <option key={project.id} value={project.id}>
+                                {project.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <button className="primary" type="submit" disabled={addAssignment.isPending}>
+                          {addAssignment.isPending ? 'Adding…' : 'Add assignment'}
+                        </button>
+                        <button type="button" onClick={() => setAddingAssignment(false)}>
+                          Cancel
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                )}
                 {selectedProjectDemand.map((project) => (
                   <tr key={project.projectId}>
                     <th scope="row" className="matrix-label">
                       {project.projectName ?? 'Project'}
                     </th>
-                    {chartColumns.map((week) => (
-                      <td key={week}>{project.weeks[week] || ''}</td>
-                    ))}
+                    {chartColumns.map((week) => {
+                      const key = `${project.demandId}:${week}`;
+                      const currentHours = project.weeks[week] ?? 0;
+                      const value = draftDemand[key] ?? String(currentHours);
+                      return (
+                        <td key={week}>
+                          <input
+                            type="number"
+                            min={0}
+                            max={MAX_HOURS}
+                            step={1}
+                            value={value}
+                            readOnly={!canManageRoster}
+                            onChange={(event) => setDraftDemand((prev) => ({ ...prev, [key]: event.target.value }))}
+                            onFocus={(event) => event.target.select()}
+                            onBlur={(event) => commitDemand(project.demandId, currentHours, week, event.target.value)}
+                            onKeyDown={blockNonIntegerKeys}
+                            aria-label={`${project.projectName ?? 'Project'} demand week of ${weekLabel(week)}`}
+                          />
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="matrix-total">
+                <tr className="matrix-total row-total-demand">
                   <th scope="row" className="matrix-label">
                     Total demand
                   </th>
@@ -485,7 +840,33 @@ export default function DepartmentTeamPage() {
                     <td key={week}>{selectedDemand[week] || ''}</td>
                   ))}
                 </tr>
-                <tr>
+                <tr className="row-availability">
+                  <th scope="row" className="matrix-label">
+                    Availability
+                  </th>
+                  {chartColumns.map((week) => {
+                    const key = `${selected.id}:${week}`;
+                    const value = draft[key] ?? String(selected.weeks[week] ?? 0);
+                    return (
+                      <td key={week} className={Number(value) > 0 ? 'has-availability' : undefined}>
+                        <input
+                          type="number"
+                          min={0}
+                          max={MAX_HOURS}
+                          step={1}
+                          value={value}
+                          readOnly={!editable}
+                          onChange={(event) => setDraft((prev) => ({ ...prev, [key]: event.target.value }))}
+                          onFocus={(event) => event.target.select()}
+                          onBlur={(event) => commit(selected, week, event.target.value)}
+                          onKeyDown={blockNonIntegerKeys}
+                          aria-label={`${selected.personName ?? 'Person'} availability week of ${weekLabel(week)}`}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr className="row-utilization">
                   <th scope="row" className="matrix-label">
                     Utilization
                   </th>
@@ -493,9 +874,10 @@ export default function DepartmentTeamPage() {
                     const availability = selected.weeks[week] ?? 0;
                     const demandHours = selectedDemand[week] ?? 0;
                     const utilization = availability > 0 ? demandHours / availability : demandHours > 0 ? Infinity : null;
-                    const over = utilization !== null && utilization > 1;
+                    const utilClass =
+                      utilization === null ? undefined : utilization > 1.25 ? 'utilization-danger' : utilization > 1 ? 'utilization-warn' : undefined;
                     return (
-                      <td key={week} className={over ? 'over-allocated' : undefined}>
+                      <td key={week} className={utilClass}>
                         {utilization === null ? '—' : Number.isFinite(utilization) ? `${Math.round(utilization * 100)}%` : '∞'}
                       </td>
                     );
@@ -504,6 +886,39 @@ export default function DepartmentTeamPage() {
               </tfoot>
             </table>
           </div>
+        </div>
+      )}
+
+      {selected && (
+        <div className="card">
+          <div className="toolbar" style={{ marginBottom: '0.75rem' }}>
+            <h2 style={{ margin: 0, flex: 1 }}>
+              Team demand vs. availability <span className="muted">· next {CHART_WEEKS} weeks</span>
+            </h2>
+            <div className="pill-toggle" role="group" aria-label="Slice team demand by">
+              <button
+                type="button"
+                className={teamChartMode === 'person' ? 'active' : ''}
+                onClick={() => setTeamChartMode('person')}
+              >
+                Per person
+              </button>
+              <button
+                type="button"
+                className={teamChartMode === 'project' ? 'active' : ''}
+                onClick={() => setTeamChartMode('project')}
+              >
+                Per project
+              </button>
+            </div>
+          </div>
+          <TeamDemandChart
+            weeks={CHART_WEEKS}
+            series={teamChartMode === 'person' ? teamSeries : teamSeriesByProject}
+            availability={totals}
+            selectedId={teamChartMode === 'person' ? selected.id : undefined}
+            onSelect={teamChartMode === 'person' ? setSelectedRow : undefined}
+          />
         </div>
       )}
 
