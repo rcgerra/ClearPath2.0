@@ -18,6 +18,7 @@ interface Props {
   /** Called with the person's id when their legend entry or bar segment is clicked. */
   onSelect?: (id: string) => void;
   height?: number;
+  palette?: string[];
 }
 
 const FALLBACK_COL_WIDTH = 16;
@@ -37,7 +38,7 @@ const PALETTE = [
 ];
 
 /** Stacked per-person demand columns against a stepped total-availability line. Column width flexes to fill the container. */
-export default function TeamDemandChart({ weeks, series, availability, selectedId, onSelect, height = 240 }: Props) {
+export default function TeamDemandChart({ weeks, series, availability, selectedId, onSelect, height = 240, palette = PALETTE }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
@@ -99,7 +100,7 @@ export default function TeamDemandChart({ weeks, series, availability, selectedI
                     width={barWidth}
                     height={scale(value)}
                     style={{
-                      fill: PALETTE[seriesIndex % PALETTE.length],
+                      fill: palette[seriesIndex % palette.length],
                       opacity: hasSelection && !isSelected ? 0.3 : 1,
                       stroke: isSelected ? 'var(--dark-grey)' : 'none',
                       strokeWidth: isSelected ? 1 : 0,
@@ -154,7 +155,7 @@ export default function TeamDemandChart({ weeks, series, availability, selectedI
             style={{ opacity: hasSelection && entry.id !== selectedId ? 0.5 : 1 }}
             onClick={() => onSelect?.(entry.id)}
           >
-            <span className="legend-swatch" style={{ background: PALETTE[index % PALETTE.length] }} />
+            <span className="legend-swatch" style={{ background: palette[index % palette.length] }} />
             {entry.label}
           </button>
         ))}

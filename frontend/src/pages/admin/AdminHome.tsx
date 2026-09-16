@@ -31,6 +31,12 @@ const AREAS = [
     title: 'Security Roles',
     description: 'Assign who can administer, moderate demand or availability.',
   },
+  {
+    to: '/admin/non-project-demand-categories',
+    accent: 'projects',
+    title: 'Non-project Demand',
+    description: 'Manage categories used for work that is not assigned to a project.',
+  },
 ] as const;
 
 export default function AdminHome() {

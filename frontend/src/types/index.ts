@@ -124,6 +124,30 @@ export interface DemandRow {
   isActive?: boolean;
 }
 
+export interface NonProjectDemandCategory {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+
+export interface NonProjectDemandSubcategory {
+  id: string;
+  categoryId: string;
+  name: string;
+  isActive: boolean;
+}
+
+export interface NonProjectDemandRow {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
+  personId: string;
+  departmentId?: string;
+  weeks: number[];
+}
+
 export interface CapacityRow {
   id: string;
   name?: string;

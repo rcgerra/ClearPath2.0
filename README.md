@@ -6,7 +6,8 @@ for reporting.
 
 ## Data source
 
-All application data lives in the Dataverse environment **MBO-Staffing-Model**:
+Application master data and project demand live in the Dataverse environment **MBO-Staffing-Model**.
+Non-project demand and its categories are stored in SQL Server:
 
 | Key | Display name | Logical name | Access |
 | --- | --- | --- | --- |
@@ -108,8 +109,11 @@ node scripts/init-db.mjs --server localhost --user sa
 ```
 
 Creates the star schema (`DimPerson`, `DimDepartment`, `DimFunction`, `DimProject`, `DimWeek`,
-`FactRequest`, `FactAvailability`, `FactDemand`, `FactAnswer`), the array helper functions and
-sample data. Set `SQL_ENABLED=true` in `backend/.env` to let the API open a pool against it.
+`FactRequest`, `FactAvailability`, `FactDemand`, `FactAnswer`), plus the operational
+`DimNonProjectDemandCategory`, `DimNonProjectDemandSubcategory` and `FactNonProjectDemand` tables.
+The schema seeds the standard category/subcategory hierarchy used by the department workload table.
+Set `SQL_ENABLED=true` in `backend/.env` to enable non-project demand and let the API open a pool
+against SQL Server.
 
 ## Security notes
 

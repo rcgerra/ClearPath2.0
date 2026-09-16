@@ -4,7 +4,7 @@ import * as dv from '../dataverse/client';
 import { COLUMNS, formatted } from '../dataverse/fields';
 import { authenticate, requireRole } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
-import { assertDemandEditable, projectIdForDemand } from '../middleware/recordAccess';
+import { assertDemandEditable, assertDemandWeeksEditable, projectIdForDemand } from '../middleware/recordAccess';
 import { decodeArray, encodeArray, setWeekRange, setWeekValue } from '../utils/arrayParser';
 
 const router = Router();
@@ -82,7 +82,10 @@ router.post(
   '/',
   asyncHandler(async (req, res) => {
     const input = createSchema.parse(req.body);
-    await assertDemandEditable(req.user, input.projectId);
+    const assigningSelf = Boolean(
+      input.personId && req.user?.personId && input.personId.toLowerCase() === req.user.personId.toLowerCase(),
+    );
+    if (!assigningSelf) await assertDemandEditable(req.user, input.projectId);
 
     if (input.personId) {
       const existing = await dv.list('demand', {
@@ -122,7 +125,7 @@ router.post(
 router.patch(
   '/:id/weeks',
   asyncHandler(async (req, res) => {
-    await assertDemandEditable(req.user, await projectIdForDemand(req.params.id));
+    await assertDemandWeeksEditable(req.user, req.params.id);
     const input = weekUpdateSchema.parse(req.body);
     const current = (await dv.retrieve('demand', req.params.id, { select: [D.id, D.hoursArray] })) as Record<
       string,

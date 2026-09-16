@@ -189,6 +189,75 @@ const demand = [
   { id: id(3, 'f'), projectId: id(1, 'j'), projectName: 'ClearPath Rollout', personId: id(3, 'p'), personName: 'Chen Wu', functionId: id(1, 'f'), functionName: 'Software Engineering', demandHours: null, weeks: weeksOf(24, 20), startWeek: 0, endWeek: 19, status: 'Committed' },
 ];
 
+const nonProjectDemandHierarchy = [
+  ['Production Support', ['Batch Execution', 'Manufacturing Operations', 'Floor Support', 'Troubleshooting', 'Production Scheduling', 'MPS Support', 'Material/Supply']],
+  ['Administrative / Development', ['Tier Board Support', 'Governance', 'Reporting/KPI tracking', 'Meetings', 'Training/Upskilling', 'Time Off', 'Development activities']],
+  ['Testing / Lab Support', ['QC & Sample Testing', 'Method Development', 'Analytical/Lab Support', 'Stability/Environmental', 'QA Batch Review']],
+  ['Engineering & Technical Support', ['Preventative/Corrective Maintenance', 'Work Orders', 'Equipment Troubleshooting', 'Break/Fix', 'Validation Maintenance', 'Qualification', 'Feasibility Assessments', 'Ad Hoc SME Support']],
+  ['Operational Services', ['Manufacturing Sciences Floor Support', 'Material Qualification / Suppliers', 'Regulatory Request', 'Document Revisions']],
+  ['CI / Optimization', ['CI Initiatives', 'Process Improvements', 'Cost Reductions', 'Yield Improvements', 'AOS Maturity', 'Waste Reduction']],
+  ['Quality', ['Non-Project Change Controls', 'CAPAs', 'Investigations', 'Deviations', 'Agency Commitments', 'Regulatory Audits']],
+  ['EHS', ['EHS CAPAs', 'Environmental Compliance']],
+  ['Just Do Its', ['BetterWay', 'Minor Document Updates', 'Quick Wins']],
+  ['Functional Projects', ['Automation Improvements']],
+  ['SPOT Projects', ['Tech Transfers', 'Asset Replacements', 'Building Modifications', 'Automation Systems']],
+] as const;
+
+const seededDemandId = (family: 1 | 2, value: number) =>
+  `c${family}${String(value).padStart(6, '0')}-0000-4000-8000-${String(value).padStart(12, '0')}`;
+
+interface DemoDemandCategory {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+
+interface DemoDemandSubcategory extends DemoDemandCategory {
+  categoryId: string;
+}
+
+const nonProjectDemandCategories: DemoDemandCategory[] = nonProjectDemandHierarchy.map(([name], index) => ({
+  id: seededDemandId(1, index + 1),
+  name,
+  isActive: true,
+}));
+
+let subcategorySequence = 0;
+const nonProjectDemandSubcategories: DemoDemandSubcategory[] = nonProjectDemandHierarchy.flatMap(([, names], categoryIndex) =>
+  names.map((name) => {
+    subcategorySequence += 1;
+    return {
+      id: seededDemandId(2, subcategorySequence),
+      categoryId: nonProjectDemandCategories[categoryIndex].id,
+      name,
+      isActive: true,
+    };
+  }),
+);
+
+const nonProjectDemand = [
+  {
+    id: 'a1000001-0000-4000-8000-000000000001',
+    categoryId: nonProjectDemandCategories[0].id,
+    categoryName: nonProjectDemandCategories[0].name,
+    subcategoryId: nonProjectDemandSubcategories[0].id,
+    subcategoryName: nonProjectDemandSubcategories[0].name,
+    personId: id(1, 'p'),
+    departmentId: id(1, 'd'),
+    weeks: weeksOf(6, 20),
+  },
+  {
+    id: 'a1000002-0000-4000-8000-000000000002',
+    categoryId: nonProjectDemandCategories[1].id,
+    categoryName: nonProjectDemandCategories[1].name,
+    subcategoryId: nonProjectDemandSubcategories[7].id,
+    subcategoryName: nonProjectDemandSubcategories[7].name,
+    personId: id(3, 'p'),
+    departmentId: id(1, 'd'),
+    weeks: weeksOf(4, 16),
+  },
+];
+
 const demoPerson = () => people.find((entry) => entry.email === env.devUserEmail) ?? people[people.length - 1];
 
 router.get('/capacity', (req, res) => {
@@ -336,6 +405,102 @@ router.patch('/demand/:id/weeks', asyncHandler(async (req, res) => {
 router.patch('/demand/:id', asyncHandler(async (req, res) => {
   res.json(patch(demand, req.params.id, req.body));
 }));
+
+router.get('/non-project-demand/categories', (_req, res) => res.json(nonProjectDemandCategories));
+
+router.post('/non-project-demand/categories', (req, res) => {
+  const name = String(req.body?.name ?? '').trim();
+  if (!name) throw new HttpError(400, 'Category name is required.');
+  if (nonProjectDemandCategories.some((category) => category.name.toLowerCase() === name.toLowerCase())) {
+    throw new HttpError(409, 'That non-project demand category already exists.');
+  }
+  const category = { id: id(nonProjectDemandCategories.length + 20, 'c'), name, isActive: true };
+  nonProjectDemandCategories.push(category);
+  res.status(201).json({ id: category.id });
+});
+
+router.patch('/non-project-demand/categories/:id', (req, res) => {
+  const category = nonProjectDemandCategories.find((entry) => entry.id === req.params.id);
+  if (!category) throw new HttpError(404, 'Non-project demand category not found.');
+  if (req.body?.name !== undefined) category.name = String(req.body.name).trim();
+  if (req.body?.isActive !== undefined) category.isActive = Boolean(req.body.isActive);
+  res.json({ id: category.id });
+});
+
+router.get('/non-project-demand/subcategories', (req, res) => {
+  const categoryId = req.query.categoryId ? String(req.query.categoryId) : undefined;
+  res.json(nonProjectDemandSubcategories.filter((subcategory) => !categoryId || subcategory.categoryId === categoryId));
+});
+
+router.post('/non-project-demand/subcategories', (req, res) => {
+  const categoryId = String(req.body?.categoryId ?? '');
+  const name = String(req.body?.name ?? '').trim();
+  if (!nonProjectDemandCategories.some((category) => category.id === categoryId && category.isActive)) {
+    throw new HttpError(404, 'Active non-project demand category not found.');
+  }
+  if (nonProjectDemandSubcategories.some((subcategory) => subcategory.categoryId === categoryId && subcategory.name.toLowerCase() === name.toLowerCase())) {
+    throw new HttpError(409, 'That subcategory already exists in this category.');
+  }
+  const subcategory = { id: id(nonProjectDemandSubcategories.length + 40, 'c'), categoryId, name, isActive: true };
+  nonProjectDemandSubcategories.push(subcategory);
+  res.status(201).json({ id: subcategory.id });
+});
+
+router.patch('/non-project-demand/subcategories/:id', (req, res) => {
+  const subcategory = nonProjectDemandSubcategories.find((entry) => entry.id === req.params.id);
+  if (!subcategory) throw new HttpError(404, 'Non-project demand subcategory not found.');
+  if (req.body?.name !== undefined) subcategory.name = String(req.body.name).trim();
+  if (req.body?.isActive !== undefined) subcategory.isActive = Boolean(req.body.isActive);
+  res.json({ id: subcategory.id });
+});
+
+router.get('/non-project-demand', (req, res) => {
+  const personId = req.query.personId ? String(req.query.personId) : undefined;
+  const departmentId = req.query.departmentId ? String(req.query.departmentId) : undefined;
+  res.json(
+    nonProjectDemand.filter(
+      (row) => (!personId || row.personId === personId) && (!departmentId || row.departmentId === departmentId),
+    ),
+  );
+});
+
+router.post('/non-project-demand', (req, res) => {
+  const subcategory = nonProjectDemandSubcategories.find((entry) => entry.id === req.body?.subcategoryId && entry.isActive);
+  const category = nonProjectDemandCategories.find((entry) => entry.id === subcategory?.categoryId && entry.isActive);
+  if (!subcategory || !category) throw new HttpError(404, 'Active non-project demand subcategory not found.');
+  if (nonProjectDemand.some((row) => row.personId === req.body?.personId && row.subcategoryId === subcategory.id)) {
+    throw new HttpError(409, 'That non-project demand subcategory is already assigned to this person.');
+  }
+  const row = {
+    id: id(nonProjectDemand.length + 30, 'n'),
+    categoryId: category.id,
+    categoryName: category.name,
+    subcategoryId: subcategory.id,
+    subcategoryName: subcategory.name,
+    personId: String(req.body?.personId ?? ''),
+    departmentId: String(req.body?.departmentId ?? ''),
+    weeks: weeksOf(0, 0),
+  };
+  nonProjectDemand.push(row);
+  res.status(201).json({ id: row.id });
+});
+
+router.patch('/non-project-demand/:id/weeks', (req, res) => {
+  const row = nonProjectDemand.find((entry) => entry.id === req.params.id);
+  if (!row) throw new HttpError(404, 'Non-project demand row not found.');
+  const { week, startWeek, endWeek, hours } = req.body ?? {};
+  if (Number.isFinite(week)) row.weeks[week] = hours;
+  else if (Number.isFinite(startWeek) && Number.isFinite(endWeek)) {
+    for (let index = startWeek; index <= endWeek && index < row.weeks.length; index += 1) row.weeks[index] = hours;
+  } else throw new HttpError(400, 'Provide either week or startWeek/endWeek.');
+  res.json({ id: row.id, weeks: row.weeks });
+});
+
+router.delete('/non-project-demand/:id', (req, res) => {
+  const index = nonProjectDemand.findIndex((entry) => entry.id === req.params.id);
+  if (index >= 0) nonProjectDemand.splice(index, 1);
+  res.status(204).end();
+});
 
 router.delete('/demand/:id', (req, res) => {
   const index = demand.findIndex((entry) => entry.id === req.params.id);

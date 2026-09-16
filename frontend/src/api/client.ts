@@ -9,6 +9,9 @@ import type {
   DirectoryUser,
   Lookup,
   NetCapacity,
+  NonProjectDemandCategory,
+  NonProjectDemandRow,
+  NonProjectDemandSubcategory,
   Person,
   PortfolioSummary,
   Project,
@@ -104,6 +107,28 @@ export const demandApi = {
     api.patch<{ id: string; weeks: number[] }>(`/demand/${id}/weeks`, body).then((r) => r.data),
   update: (id: string, body: WritePayload) => api.patch(`/demand/${id}`, body).then((r) => r.data),
   remove: (id: string) => api.delete(`/demand/${id}`),
+};
+
+export const nonProjectDemandApi = {
+  categories: () =>
+    api.get<NonProjectDemandCategory[]>('/non-project-demand/categories').then((response) => response.data),
+  createCategory: (name: string) =>
+    api.post<{ id: string }>('/non-project-demand/categories', { name }).then((response) => response.data),
+  updateCategory: (id: string, body: { name?: string; isActive?: boolean }) =>
+    api.patch<{ id: string }>(`/non-project-demand/categories/${id}`, body).then((response) => response.data),
+  subcategories: (categoryId?: string) =>
+    api.get<NonProjectDemandSubcategory[]>('/non-project-demand/subcategories', { params: { categoryId } }).then((response) => response.data),
+  createSubcategory: (body: { categoryId: string; name: string }) =>
+    api.post<{ id: string }>('/non-project-demand/subcategories', body).then((response) => response.data),
+  updateSubcategory: (id: string, body: { name?: string; isActive?: boolean }) =>
+    api.patch<{ id: string }>(`/non-project-demand/subcategories/${id}`, body).then((response) => response.data),
+  list: (params?: { personId?: string; departmentId?: string }) =>
+    api.get<NonProjectDemandRow[]>('/non-project-demand', { params }).then((response) => response.data),
+  create: (body: { subcategoryId: string; personId: string; departmentId?: string }) =>
+    api.post<{ id: string }>('/non-project-demand', body).then((response) => response.data),
+  setWeeks: (id: string, body: { week?: number; startWeek?: number; endWeek?: number; hours: number }) =>
+    api.patch<{ id: string; weeks: number[] }>(`/non-project-demand/${id}/weeks`, body).then((response) => response.data),
+  remove: (id: string) => api.delete(`/non-project-demand/${id}`),
 };
 
 export const capacityApi = {

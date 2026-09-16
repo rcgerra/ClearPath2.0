@@ -11,6 +11,8 @@ interface Props {
   height?: number;
   thisLabel?: string;
   otherLabel?: string;
+  thisColor?: string;
+  otherColor?: string;
   /** Hide the upper band when there is no "this project" split to show. */
   showThis?: boolean;
   /** Pin the y-axis to a fixed maximum instead of scaling to the data. */
@@ -31,6 +33,8 @@ export default function PersonDemandChart({
   height = 240,
   thisLabel = 'This project',
   otherLabel = 'All other projects',
+  thisColor,
+  otherColor,
   showThis = true,
   maxY,
 }: Props) {
@@ -79,8 +83,22 @@ export default function PersonDemandChart({
 
           return (
             <g key={index}>
-              <rect x={x} y={y(others)} width={barWidth} height={scale(others)} className="bar-other-projects" />
-              <rect x={x} y={y(total)} width={barWidth} height={scale(mine)} className="bar-this-project" />
+              <rect
+                x={x}
+                y={y(others)}
+                width={barWidth}
+                height={scale(others)}
+                className="bar-other-projects"
+                style={otherColor ? { fill: otherColor } : undefined}
+              />
+              <rect
+                x={x}
+                y={y(total)}
+                width={barWidth}
+                height={scale(mine)}
+                className="bar-this-project"
+                style={thisColor ? { fill: thisColor } : undefined}
+              />
               {total > 0 && (
                 <text
                   x={PAD_LEFT + index * colWidth + colWidth / 2}
@@ -99,7 +117,7 @@ export default function PersonDemandChart({
               )}
               <rect x={x} y={PAD_TOP} width={barWidth} height={plotHeight} fill="transparent">
                 <title>
-                  {`Week of ${weekLabel(index)}\nThis project: ${mine} h\nOther projects: ${others} h\nTotal: ${total} h\nAvailability: ${available} h\nUtilization: ${
+                  {`Week of ${weekLabel(index)}\n${thisLabel}: ${mine} h\n${otherLabel}: ${others} h\nTotal: ${total} h\nAvailability: ${available} h\nUtilization: ${
                     available > 0 ? `${Math.round((total / available) * 100)}%` : 'no availability'
                   }`}
                 </title>
@@ -124,11 +142,11 @@ export default function PersonDemandChart({
 
       <div className="chart-legend">
         <span className="legend-entry">
-          <span className="legend-swatch swatch-other-projects" /> {otherLabel}
+          <span className="legend-swatch swatch-other-projects" style={otherColor ? { background: otherColor } : undefined} /> {otherLabel}
         </span>
         {showThis && (
           <span className="legend-entry">
-            <span className="legend-swatch swatch-this-project" /> {thisLabel}
+            <span className="legend-swatch swatch-this-project" style={thisColor ? { background: thisColor } : undefined} /> {thisLabel}
           </span>
         )}
         <span className="legend-entry">

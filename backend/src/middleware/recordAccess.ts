@@ -57,6 +57,21 @@ export async function assertDemandEditable(user: AuthUser | undefined, projectId
   await assertProjectEditable(current, projectId);
 }
 
+/** Demand moderators and project owners can edit any week; assignees can edit their own weekly hours. */
+export async function assertDemandWeeksEditable(user: AuthUser | undefined, demandId: string): Promise<void> {
+  const current = requireUser(user);
+  const D = COLUMNS.demand;
+  const row = (await dv.retrieve('demand', demandId, {
+    select: [D.id, D.projectId, D.personId],
+    includeFormattedValues: false,
+  })) as Record<string, unknown>;
+
+  if (same(row[D.personId], current.personId)) return;
+  const projectId = row[D.projectId];
+  if (!projectId) throw new HttpError(404, 'Demand row is not linked to a project.');
+  await assertDemandEditable(current, String(projectId));
+}
+
 /** Availability moderators cover every department; otherwise the owner, or their lead/delegate. */
 export async function assertAvailabilityEditable(
   user: AuthUser | undefined,
@@ -78,6 +93,16 @@ export async function assertAvailabilityEditable(
     }
   }
   throw new HttpError(403, 'Only the department lead, their delegate or an availability moderator can change this.');
+}
+
+/** Resolves a person's department for authorization and SQL-backed workload records. */
+export async function departmentIdForPerson(personId: string): Promise<string | undefined> {
+  const P = COLUMNS.people;
+  const person = (await dv.retrieve('people', personId, {
+    select: [P.id, P.departmentId],
+    includeFormattedValues: false,
+  })) as Record<string, unknown>;
+  return person[P.departmentId] ? String(person[P.departmentId]) : undefined;
 }
 
 /** Resolves the project a demand row belongs to. */

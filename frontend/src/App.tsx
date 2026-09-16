@@ -2,12 +2,12 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import SessionGate from './components/SessionGate';
-import { useAuthStore } from './store/authStore';
 import AdminDashboard from './pages/AdminDashboard';
 import AccessListPage from './pages/admin/AccessListPage';
 import AdminHome from './pages/admin/AdminHome';
 import DepartmentEditPage from './pages/admin/DepartmentEditPage';
 import DepartmentsListPage from './pages/admin/DepartmentsListPage';
+import NonProjectDemandCategoriesPage from './pages/admin/NonProjectDemandCategoriesPage';
 import PeopleListPage from './pages/admin/PeopleListPage';
 import PersonEditPage from './pages/admin/PersonEditPage';
 import ProjectEditPage from './pages/admin/ProjectEditPage';
@@ -26,10 +26,6 @@ import ProjectTeamPage from './pages/ProjectTeamPage';
 import RequestsPage from './pages/RequestsPage';
 
 function HomeRedirect() {
-  const user = useAuthStore((state) => state.user);
-  if (user?.roles.includes('admin')) return <Navigate to="/admin" replace />;
-  if (user?.roles.includes('availability_moderator')) return <Navigate to="/department" replace />;
-  if (user?.roles.includes('demand_moderator')) return <Navigate to="/projects" replace />;
   return <Navigate to="/me" replace />;
 }
 
@@ -60,6 +56,7 @@ export default function App() {
                   <Route path="projects/:id" element={<ProjectEditPage />} />
                   <Route path="departments" element={<DepartmentsListPage />} />
                   <Route path="departments/:id" element={<DepartmentEditPage />} />
+                  <Route path="non-project-demand-categories" element={<NonProjectDemandCategoriesPage />} />
                   <Route path="people" element={<PeopleListPage />} />
                   <Route path="people/:id" element={<PersonEditPage />} />
                 </Routes>
