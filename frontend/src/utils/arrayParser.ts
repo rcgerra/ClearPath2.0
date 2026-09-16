@@ -63,3 +63,10 @@ export function weekLabelShort(weekIndex: number, epoch: Date = currentWeekStart
   date.setUTCDate(date.getUTCDate() + weekIndex * 7);
   return formatDayMonth(date);
 }
+
+/** Calendar year the given week's Monday falls in, used to shade weekly headers by year. */
+export function weekYear(weekIndex: number, epoch: Date = currentWeekStart()): number {
+  const date = new Date(epoch);
+  date.setUTCDate(date.getUTCDate() + weekIndex * 7);
+  return date.getUTCFullYear();
+}

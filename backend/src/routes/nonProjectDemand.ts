@@ -21,6 +21,7 @@ const createDemandSchema = z.object({
   subcategoryId: z.string().uuid(),
   personId: z.string().uuid(),
   departmentId: z.string().uuid().optional(),
+  description: z.string().trim().min(1).max(200),
   startWeek: z.number().int().min(0).max(1332).optional(),
   endWeek: z.number().int().min(0).max(1332).optional(),
   hoursPerWeek: z.number().int().min(0).max(99).optional(),
@@ -41,6 +42,7 @@ interface DemandRecord {
   subcategoryName?: string;
   personId: string;
   departmentId?: string;
+  description?: string;
   demandHours: string;
 }
 
@@ -53,6 +55,7 @@ function toDemand(row: DemandRecord) {
     subcategoryName: row.subcategoryName,
     personId: row.personId,
     departmentId: row.departmentId,
+    description: row.description,
     weeks: decodeArray(row.demandHours),
   };
 }
@@ -61,7 +64,7 @@ async function getDemand(id: string): Promise<DemandRecord> {
   const rows = await query<DemandRecord>(
         `SELECT d.NonProjectDemandId AS id, d.CategoryId AS categoryId, c.Name AS categoryName,
           d.SubcategoryId AS subcategoryId, s.Name AS subcategoryName,
-            d.PersonId AS personId, d.DepartmentId AS departmentId, d.DemandHours AS demandHours
+            d.PersonId AS personId, d.DepartmentId AS departmentId, d.Description AS description, d.DemandHours AS demandHours
        FROM dbo.FactNonProjectDemand d
        JOIN dbo.DimNonProjectDemandCategory c ON c.CategoryId = d.CategoryId
            LEFT JOIN dbo.DimNonProjectDemandSubcategory s ON s.SubcategoryId = d.SubcategoryId
@@ -192,13 +195,13 @@ router.get(
     const rows = await query<DemandRecord>(
             `SELECT d.NonProjectDemandId AS id, d.CategoryId AS categoryId, c.Name AS categoryName,
               d.SubcategoryId AS subcategoryId, s.Name AS subcategoryName,
-              d.PersonId AS personId, d.DepartmentId AS departmentId, d.DemandHours AS demandHours
+              d.PersonId AS personId, d.DepartmentId AS departmentId, d.Description AS description, d.DemandHours AS demandHours
          FROM dbo.FactNonProjectDemand d
          JOIN dbo.DimNonProjectDemandCategory c ON c.CategoryId = d.CategoryId
          LEFT JOIN dbo.DimNonProjectDemandSubcategory s ON s.SubcategoryId = d.SubcategoryId
         WHERE (@personId IS NULL OR d.PersonId = @personId)
           AND (@departmentId IS NULL OR d.DepartmentId = @departmentId)
-        ORDER BY c.Name`,
+        ORDER BY c.Name, s.Name, d.Description`,
       { personId: personId ?? null, departmentId: departmentId ?? null },
     );
     res.json(rows.map(toDemand));
@@ -220,12 +223,6 @@ router.post(
     );
     if (!subcategories[0]) throw new HttpError(404, 'Active non-project demand subcategory not found.');
     const categoryId = subcategories[0].categoryId;
-    const duplicate = await query<{ id: string }>(
-      `SELECT NonProjectDemandId AS id FROM dbo.FactNonProjectDemand
-        WHERE PersonId = @personId AND SubcategoryId = @subcategoryId`,
-      input,
-    );
-    if (duplicate.length) throw new HttpError(409, 'That non-project demand subcategory is already assigned to this person.');
 
     let demandHours = encodeArray([]);
     if (input.startWeek !== undefined && input.endWeek !== undefined && input.hoursPerWeek !== undefined) {
@@ -233,9 +230,9 @@ router.post(
       demandHours = setWeekRange(demandHours, input.startWeek, input.endWeek, input.hoursPerWeek);
     }
     const created = await query<{ id: string }>(
-      `INSERT dbo.FactNonProjectDemand (CategoryId, SubcategoryId, PersonId, DepartmentId, DemandHours)
+      `INSERT dbo.FactNonProjectDemand (CategoryId, SubcategoryId, PersonId, DepartmentId, Description, DemandHours)
        OUTPUT inserted.NonProjectDemandId AS id
-       VALUES (@categoryId, @subcategoryId, @personId, @departmentId, @demandHours)`,
+       VALUES (@categoryId, @subcategoryId, @personId, @departmentId, @description, @demandHours)`,
       { ...input, categoryId, departmentId: departmentId ?? null, demandHours },
     );
     res.status(201).json(created[0]);

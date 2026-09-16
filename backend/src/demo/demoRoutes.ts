@@ -244,6 +244,7 @@ const nonProjectDemand = [
     subcategoryName: nonProjectDemandSubcategories[0].name,
     personId: id(1, 'p'),
     departmentId: id(1, 'd'),
+    description: 'Ongoing coverage',
     weeks: weeksOf(6, 20),
   },
   {
@@ -254,6 +255,7 @@ const nonProjectDemand = [
     subcategoryName: nonProjectDemandSubcategories[7].name,
     personId: id(3, 'p'),
     departmentId: id(1, 'd'),
+    description: 'Weekly governance sync',
     weeks: weeksOf(4, 16),
   },
 ];
@@ -468,9 +470,8 @@ router.post('/non-project-demand', (req, res) => {
   const subcategory = nonProjectDemandSubcategories.find((entry) => entry.id === req.body?.subcategoryId && entry.isActive);
   const category = nonProjectDemandCategories.find((entry) => entry.id === subcategory?.categoryId && entry.isActive);
   if (!subcategory || !category) throw new HttpError(404, 'Active non-project demand subcategory not found.');
-  if (nonProjectDemand.some((row) => row.personId === req.body?.personId && row.subcategoryId === subcategory.id)) {
-    throw new HttpError(409, 'That non-project demand subcategory is already assigned to this person.');
-  }
+  const description = String(req.body?.description ?? '').trim();
+  if (!description) throw new HttpError(400, 'Description is required.');
   const row = {
     id: id(nonProjectDemand.length + 30, 'n'),
     categoryId: category.id,
@@ -479,6 +480,7 @@ router.post('/non-project-demand', (req, res) => {
     subcategoryName: subcategory.name,
     personId: String(req.body?.personId ?? ''),
     departmentId: String(req.body?.departmentId ?? ''),
+    description,
     weeks: weeksOf(0, 0),
   };
   nonProjectDemand.push(row);

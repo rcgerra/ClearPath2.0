@@ -145,6 +145,7 @@ export interface NonProjectDemandRow {
   subcategoryName?: string;
   personId: string;
   departmentId?: string;
+  description?: string;
   weeks: number[];
 }
 

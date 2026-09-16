@@ -5,7 +5,7 @@ import { capacityApi, demandApi, departmentsApi, errorMessage, nonProjectDemandA
 import PersonDemandChart from '../components/PersonDemandChart';
 import TeamDemandChart from '../components/TeamDemandChart';
 import { useAuthStore } from '../store/authStore';
-import { weekLabel, weekLabelShort } from '../utils/arrayParser';
+import { weekLabel, weekLabelShort, weekYear } from '../utils/arrayParser';
 import { formatDate } from '../utils/dates';
 import { canEditAvailability, canEditDepartment } from '../utils/permissions';
 import type { CapacityRow, DemandRow, NonProjectDemandRow, Person } from '../types';
@@ -40,8 +40,8 @@ export default function DepartmentTeamPage() {
   const [addingAssignment, setAddingAssignment] = useState(false);
   const [addingNonProjectDemand, setAddingNonProjectDemand] = useState(false);
   const [nonProjectCategoryId, setNonProjectCategoryId] = useState('');
-  const [projectDemandCollapsed, setProjectDemandCollapsed] = useState(false);
-  const [nonProjectDemandCollapsed, setNonProjectDemandCollapsed] = useState(false);
+  const [hideZeroProjectRows, setHideZeroProjectRows] = useState(false);
+  const [hideZeroOtherRows, setHideZeroOtherRows] = useState(false);
   const [individualDetailCollapsed, setIndividualDetailCollapsed] = useState(false);
   const [teamOverviewCollapsed, setTeamOverviewCollapsed] = useState(false);
   const [analyticsCollapsed, setAnalyticsCollapsed] = useState(false);
@@ -277,6 +277,7 @@ export default function DepartmentTeamPage() {
       categoryId: string;
       subcategoryId?: string;
       newSubcategoryName?: string;
+      description: string;
       personId: string;
       departmentId?: string;
     }) => {
@@ -288,7 +289,12 @@ export default function DepartmentTeamPage() {
         })).id;
       }
       if (!subcategoryId) throw new Error('Select a subcategory or add a new one.');
-      return nonProjectDemandApi.create({ subcategoryId, personId: body.personId, departmentId: body.departmentId });
+      return nonProjectDemandApi.create({
+        subcategoryId,
+        personId: body.personId,
+        departmentId: body.departmentId,
+        description: body.description,
+      });
     },
     onSuccess: () => {
       setAddingNonProjectDemand(false);
@@ -424,17 +430,15 @@ export default function DepartmentTeamPage() {
   const selected = rows.find((row) => row.id === selectedRow);
   const selectedDemand = selected ? demandByPerson.get(selected.personId?.toLowerCase() ?? '') ?? emptyWeeks() : [];
 
-  /** Equalize is pointless once there's no demand, or availability already matches demand every week. */
+  /** Equalize is pointless once availability already matches demand every week, even where demand is 0. */
   const selectedEqualizeDisabled = (() => {
     if (!selected) return true;
-    let hasDemand = false;
     let alreadyMatches = true;
     for (let week = 0; week < WEEKS; week += 1) {
       const demandHours = selectedDemand[week] ?? 0;
-      if (demandHours > 0) hasDemand = true;
       if ((selected.weeks[week] ?? 0) !== demandHours) alreadyMatches = false;
     }
-    return !hasDemand || alreadyMatches;
+    return alreadyMatches;
   })();
 
   /** Demand for the selected person, split out per project for the detail table. */
@@ -484,24 +488,39 @@ export default function DepartmentTeamPage() {
   }, [nonProjectCategories.data]);
 
   const availableNonProjectSubcategories = useMemo(() => {
-    const assignedIds = new Set(selectedNonProjectDemand.map((row) => row.subcategoryId).filter(Boolean));
     return (nonProjectSubcategories.data ?? []).filter(
-      (subcategory) =>
-        subcategory.isActive && subcategory.categoryId === nonProjectCategoryId && !assignedIds.has(subcategory.id),
+      (subcategory) => subcategory.isActive && subcategory.categoryId === nonProjectCategoryId,
     );
-  }, [nonProjectSubcategories.data, nonProjectCategoryId, selectedNonProjectDemand]);
+  }, [nonProjectSubcategories.data, nonProjectCategoryId]);
 
   const nonProjectDemandGroups = useMemo(() => {
     return availableNonProjectCategories.map((category) => {
       const assignedRows = selectedNonProjectDemand.filter((row) => row.categoryId === category.id);
       const rows = assignedRows
-        .map((row) => ({ id: row.subcategoryId ?? row.id, name: row.subcategoryName ?? 'General', demand: row }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .map((row) => ({ id: row.id, name: row.subcategoryName ?? 'General', description: row.description ?? '', demand: row }))
+        .sort((a, b) => a.name.localeCompare(b.name) || a.description.localeCompare(b.description));
       const total = emptyWeeks();
       for (const row of assignedRows) addInto(total, row.weeks);
       return { ...category, rows, total };
-    }).filter((category) => category.total.slice(0, CHART_WEEKS).some((hours) => hours > 0));
+    }).filter((category) => category.rows.length > 0);
   }, [availableNonProjectCategories, selectedNonProjectDemand]);
+
+  /** Assignment rows to render, honoring the "hide zero rows" toggle. */
+  const visibleProjectDemand = useMemo(() => {
+    if (!hideZeroProjectRows) return selectedProjectDemand;
+    return selectedProjectDemand.filter((project) => project.weeks.slice(0, CHART_WEEKS).some((hours) => hours > 0));
+  }, [selectedProjectDemand, hideZeroProjectRows]);
+
+  /** Other-demand categories/rows to render, honoring the "hide zero rows" toggle. */
+  const visibleNonProjectGroups = useMemo(() => {
+    if (!hideZeroOtherRows) return nonProjectDemandGroups;
+    return nonProjectDemandGroups
+      .map((category) => ({
+        ...category,
+        rows: category.rows.filter((row) => row.demand.weeks.slice(0, CHART_WEEKS).some((hours) => hours > 0)),
+      }))
+      .filter((category) => category.rows.length > 0);
+  }, [nonProjectDemandGroups, hideZeroOtherRows]);
 
   /** Projects the selected person isn't already staffed on, for the "add assignment" picker. */
   const availableProjectsForAssignment = useMemo(() => {
@@ -694,7 +713,9 @@ export default function DepartmentTeamPage() {
               <tr>
                 <th className="matrix-label">Person</th>
                 {columns.map((week) => (
-                  <th key={week}>{weekLabelShort(week)}</th>
+                  <th key={week} className={weekYear(week) % 2 === 1 ? 'year-shade-alt' : undefined}>
+                    {weekLabelShort(week)}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -895,35 +916,6 @@ export default function DepartmentTeamPage() {
                 <span>Equalize</span>
               </button>
             )}
-            {!individualDetailCollapsed && canManageRoster && (
-              <button
-                type="button"
-                className="icon-button icon-button-add icon-button-add-labeled person-detail-action"
-                title={`Assign ${selected.personName ?? 'this person'} to a new project`}
-                aria-label={`Assign ${selected.personName ?? 'this person'} to a new project`}
-                onClick={() => setAddingAssignment((value) => !value)}
-              >
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z" />
-                  <rect x="5" y="6" width="14" height="15" rx="2" />
-                  <line x1="12" y1="11" x2="12" y2="17" />
-                  <line x1="9" y1="14" x2="15" y2="14" />
-                </svg>
-                <span>Add Project</span>
-              </button>
-            )}
-            {!individualDetailCollapsed && canManageRoster && (
-              <button
-                type="button"
-                className="icon-button icon-button-add icon-button-add-labeled person-detail-action"
-                title={`Add non-project demand for ${selected.personName ?? 'this person'}`}
-                aria-label={`Add non-project demand for ${selected.personName ?? 'this person'}`}
-                onClick={() => setAddingNonProjectDemand((value) => !value)}
-              >
-                <span aria-hidden="true">+</span>
-                <span>Add Non-project</span>
-              </button>
-            )}
             <button
               type="button"
               className="workload-collapse-button person-detail-collapse-button"
@@ -939,7 +931,7 @@ export default function DepartmentTeamPage() {
           <div id="department-person-detail-content" hidden={individualDetailCollapsed}>
           {(nonProjectDemand.isError || nonProjectCategories.isError || nonProjectSubcategories.isError) && (
             <div className="alert error">
-              Non-project demand is unavailable:{' '}
+              Other demand is unavailable:{' '}
               {errorMessage(nonProjectDemand.error ?? nonProjectCategories.error ?? nonProjectSubcategories.error)}
             </div>
           )}
@@ -949,14 +941,169 @@ export default function DepartmentTeamPage() {
             otherProjects={selectedProjectTotal}
             availability={selected.weeks}
             showThis={selectedNonProjectDemand.length > 0}
-            thisLabel="Non-project demand"
+            thisLabel="Other demand"
             otherLabel="Project demand"
             thisColor="var(--asagi-blue)"
             otherColor="var(--sorairo-blue)"
             maxY={MAX_HOURS}
           />
 
-          {addingNonProjectDemand && !nonProjectDemandCollapsed && (
+          <div className="demand-section-toolbar">
+            <h3 className="demand-section-title">Project demand</h3>
+            {canManageRoster && (
+              <button
+                type="button"
+                className="icon-button icon-button-add icon-button-add-labeled person-detail-action"
+                title={`Add assignment for ${selected.personName ?? 'this person'}`}
+                aria-label={`Add assignment for ${selected.personName ?? 'this person'}`}
+                onClick={() => {
+                  setAddingAssignment((value) => !value);
+                  setAddingNonProjectDemand(false);
+                }}
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z" />
+                  <rect x="5" y="6" width="14" height="15" rx="2" />
+                  <line x1="12" y1="11" x2="12" y2="17" />
+                  <line x1="9" y1="14" x2="15" y2="14" />
+                </svg>
+                <span>Add assignment</span>
+              </button>
+            )}
+            <label className="switch demand-zero-toggle" title="Hide rows with zero demand">
+              <input
+                type="checkbox"
+                checked={hideZeroProjectRows}
+                onChange={(event) => setHideZeroProjectRows(event.target.checked)}
+              />
+              <span className="switch-track" aria-hidden="true" />
+              <span className="switch-label">Hide zero rows</span>
+            </label>
+          </div>
+
+          {addingAssignment && (
+            <form
+              className="toolbar assignment-picker"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const form = new FormData(event.currentTarget);
+                const projectId = String(form.get('projectId') || '');
+                if (!projectId || !selected.personId) return;
+                addAssignment.mutate({ projectId, personId: selected.personId });
+              }}
+            >
+              <div>
+                <label htmlFor="assignmentProjectId">Project</label>
+                <select id="assignmentProjectId" name="projectId" required defaultValue="">
+                  <option value="" disabled>
+                    {projects.isLoading ? 'Loading projects…' : 'Select…'}
+                  </option>
+                  {availableProjectsForAssignment.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button className="primary" type="submit" disabled={addAssignment.isPending}>
+                {addAssignment.isPending ? 'Submitting…' : 'Submit'}
+              </button>
+              <button type="button" onClick={() => setAddingAssignment(false)}>
+                Cancel
+              </button>
+            </form>
+          )}
+
+          <div className="matrix-scroll">
+            <table className="weekly-matrix demand-grid department-person-matrix">
+              <thead>
+                <tr>
+                  <th className="matrix-label" aria-hidden="true" />
+                  {chartColumns.map((week) => (
+                    <th key={week} className={weekYear(week) % 2 === 1 ? 'year-shade-alt' : undefined}>
+                      {weekLabelShort(week)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visibleProjectDemand.length === 0 && (
+                  <tr className="no-demand-notice-row">
+                    <td colSpan={chartColumns.length + 1}>
+                      There are no assignments with demand for this person over the selected period.
+                    </td>
+                  </tr>
+                )}
+                {visibleProjectDemand.map((project, rowIndex) => (
+                  <tr key={project.projectId} className={`assignment-row ${rowIndex % 2 === 0 ? 'band-strong' : 'band-light'}`}>
+                    <th scope="row" className="matrix-label">
+                      {project.projectName ?? 'Project'}
+                    </th>
+                    {chartColumns.map((week) => {
+                      const key = `${project.demandId}:${week}`;
+                      const currentHours = project.weeks[week] ?? 0;
+                      const value = draftDemand[key] ?? (currentHours ? String(currentHours) : '');
+                      return (
+                        <td key={week} className="assignment-demand-cell">
+                          <input
+                            type="number"
+                            min={0}
+                            max={MAX_HOURS}
+                            step={1}
+                            value={value}
+                            readOnly={!canManageRoster}
+                            onChange={(event) => setDraftDemand((prev) => ({ ...prev, [key]: event.target.value }))}
+                            onFocus={(event) => event.target.select()}
+                            onBlur={(event) => commitDemand(project.demandId, currentHours, week, event.target.value)}
+                            onKeyDown={blockNonIntegerKeys}
+                            aria-label={`${project.projectName ?? 'Project'} demand week of ${weekLabel(week)}`}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="project-demand-section-row project-demand-total-row">
+                  <th scope="row" className="matrix-label">
+                    Subtotal
+                  </th>
+                  {chartColumns.map((week) => <td key={week}>{selectedProjectTotal[week] || ''}</td>)}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div className="demand-section-toolbar">
+            <h3 className="demand-section-title">Other demand</h3>
+            {canManageRoster && (
+              <button
+                type="button"
+                className="icon-button icon-button-add icon-button-add-labeled person-detail-action"
+                title={`Add assignment for ${selected.personName ?? 'this person'}`}
+                aria-label={`Add assignment for ${selected.personName ?? 'this person'}`}
+                onClick={() => {
+                  setAddingNonProjectDemand((value) => !value);
+                  setAddingAssignment(false);
+                }}
+              >
+                <span aria-hidden="true">+</span>
+                <span>Add assignment</span>
+              </button>
+            )}
+            <label className="switch demand-zero-toggle" title="Hide rows with zero demand">
+              <input
+                type="checkbox"
+                checked={hideZeroOtherRows}
+                onChange={(event) => setHideZeroOtherRows(event.target.checked)}
+              />
+              <span className="switch-track" aria-hidden="true" />
+              <span className="switch-label">Hide zero rows</span>
+            </label>
+          </div>
+
+          {addingNonProjectDemand && (
             <form
               className="toolbar assignment-picker non-project-demand-form"
               onSubmit={(event) => {
@@ -965,22 +1112,28 @@ export default function DepartmentTeamPage() {
                 const categoryId = String(form.get('categoryId') || '');
                 const subcategoryId = String(form.get('subcategoryId') || '');
                 const newSubcategoryName = String(form.get('newSubcategoryName') || '').trim();
+                const description = String(form.get('description') || '').trim();
                 if (!categoryId || !selected.personId) return;
                 if (!subcategoryId && !newSubcategoryName) {
                   setError('Select a subcategory or add a new one.');
+                  return;
+                }
+                if (!description) {
+                  setError('Describe the task briefly.');
                   return;
                 }
                 addNonProjectDemand.mutate({
                   categoryId,
                   subcategoryId: subcategoryId || undefined,
                   newSubcategoryName: newSubcategoryName || undefined,
+                  description,
                   personId: selected.personId,
                   departmentId: id,
                 });
               }}
             >
               <div>
-                <label htmlFor="nonProjectCategoryId">Non-project demand category</label>
+                <label htmlFor="nonProjectCategoryId">Category</label>
                 <select
                   id="nonProjectCategoryId"
                   name="categoryId"
@@ -1014,8 +1167,19 @@ export default function DepartmentTeamPage() {
                   disabled={!nonProjectCategoryId}
                 />
               </div>
+              <div>
+                <label htmlFor="nonProjectDescription">Description</label>
+                <input
+                  id="nonProjectDescription"
+                  name="description"
+                  maxLength={200}
+                  required
+                  placeholder="e.g. Chrome skid failure"
+                  disabled={!nonProjectCategoryId}
+                />
+              </div>
               <button className="primary person-detail-action non-project-demand-action" type="submit" disabled={addNonProjectDemand.isPending || !nonProjectCategoryId}>
-                {addNonProjectDemand.isPending ? 'Adding…' : 'Add non-project work'}
+                {addNonProjectDemand.isPending ? 'Submitting…' : 'Submit'}
               </button>
               <button type="button" onClick={() => setAddingNonProjectDemand(false)}>Cancel</button>
             </form>
@@ -1027,118 +1191,21 @@ export default function DepartmentTeamPage() {
                 <tr>
                   <th className="matrix-label" aria-hidden="true" />
                   {chartColumns.map((week) => (
-                    <th key={week}>{weekLabelShort(week)}</th>
+                    <th key={week} className={weekYear(week) % 2 === 1 ? 'year-shade-alt' : undefined}>
+                      {weekLabelShort(week)}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {!selectedDemand.slice(0, CHART_WEEKS).some((hours) => hours > 0) && (
+                {visibleNonProjectGroups.length === 0 && (
                   <tr className="no-demand-notice-row">
                     <td colSpan={chartColumns.length + 1}>
-                      There is no assigned demand for this person over the selected period.
+                      There is no other demand assigned for this person over the selected period.
                     </td>
                   </tr>
                 )}
-                <tr className="project-demand-section-row">
-                  <th scope="row" className="matrix-label">
-                    <span className="demand-section-header">
-                    <button
-                      type="button"
-                      className="demand-section-collapse-button"
-                      aria-label={projectDemandCollapsed ? 'Expand project demand' : 'Collapse project demand'}
-                      aria-expanded={!projectDemandCollapsed}
-                      onClick={() => setProjectDemandCollapsed((value) => !value)}
-                    >
-                      <span className={projectDemandCollapsed ? 'workload-collapse-chevron collapsed' : 'workload-collapse-chevron'} aria-hidden="true" />
-                    </button>
-                      <span>Project demand total</span>
-                    </span>
-                  </th>
-                  {chartColumns.map((week) => <td key={week}>{selectedProjectTotal[week] || ''}</td>)}
-                </tr>
-                {!projectDemandCollapsed && canManageRoster && addingAssignment && (
-                  <tr className="matrix-section-row">
-                    <td colSpan={chartColumns.length + 1}>
-                      <form
-                        className="toolbar"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          const form = new FormData(event.currentTarget);
-                          const projectId = String(form.get('projectId') || '');
-                          if (!projectId || !selected.personId) return;
-                          addAssignment.mutate({ projectId, personId: selected.personId });
-                        }}
-                      >
-                        <div style={{ flex: '0 1 25vw' }}>
-                          <label htmlFor="assignmentProjectId">Project</label>
-                          <select id="assignmentProjectId" name="projectId" required defaultValue="">
-                            <option value="" disabled>
-                              {projects.isLoading ? 'Loading projects…' : 'Select…'}
-                            </option>
-                            {availableProjectsForAssignment.map((project) => (
-                              <option key={project.id} value={project.id}>
-                                {project.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <button className="primary" type="submit" disabled={addAssignment.isPending}>
-                          {addAssignment.isPending ? 'Adding…' : 'Add assignment'}
-                        </button>
-                        <button type="button" onClick={() => setAddingAssignment(false)}>
-                          Cancel
-                        </button>
-                      </form>
-                    </td>
-                  </tr>
-                )}
-                {!projectDemandCollapsed && selectedProjectDemand.map((project, rowIndex) => (
-                  <tr key={project.projectId} className={`assignment-row ${rowIndex % 2 === 0 ? 'band-strong' : 'band-light'}`}>
-                    <th scope="row" className="matrix-label">
-                      {project.projectName ?? 'Project'}
-                    </th>
-                    {chartColumns.map((week) => {
-                      const key = `${project.demandId}:${week}`;
-                      const currentHours = project.weeks[week] ?? 0;
-                      const value = draftDemand[key] ?? (currentHours ? String(currentHours) : '');
-                      return (
-                        <td key={week} className="assignment-demand-cell">
-                          <input
-                            type="number"
-                            min={0}
-                            max={MAX_HOURS}
-                            step={1}
-                            value={value}
-                            readOnly={!canManageRoster}
-                            onChange={(event) => setDraftDemand((prev) => ({ ...prev, [key]: event.target.value }))}
-                            onFocus={(event) => event.target.select()}
-                            onBlur={(event) => commitDemand(project.demandId, currentHours, week, event.target.value)}
-                            onKeyDown={blockNonIntegerKeys}
-                            aria-label={`${project.projectName ?? 'Project'} demand week of ${weekLabel(week)}`}
-                          />
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-                <tr className="non-project-demand-section-row">
-                  <th scope="row" className="matrix-label">
-                    <span className="demand-section-header">
-                    <button
-                      type="button"
-                      className="demand-section-collapse-button"
-                      aria-label={nonProjectDemandCollapsed ? 'Expand non-project demand' : 'Collapse non-project demand'}
-                      aria-expanded={!nonProjectDemandCollapsed}
-                      onClick={() => setNonProjectDemandCollapsed((value) => !value)}
-                    >
-                      <span className={nonProjectDemandCollapsed ? 'workload-collapse-chevron collapsed' : 'workload-collapse-chevron'} aria-hidden="true" />
-                    </button>
-                      <span>Non-project demand total</span>
-                    </span>
-                  </th>
-                  {chartColumns.map((week) => <td key={week}>{selectedNonProjectTotal[week] || ''}</td>)}
-                </tr>
-                {!nonProjectDemandCollapsed && nonProjectDemandGroups.map((category, categoryIndex) => (
+                {visibleNonProjectGroups.map((category, categoryIndex) => (
                   <Fragment key={category.id}>
                     <tr className={`non-project-category-row ${categoryIndex % 2 === 0 ? 'category-band-70' : 'category-band-60'}`}>
                       <th scope="row" className="matrix-label">{category.name}</th>
@@ -1146,7 +1213,10 @@ export default function DepartmentTeamPage() {
                     </tr>
                     {category.rows.map((subcategory, rowIndex) => (
                       <tr key={subcategory.id} className={`assignment-row non-project-demand-row ${rowIndex % 2 === 0 ? 'band-strong' : 'band-light'}`}>
-                        <th scope="row" className="matrix-label">{subcategory.name}</th>
+                        <th scope="row" className="matrix-label">
+                          {subcategory.name}
+                          {subcategory.description && <span className="non-project-demand-description"> — {subcategory.description}</span>}
+                        </th>
                         {chartColumns.map((week) => {
                           const demandRow = subcategory.demand;
                           const key = `${demandRow?.id ?? subcategory.id}:${week}`;
@@ -1179,9 +1249,38 @@ export default function DepartmentTeamPage() {
                 ))}
               </tbody>
               <tfoot>
-                <tr className="demand-summary-spacer" aria-hidden="true">
-                  <td colSpan={chartColumns.length + 1} />
+                <tr className="non-project-demand-section-row non-project-demand-total-row">
+                  <th scope="row" className="matrix-label">
+                    Subtotal
+                  </th>
+                  {chartColumns.map((week) => <td key={week}>{selectedNonProjectTotal[week] || ''}</td>)}
                 </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div className="matrix-scroll">
+            <table className="weekly-matrix demand-grid department-person-matrix">
+              <thead>
+                <tr>
+                  <th className="matrix-label" aria-hidden="true" />
+                  {chartColumns.map((week) => (
+                    <th key={week} className={weekYear(week) % 2 === 1 ? 'year-shade-alt' : undefined}>
+                      {weekLabelShort(week)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              {!selectedDemand.slice(0, CHART_WEEKS).some((hours) => hours > 0) && (
+                <tbody>
+                  <tr className="no-demand-notice-row">
+                    <td colSpan={chartColumns.length + 1}>
+                      There is no assigned demand for this person over the selected period.
+                    </td>
+                  </tr>
+                </tbody>
+              )}
+              <tfoot>
                 <tr className="matrix-total row-total-demand">
                   <th scope="row" className="matrix-label">
                     Total demand

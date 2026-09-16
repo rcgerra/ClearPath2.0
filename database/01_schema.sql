@@ -278,6 +278,14 @@ IF COL_LENGTH('dbo.FactNonProjectDemand', 'SubcategoryId') IS NULL
     ALTER TABLE dbo.FactNonProjectDemand ADD SubcategoryId UNIQUEIDENTIFIER NULL;
 GO
 
+IF COL_LENGTH('dbo.FactNonProjectDemand', 'Description') IS NULL
+    ALTER TABLE dbo.FactNonProjectDemand ADD Description NVARCHAR(200) NULL;
+GO
+
+IF COL_LENGTH('dbo.FactNonProjectDemand', 'IsActive') IS NULL
+    ALTER TABLE dbo.FactNonProjectDemand ADD IsActive BIT NOT NULL DEFAULT 1;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_NonProjectDemand_Subcategory')
     ALTER TABLE dbo.FactNonProjectDemand ADD CONSTRAINT FK_NonProjectDemand_Subcategory
         FOREIGN KEY (SubcategoryId) REFERENCES dbo.DimNonProjectDemandSubcategory (SubcategoryId);
@@ -287,8 +295,13 @@ IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = 'UQ_NonProjectDemand_P
     ALTER TABLE dbo.FactNonProjectDemand DROP CONSTRAINT UQ_NonProjectDemand_PersonCategory;
 GO
 
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_NonProjectDemand_PersonSubcategory')
-    CREATE UNIQUE INDEX UQ_NonProjectDemand_PersonSubcategory
+/* People can log more than one task under the same subcategory (each with its own description), so this is no longer unique. */
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_NonProjectDemand_PersonSubcategory')
+    DROP INDEX UQ_NonProjectDemand_PersonSubcategory ON dbo.FactNonProjectDemand;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_NonProjectDemand_PersonSubcategory')
+    CREATE INDEX IX_NonProjectDemand_PersonSubcategory
         ON dbo.FactNonProjectDemand (PersonId, SubcategoryId)
         WHERE SubcategoryId IS NOT NULL;
 GO
