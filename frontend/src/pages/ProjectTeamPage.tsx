@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { capacityApi, demandApi, errorMessage, lookupsApi, peopleApi, projectsApi } from '../api/client';
 import PersonDemandChart from '../components/PersonDemandChart';
+import UserSelect from '../components/admin/UserSelect';
 import { useAuthStore } from '../store/authStore';
 import { weekLabelShort, weekLabel } from '../utils/arrayParser';
 import { formatDate } from '../utils/dates';
@@ -83,11 +84,6 @@ export default function ProjectTeamPage() {
     for (const row of rows) addInto(total, row.weeks);
     return total;
   }, [rows]);
-
-  const assignedIds = new Set((team.data ?? []).map((row) => row.personId?.toLowerCase()).filter(Boolean) as string[]);
-  const available = (people.data ?? []).filter(
-    (person) => !assignedIds.has(person.id.toLowerCase()) && person.isActive !== false,
-  );
 
   const setWeek = useMutation({
     mutationFn: ({ demandId, week, hours }: { demandId: string; week: number; hours: number }) =>
@@ -286,18 +282,13 @@ export default function ProjectTeamPage() {
             }}
           >
             <div style={{ flex: 2 }}>
-              <label htmlFor="personId">
-                {duplicating ? `Copy ${duplicating.personName ?? 'this row'}'s hours to` : 'Person'}
-              </label>
-              <select id="personId" name="personId" required>
-                <option value="">Select…</option>
-                {available.map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.name}
-                    {person.departmentName ? ` · ${person.departmentName}` : ''}
-                  </option>
-                ))}
-              </select>
+              <UserSelect
+                id="personId"
+                name="personId"
+                label={duplicating ? `Copy ${duplicating.personName ?? 'this row'}'s hours to` : 'Person'}
+                personValue
+                required
+              />
             </div>
             {!duplicating && (
               <div style={{ flex: 1 }}>

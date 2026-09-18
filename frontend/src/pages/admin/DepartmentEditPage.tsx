@@ -1,8 +1,9 @@
 import { FormEvent, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { departmentsApi, errorMessage, lookupsApi, peopleApi } from '../../api/client';
+import { departmentsApi, errorMessage, lookupsApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
+import UserSelect from '../../components/admin/UserSelect';
 
 function dateInputValue(value?: string): string {
   if (!value) return '';
@@ -21,7 +22,6 @@ export default function DepartmentEditPage() {
   const listPath = inAdmin ? '/admin/departments' : isNew ? '/departments' : `/departments/${id}`;
 
   const departments = useQuery({ queryKey: ['departments'], queryFn: departmentsApi.list });
-  const people = useQuery({ queryKey: ['people'], queryFn: () => peopleApi.list() });
   const functions = useQuery({ queryKey: ['lookups', 'functions'], queryFn: () => lookupsApi.list('functions') });
 
   const current = isNew ? undefined : departments.data?.find((dept) => dept.id === id);
@@ -43,11 +43,10 @@ export default function DepartmentEditPage() {
     const text = (key: string) => String(form.get(key) || '').trim() || undefined;
     save.mutate({
       name: text('name'),
-      code: text('code'),
       leadPersonId: text('leadPersonId'),
       delegatePersonId: text('delegatePersonId'),
       functionId: text('functionId'),
-      lastCheckIn: text('lastCheckIn'),
+      lastCheckIn: isNew ? undefined : text('lastCheckIn'),
       isActive: form.get('isActive') === 'on',
     });
   }
@@ -60,29 +59,13 @@ export default function DepartmentEditPage() {
     >
       {error && <div className="alert error">{error}</div>}
       <form className="card" onSubmit={handleSubmit} key={current?.id ?? 'new'}>
-        <div className="grid cols-2">
-          <div className="field">
-            <label htmlFor="name">Department name</label>
-            <input id="name" name="name" required maxLength={200} defaultValue={current?.name ?? ''} />
-          </div>
-          <div className="field">
-            <label htmlFor="code">Code</label>
-            <input id="code" name="code" maxLength={50} defaultValue={current?.code ?? ''} />
-          </div>
+        <div className="field">
+          <label htmlFor="name">Department name</label>
+          <input id="name" name="name" required maxLength={200} defaultValue={current?.name ?? ''} />
         </div>
 
-        <div className="grid cols-3">
-          <div className="field">
-            <label htmlFor="leadPersonId">Department lead</label>
-            <select id="leadPersonId" name="leadPersonId" defaultValue={current?.leadPersonId ?? ''}>
-              <option value="">—</option>
-              {people.data?.map((person) => (
-                <option key={person.id} value={person.id}>
-                  {person.name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className={isNew ? 'grid cols-2' : 'grid cols-3'}>
+          <UserSelect id="leadPersonId" name="leadPersonId" label="Department lead" personValue defaultValue={current?.leadPersonId} />
           <div className="field">
             <label htmlFor="functionId">Function</label>
             <select id="functionId" name="functionId" defaultValue={current?.functionId ?? ''}>
@@ -94,27 +77,21 @@ export default function DepartmentEditPage() {
               ))}
             </select>
           </div>
-          <div className="field">
-            <label htmlFor="lastCheckIn">Last check-in</label>
-            <input
-              id="lastCheckIn"
-              name="lastCheckIn"
-              type="date"
-              defaultValue={dateInputValue(current?.lastCheckIn)}
-            />
-          </div>
+          {!isNew && (
+            <div className="field">
+              <label htmlFor="lastCheckIn">Last check-in</label>
+              <input
+                id="lastCheckIn"
+                name="lastCheckIn"
+                type="date"
+                defaultValue={dateInputValue(current?.lastCheckIn)}
+              />
+            </div>
+          )}
         </div>
 
-        <div className="field" style={{ maxWidth: 320 }}>
-          <label htmlFor="delegatePersonId">Delegate</label>
-          <select id="delegatePersonId" name="delegatePersonId" defaultValue={current?.delegatePersonId ?? ''}>
-            <option value="">—</option>
-            {people.data?.map((person) => (
-              <option key={person.id} value={person.id}>
-                {person.name}
-              </option>
-            ))}
-          </select>
+        <div style={{ maxWidth: 320 }}>
+          <UserSelect id="delegatePersonId" name="delegatePersonId" label="Delegate" personValue defaultValue={current?.delegatePersonId} />
         </div>
 
         <label className="switch" style={{ marginBottom: '1rem' }}>

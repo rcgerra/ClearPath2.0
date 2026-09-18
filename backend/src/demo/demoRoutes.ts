@@ -2,6 +2,7 @@
 import { env } from '../config/env';
 import { signToken } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
+import { CsvDataService } from './csvData';
 
 /**
  * In-memory sample data used only when DEMO_MODE=true, so the UI can be reviewed
@@ -12,266 +13,140 @@ const HEX_PREFIX: Record<string, string> = { d: 'd', p: 'a', f: 'f', j: 'b', r: 
 
 const id = (n: number, prefix: string) =>
   `${HEX_PREFIX[prefix] ?? 'a'}${String(n).padStart(7, '0')}-0000-4000-8000-000000000000`.slice(0, 36);
-
-const departments = [
-  { id: id(1, 'd'), name: 'Engineering', code: 'ENG', leadPersonId: id(1, 'p'), leadName: 'Avery Lane', delegatePersonId: id(8, 'p'), delegateName: 'Ronn Gerra', functionId: id(1, 'f'), functionName: 'Software Engineering', lastCheckIn: '2026-09-04', isActive: true },
-  { id: id(2, 'd'), name: 'Data & Analytics', code: 'DNA', leadPersonId: id(2, 'p'), leadName: 'Bilal Ahmed', functionId: id(2, 'f'), functionName: 'Analytics', lastCheckIn: '2026-08-21', isActive: true },
-  { id: id(3, 'd'), name: 'Quality', code: 'QA', leadPersonId: id(4, 'p'), leadName: 'Dana Ortiz', functionId: id(3, 'f'), functionName: 'Quality Assurance', lastCheckIn: '2026-09-09', isActive: true },
-  { id: id(4, 'd'), name: 'Regulatory Affairs', code: 'REG', leadPersonId: id(5, 'p'), leadName: 'Elena Petrova', functionId: id(4, 'f'), functionName: 'Regulatory', lastCheckIn: '2026-06-30', isActive: false },
-];
-
-const people = [
-  { id: id(1, 'p'), name: 'Avery Lane', email: 'avery.lane@example.com', role: 'availability_moderator;demand_moderator', title: 'Engineering Lead', employmentType: 'FTE', weeklyHours: 40, isActive: true, departmentId: id(1, 'd'), departmentName: 'Engineering', functionId: id(1, 'f'), functionName: 'Software Engineering' },
-  { id: id(2, 'p'), name: 'Bilal Ahmed', email: 'bilal.ahmed@example.com', role: 'availability_moderator', title: 'Analytics Lead', employmentType: 'FTE', weeklyHours: 40, isActive: true, departmentId: id(2, 'd'), departmentName: 'Data & Analytics', functionId: id(2, 'f'), functionName: 'Analytics' },
-  { id: id(3, 'p'), name: 'Chen Wu', email: 'chen.wu@example.com', role: 'user', title: 'Senior Developer', employmentType: 'Contractor', weeklyHours: 36, isActive: true, departmentId: id(1, 'd'), departmentName: 'Engineering', functionId: id(1, 'f'), functionName: 'Software Engineering' },
-  { id: id(4, 'p'), name: 'Dana Ortiz', email: 'dana.ortiz@example.com', role: 'admin;demand_moderator', title: 'Quality Manager', employmentType: 'FTE', weeklyHours: 32, isActive: true, departmentId: id(3, 'd'), departmentName: 'Quality', functionId: id(3, 'f'), functionName: 'Quality Assurance' },
-  { id: id(5, 'p'), name: 'Elena Petrova', email: 'elena.petrova@example.com', role: 'user', title: 'Regulatory Specialist', employmentType: 'FTE', weeklyHours: 40, isActive: false, departmentId: id(4, 'd'), departmentName: 'Regulatory Affairs', functionId: id(4, 'f'), functionName: 'Regulatory' },
-  { id: id(6, 'p'), name: 'Farid Haddad', email: 'farid.haddad@example.com', role: 'user', title: 'Data Engineer', employmentType: 'Contractor', weeklyHours: 40, isActive: true, departmentId: id(2, 'd'), departmentName: 'Data & Analytics', functionId: id(2, 'f'), functionName: 'Analytics' },
-  { id: id(7, 'p'), name: 'Grace Kim', email: 'grace.kim@example.com', role: 'demand_moderator', title: 'Program Manager', employmentType: 'FTE', weeklyHours: 40, isActive: true, departmentId: id(1, 'd'), departmentName: 'Engineering', functionId: id(1, 'f'), functionName: 'Software Engineering' },
-  { id: id(8, 'p'), name: 'Ronn Gerra', email: 'ronn.gerra@takeda.com', role: 'admin;demand_moderator', title: 'Resource Management Lead', employmentType: 'FTE', weeklyHours: 40, isActive: true, departmentId: id(1, 'd'), departmentName: 'Engineering', functionId: id(1, 'f'), functionName: 'Software Engineering' },
-];
-
-const projects = [
-  { id: id(1, 'j'), name: 'ClearPath Rollout', code: 'CP-001',
-      started: true,
-        spotId: 'SPOT-10241', status: 'Active', isActive: true, priorityScore: 78.5, managerPersonId: id(1, 'p'), managerName: 'Avery Lane', sponsorPersonId: id(4, 'p'), sponsorName: 'Dana Ortiz', delegatePersonId: id(7, 'p'), delegateName: 'Grace Kim', lastCheckIn: '2026-09-08', departmentId: id(1, 'd'), departmentName: 'Engineering', startDate: '2026-04-06', endDate: '2026-12-18', problemStatement: 'Resource plans live in disconnected spreadsheets, so allocations are reworked every month.' },
-  { id: id(2, 'j'), name: 'Capacity Signal Dashboard', code: 'CP-002',
-      started: false,
-        spotId: 'SPOT-10388', status: 'Planning', isActive: true, priorityScore: 64, managerPersonId: id(7, 'p'), managerName: 'Grace Kim', sponsorPersonId: id(8, 'p'), sponsorName: 'Ronn Gerra', lastCheckIn: '2026-08-27', departmentId: id(2, 'd'), departmentName: 'Data & Analytics', startDate: '2026-09-01', endDate: '2027-03-31', problemStatement: 'Leads cannot see over-allocation until delivery slips.' },
-  { id: id(3, 'j'), name: 'Batch Release Automation', code: 'CP-003',
-      started: true,
-        spotId: 'SPOT-10077', status: 'Active', isActive: true, priorityScore: 71.25, managerPersonId: id(4, 'p'), managerName: 'Dana Ortiz', sponsorPersonId: id(1, 'p'), sponsorName: 'Avery Lane', delegatePersonId: id(8, 'p'), delegateName: 'Ronn Gerra', lastCheckIn: '2026-09-10', departmentId: id(3, 'd'), departmentName: 'Quality', startDate: '2026-02-02', endDate: '2026-11-27', problemStatement: 'Batch release paperwork is manual and delays product disposition.' },
-  { id: id(4, 'j'), name: 'Supplier Portal Refresh', code: 'CP-004',
-      started: false,
-        spotId: 'SPOT-10512', status: 'On hold', isActive: false, priorityScore: 42, managerPersonId: id(7, 'p'), managerName: 'Grace Kim', sponsorPersonId: id(4, 'p'), sponsorName: 'Dana Ortiz', lastCheckIn: '2026-05-19', departmentId: id(1, 'd'), departmentName: 'Engineering', startDate: '2026-01-12', endDate: '2026-10-30', problemStatement: 'Suppliers submit documentation by email, creating audit gaps.' },
-];
-
-const requests = [
-  { id: id(1, 'r'), shortTitle: 'Staffing spreadsheet rework',
-        spotId: 'SPOT-10241', title: 'Manual staffing spreadsheets cause rework', phase: 'Processed', status: 'Approved', isActive: true, priorityScore: 78.5, requesterPersonId: id(1, 'p'), requesterName: 'Avery Lane', departmentId: id(1, 'd'), departmentName: 'Engineering', submittedOn: '2026-03-11T09:12:00Z', projectId: id(1, 'j'), problemStatement: 'Resource plans live in disconnected spreadsheets, so department leads and project managers work from different numbers.', businessCase: 'Consolidate planning into one model.', expectedBenefit: 'Reduce planning effort by 30%.' },
-  { id: id(2, 'r'), shortTitle: 'Over-allocation blind spot',
-        spotId: 'SPOT-10388', title: 'No visibility into over-allocated staff', phase: 'SG1 Review', status: 'Submitted', isActive: true, priorityScore: 64, requesterPersonId: id(3, 'p'), requesterName: 'Chen Wu', delegatePersonId: id(4, 'p'), delegateName: 'Dana Ortiz', departmentId: id(2, 'd'), departmentName: 'Data & Analytics', submittedOn: '2026-07-02T14:40:00Z', problemStatement: 'Individuals are committed beyond their available hours without anyone seeing it until delivery slips.', businessCase: 'Weekly supply vs demand view.', expectedBenefit: 'Fewer late projects.' },
-  { id: id(3, 'r'), shortTitle: 'Audit trail for suppliers',
-        spotId: 'SPOT-10512', title: 'Supplier documents arrive by email with no audit trail', phase: 'DQ Check', status: 'Submitted', isActive: true, priorityScore: 42, requesterPersonId: id(4, 'p'), requesterName: 'Dana Ortiz',
-        delegatePersonId: id(8, 'p'),
-        delegateName: 'Ronn Gerra', departmentId: id(3, 'd'), departmentName: 'Quality', submittedOn: '2026-08-19T08:05:00Z', problemStatement: 'Supplier documentation is emailed and stored inconsistently, creating audit findings.', businessCase: 'Central supplier portal.', expectedBenefit: 'Close audit gap.' },
-  { id: id(4, 'r'), shortTitle: 'Late CAPA escalation', title: 'CAPA escalations are noticed too late', phase: 'Draft', status: 'Submitted', isActive: true, priorityScore: 0, requesterPersonId: id(5, 'p'), requesterName: 'Elena Petrova', departmentId: id(4, 'd'), departmentName: 'Regulatory Affairs', submittedOn: '2026-09-05T16:22:00Z', problemStatement: 'CAPA due dates are tracked manually and escalate only after they are overdue.' },
-  { id: id(5, 'r'), shortTitle: 'Legacy training tracker',
-        spotId: 'SPOT-09933', title: 'Retire the legacy training tracker', phase: 'Prioritization', status: 'Submitted', isActive: false, priorityScore: 18, requesterPersonId: id(6, 'p'), requesterName: 'Farid Haddad', departmentId: id(2, 'd'), departmentName: 'Data & Analytics', submittedOn: '2026-02-14T11:30:00Z', problemStatement: 'The legacy tracker duplicates the LMS and nobody maintains it.' },
-  { id: id(6, 'r'), shortTitle: 'Site capacity model',
-        spotId: 'SPOT-10604', title: 'Model capacity by site rather than department', phase: 'PIRT Assessment', status: 'Submitted', isActive: true, priorityScore: 55, requesterPersonId: id(8, 'p'),
-        requesterName: 'Ronn Gerra', delegatePersonId: id(1, 'p'), delegateName: 'Avery Lane', departmentId: id(1, 'd'), departmentName: 'Engineering', submittedOn: '2026-08-28T13:15:00Z', problemStatement: 'Capacity is planned by department, which hides site-level constraints.' },
-  { id: id(7, 'r'), shortTitle: 'Demand intake form',
-        spotId: 'SPOT-10450', title: 'Standardize the demand intake form', phase: 'Configuration', status: 'Approved', isActive: true, priorityScore: 61, requesterPersonId: id(4, 'p'), requesterName: 'Dana Ortiz', departmentId: id(3, 'd'), departmentName: 'Quality', submittedOn: '2026-06-09T10:02:00Z', problemStatement: 'Every department submits demand in a different format.' },
-];
-
-const functions = [
-  { id: id(1, 'f'), name: 'Software Engineering' },
-  { id: id(2, 'f'), name: 'Analytics' },
-  { id: id(3, 'f'), name: 'Quality Assurance' },
-  { id: id(4, 'f'), name: 'Regulatory' },
-];
-
-const categories = [
-  { id: id(1, 'c'), name: 'Business value', weight: 2 },
-  { id: id(2, 'c'), name: 'Risk reduction', weight: 1.5 },
-  { id: id(3, 'c'), name: 'Compliance', weight: 2.5 },
-];
+const dataService = env.demoMode ? new CsvDataService() : CsvDataService.empty();
 
 const router = Router();
 
-function patch<T extends { id: string }>(collection: T[], recordId: string, body: Record<string, unknown>): T {
-  const record = collection.find((entry) => entry.id === recordId);
+function patch(collection: Parameters<CsvDataService['update']>[0], recordId: string, body: Record<string, unknown>) {
+  const record = dataService.update(collection, recordId, body);
   if (!record) throw new HttpError(404, 'Record not found.');
-  for (const [key, value] of Object.entries(body)) {
-    if (value !== undefined) (record as Record<string, unknown>)[key] = value;
-  }
   return record;
 }
 
-/** Mirrors the real session endpoint: identity comes from the host, not a login form. */
-router.get('/auth/session', (_req, res) => {
-  const person = demoPerson();
+router.get('/auth/users', (req, res) => {
+  const search = req.query.search ? String(req.query.search).toLowerCase() : '';
+  const users = dataService.listUsers()
+    .filter((user) => !search || user.DisplayName.toLowerCase().includes(search) || user.Email.toLowerCase().includes(search))
+    .slice(0, 200);
+  res.json(users.map((user) => ({
+    id: user.UserId,
+    personId: user.UserId,
+    fullName: user.DisplayName,
+    email: user.Email,
+    jobTitle: dataService.find('people', user.UserId)?.title,
+  })));
+});
+
+/** Mirrors the real session endpoint using the selected CSV-backed user. */
+router.get('/auth/session', (req, res) => {
+  const selectedUser = dataService.findUser(String(req.query.userId ?? ''));
+  const person = selectedUser ? dataService.find('people', selectedUser.UserId) : undefined;
+  if (!selectedUser || !selectedUser.Active || !person) throw new HttpError(403, 'Select an active user.');
   const user = {
-    userId: id(9, 'u'),
+    userId: selectedUser.UserId,
     personId: person.id,
-    email: person.email,
-    name: person.name,
+    email: selectedUser.Email,
+    name: selectedUser.DisplayName,
     roles: ['admin', 'availability_moderator', 'demand_moderator', 'user'] as const,
+    departmentId: person.departmentId,
   };
   res.json({ token: signToken({ ...user, roles: [...user.roles] }), user });
 });
 
-router.get('/departments', (_req, res) => res.json(departments));
+router.get('/departments', (_req, res) => res.json(dataService.list('departments')));
 router.get('/departments/:id', asyncHandler(async (req, res) => {
-  const record = departments.find((entry) => entry.id === req.params.id);
+  const record = dataService.find('departments', req.params.id);
   if (!record) throw new HttpError(404, 'Department not found.');
   res.json(record);
 }));
 router.post('/departments', (req, res) => {
+  const departments = dataService.list('departments');
   const record = { id: id(departments.length + 1, 'd'), isActive: true, ...req.body } as (typeof departments)[number];
-  departments.push(record);
+  dataService.create('departments', record);
   res.status(201).json({ id: record.id });
 });
 router.patch('/departments/:id', asyncHandler(async (req, res) => {
-  res.json(patch(departments, req.params.id, req.body));
+  res.json(patch('departments', req.params.id, req.body));
 }));
 
-router.get('/people', (_req, res) => res.json(people));
+router.get('/people', (req, res) => {
+  const departmentId = req.query.departmentId ? String(req.query.departmentId) : undefined;
+  const functionId = req.query.functionId ? String(req.query.functionId) : undefined;
+  const search = req.query.search ? String(req.query.search).toLowerCase() : undefined;
+  const active = req.query.active !== undefined ? req.query.active === 'true' : undefined;
+  let rows = dataService.list('people');
+  if (departmentId) rows = rows.filter((row) => row.departmentId === departmentId);
+  if (functionId) rows = rows.filter((row) => row.functionId === functionId);
+  if (search) rows = rows.filter((row) => row.name.toLowerCase().includes(search) || row.email.toLowerCase().includes(search));
+  if (active !== undefined) rows = rows.filter((row) => row.isActive === active);
+  res.json(rows);
+});
 router.get('/people/:id', asyncHandler(async (req, res) => {
-  const record = people.find((entry) => entry.id === req.params.id);
+  const record = dataService.find('people', req.params.id);
   if (!record) throw new HttpError(404, 'Person not found.');
   res.json(record);
 }));
 router.post('/people', (req, res) => {
+  const people = dataService.list('people');
   const record = { id: id(people.length + 1, 'p'), isActive: true, ...req.body } as (typeof people)[number];
-  people.push(record);
+  dataService.create('people', record);
   res.status(201).json({ id: record.id });
 });
 router.patch('/people/:id', asyncHandler(async (req, res) => {
-  res.json(patch(people, req.params.id, req.body));
+  res.json(patch('people', req.params.id, req.body));
 }));
 
-router.get('/projects', (_req, res) => res.json(projects));
+router.get('/projects', (_req, res) => res.json(dataService.list('projects')));
 router.get('/projects/:id', asyncHandler(async (req, res) => {
-  const record = projects.find((entry) => entry.id === req.params.id);
+  const record = dataService.find('projects', req.params.id);
   if (!record) throw new HttpError(404, 'Project not found.');
   res.json(record);
 }));
-router.get('/projects/:id/team', (req, res) => res.json(demand.filter((row) => row.projectId === req.params.id)));
+router.get('/projects/:id/team', (req, res) => res.json(dataService.filterBy('demand', (row) => row.projectId === req.params.id)));
 router.post('/projects', (req, res) => {
+  const projects = dataService.list('projects');
   const record = { id: id(projects.length + 1, 'j'), ...req.body } as (typeof projects)[number];
-  projects.push(record);
+  dataService.create('projects', record);
   res.status(201).json({ id: record.id });
 });
 router.patch('/projects/:id', asyncHandler(async (req, res) => {
-  res.json(patch(projects, req.params.id, req.body));
+  res.json(patch('projects', req.params.id, req.body));
 }));
 
 router.get('/requests', (req, res) => {
+  const requests = dataService.list('requests');
   if (req.query.mine !== 'true') {
     res.json(requests);
     return;
   }
   const me = demoPerson().id;
-  res.json(requests.filter((row) => row.requesterPersonId === me || row.delegatePersonId === me));
+  res.json(dataService.filterBy('requests', (row) => row.requesterPersonId === me || row.delegatePersonId === me));
 });
 router.get('/requests/:id', asyncHandler(async (req, res) => {
-  const record = requests.find((entry) => entry.id === req.params.id);
+  const record = dataService.find('requests', req.params.id);
   if (!record) throw new HttpError(404, 'Request not found.');
   res.json(record);
 }));
 router.patch('/requests/:id', asyncHandler(async (req, res) => {
-  res.json(patch(requests, req.params.id, req.body));
+  res.json(patch('requests', req.params.id, req.body));
 }));
 
-router.get('/lookups/functions', (_req, res) => res.json(functions));
+router.get('/lookups/functions', (_req, res) => res.json(dataService.list('functions')));
 
-/** Capacity and demand are mocked too, otherwise these paths fall through to Dataverse. */
-const weeksOf = (hours: number, count: number) =>
-  new Array(1333).fill(0).map((_, index) => (index < count ? hours : 0));
-
-const capacity = people.map((person, index) => ({
-  id: id(index + 1, 'e'),
-  personId: person.id,
-  personName: person.name,
-  departmentId: person.departmentId,
-  departmentName: person.departmentName,
-  availabilityHours: null,
-  weeks: weeksOf(person.weeklyHours ?? 40, 26),
-  weeklyBaseline: person.weeklyHours ?? 40,
-  notes: '',
-}));
-
-const demand = [
-  { id: id(1, 'f'), projectId: id(1, 'j'), projectName: 'ClearPath Rollout', personId: id(8, 'p'), personName: 'Ronn Gerra', functionId: id(1, 'f'), functionName: 'Software Engineering', demandHours: null, weeks: weeksOf(12, 20), startWeek: 0, endWeek: 19, status: 'Committed' },
-  { id: id(2, 'f'), projectId: id(3, 'j'), projectName: 'Batch Release Automation', personId: id(8, 'p'), personName: 'Ronn Gerra', functionId: id(3, 'f'), functionName: 'Quality Assurance', demandHours: null, weeks: weeksOf(10, 14), startWeek: 0, endWeek: 13, status: 'Planned' },
-  { id: id(3, 'f'), projectId: id(1, 'j'), projectName: 'ClearPath Rollout', personId: id(3, 'p'), personName: 'Chen Wu', functionId: id(1, 'f'), functionName: 'Software Engineering', demandHours: null, weeks: weeksOf(24, 20), startWeek: 0, endWeek: 19, status: 'Committed' },
-];
-
-const nonProjectDemandHierarchy = [
-  ['Production Support', ['Batch Execution', 'Manufacturing Operations', 'Floor Support', 'Troubleshooting', 'Production Scheduling', 'MPS Support', 'Material/Supply']],
-  ['Administrative / Development', ['Tier Board Support', 'Governance', 'Reporting/KPI tracking', 'Meetings', 'Training/Upskilling', 'Time Off', 'Development activities']],
-  ['Testing / Lab Support', ['QC & Sample Testing', 'Method Development', 'Analytical/Lab Support', 'Stability/Environmental', 'QA Batch Review']],
-  ['Engineering & Technical Support', ['Preventative/Corrective Maintenance', 'Work Orders', 'Equipment Troubleshooting', 'Break/Fix', 'Validation Maintenance', 'Qualification', 'Feasibility Assessments', 'Ad Hoc SME Support']],
-  ['Operational Services', ['Manufacturing Sciences Floor Support', 'Material Qualification / Suppliers', 'Regulatory Request', 'Document Revisions']],
-  ['CI / Optimization', ['CI Initiatives', 'Process Improvements', 'Cost Reductions', 'Yield Improvements', 'AOS Maturity', 'Waste Reduction']],
-  ['Quality', ['Non-Project Change Controls', 'CAPAs', 'Investigations', 'Deviations', 'Agency Commitments', 'Regulatory Audits']],
-  ['EHS', ['EHS CAPAs', 'Environmental Compliance']],
-  ['Just Do Its', ['BetterWay', 'Minor Document Updates', 'Quick Wins']],
-  ['Functional Projects', ['Automation Improvements']],
-  ['SPOT Projects', ['Tech Transfers', 'Asset Replacements', 'Building Modifications', 'Automation Systems']],
-] as const;
-
-const seededDemandId = (family: 1 | 2, value: number) =>
-  `c${family}${String(value).padStart(6, '0')}-0000-4000-8000-${String(value).padStart(12, '0')}`;
-
-interface DemoDemandCategory {
-  id: string;
-  name: string;
-  isActive: boolean;
-}
-
-interface DemoDemandSubcategory extends DemoDemandCategory {
-  categoryId: string;
-}
-
-const nonProjectDemandCategories: DemoDemandCategory[] = nonProjectDemandHierarchy.map(([name], index) => ({
-  id: seededDemandId(1, index + 1),
-  name,
-  isActive: true,
-}));
-
-let subcategorySequence = 0;
-const nonProjectDemandSubcategories: DemoDemandSubcategory[] = nonProjectDemandHierarchy.flatMap(([, names], categoryIndex) =>
-  names.map((name) => {
-    subcategorySequence += 1;
-    return {
-      id: seededDemandId(2, subcategorySequence),
-      categoryId: nonProjectDemandCategories[categoryIndex].id,
-      name,
-      isActive: true,
-    };
-  }),
-);
-
-const nonProjectDemand = [
-  {
-    id: 'a1000001-0000-4000-8000-000000000001',
-    categoryId: nonProjectDemandCategories[0].id,
-    categoryName: nonProjectDemandCategories[0].name,
-    subcategoryId: nonProjectDemandSubcategories[0].id,
-    subcategoryName: nonProjectDemandSubcategories[0].name,
-    personId: id(1, 'p'),
-    departmentId: id(1, 'd'),
-    description: 'Ongoing coverage',
-    weeks: weeksOf(6, 20),
-  },
-  {
-    id: 'a1000002-0000-4000-8000-000000000002',
-    categoryId: nonProjectDemandCategories[1].id,
-    categoryName: nonProjectDemandCategories[1].name,
-    subcategoryId: nonProjectDemandSubcategories[7].id,
-    subcategoryName: nonProjectDemandSubcategories[7].name,
-    personId: id(3, 'p'),
-    departmentId: id(1, 'd'),
-    description: 'Weekly governance sync',
-    weeks: weeksOf(4, 16),
-  },
-];
-
-const demoPerson = () => people.find((entry) => entry.email === env.devUserEmail) ?? people[people.length - 1];
+const demoPerson = () => dataService.findPersonByEmail(env.devUserEmail);
 
 router.get('/capacity', (req, res) => {
-  const personId = req.query.mine === 'true' ? demoPerson().id : String(req.query.personId ?? '');
-  res.json(personId ? capacity.filter((row) => row.personId === personId) : capacity);
+  const personId = req.query.mine === 'true' ? demoPerson().id : req.query.personId ? String(req.query.personId) : undefined;
+  const departmentId = req.query.departmentId ? String(req.query.departmentId) : undefined;
+  let rows = dataService.listCapacity();
+  if (personId) rows = rows.filter((row) => row.personId === personId);
+  if (departmentId) rows = rows.filter((row) => row.departmentId === departmentId);
+  res.json(rows);
 });
 
-router.get('/capacity/person/:personId/net', (req, res) => {  const availability = capacity
-    .filter((row) => row.personId === req.params.personId)
+router.get('/capacity/person/:personId/net', (req, res) => {  const availability = dataService.listCapacity().filter((row) => row.personId === req.params.personId)
     .reduce<number[]>((total, row) => row.weeks.map((value, i) => (total[i] ?? 0) + value), new Array(1333).fill(0));
-  const committed = demand
-    .filter((row) => row.personId === req.params.personId)
+  const committed = dataService.listDemand().filter((row) => row.personId === req.params.personId)
     .reduce<number[]>((total, row) => row.weeks.map((value, i) => (total[i] ?? 0) + value), new Array(1333).fill(0));
   res.json({
     personId: req.params.personId,
@@ -285,7 +160,8 @@ router.get('/capacity/person/:personId/net', (req, res) => {  const availability
 });
 
 router.post('/capacity', (req, res) => {
-  const person = people.find((entry) => entry.id === req.body?.personId);
+  const person = dataService.find('people', req.body?.personId);
+  const capacity = dataService.list('capacity');
   if (person && capacity.some((row) => row.personId === person.id)) {
     res.status(409).json({ error: 'That person already has an availability record.' });
     return;
@@ -305,60 +181,51 @@ router.post('/capacity', (req, res) => {
     weeklyBaseline: baseline,
     notes: '',
   } as (typeof capacity)[number];
-  capacity.push(record);
+  dataService.create('capacity', record);
   res.status(201).json({ id: record.id });
 });
 
 router.patch('/capacity/:id/weeks', asyncHandler(async (req, res) => {
-  const record = capacity.find((entry) => entry.id === req.params.id);
-  if (!record) throw new HttpError(404, 'Availability row not found.');
-  const { week, startWeek, endWeek, hours } = req.body ?? {};
-  if (Number.isFinite(week)) {
-    record.weeks[week] = hours;
-  } else if (Number.isFinite(startWeek) && Number.isFinite(endWeek)) {
-    for (let i = startWeek; i <= endWeek && i < record.weeks.length; i += 1) record.weeks[i] = hours;
-  } else {
+  const { week, startWeek, endWeek } = req.body ?? {};
+  if (!Number.isFinite(week) && !(Number.isFinite(startWeek) && Number.isFinite(endWeek))) {
     throw new HttpError(400, 'Provide either week or startWeek/endWeek.');
   }
+  const record = dataService.updateWeeks('capacity', req.params.id, req.body ?? {});
+  if (!record) throw new HttpError(404, 'Availability row not found.');
   res.json({ id: record.id, weeks: record.weeks });
 }));
 
 router.patch('/capacity/:id', asyncHandler(async (req, res) => {
-  res.json(patch(capacity, req.params.id, req.body));
+  res.json(patch('capacity', req.params.id, req.body));
 }));
 
 router.delete('/capacity/:id', (req, res) => {
-  const index = capacity.findIndex((entry) => entry.id === req.params.id);
-  if (index >= 0) capacity.splice(index, 1);
+  dataService.remove('capacity', req.params.id);
   res.status(204).end();
 });
 
 router.get('/demand', (req, res) => {
   const personId = req.query.mine === 'true' ? demoPerson().id : String(req.query.personId ?? '');  const projectId = String(req.query.projectId ?? '');
-  let rows = demand;
+  let rows = dataService.list('demand');
   if (personId) rows = rows.filter((row) => row.personId === personId);
   if (projectId) rows = rows.filter((row) => row.projectId === projectId);
   res.json(rows);
-});router.get('/prioritization/categories', (_req, res) => res.json(categories));
-router.get('/users', (_req, res) =>
-  res.json(people.map((person) => ({ id: person.id, fullName: person.name, email: person.email }))),
-);
+});router.get('/prioritization/categories', (_req, res) => res.json(dataService.list('categories')));
+router.get('/users', (req, res) => {
+  const search = req.query.search ? String(req.query.search).toLowerCase() : '';
+  const people = dataService.list('people')
+    .filter((person) => !search || person.name.toLowerCase().includes(search) || person.email.toLowerCase().includes(search));
+  res.json(people.map((person) => ({ id: person.id, personId: person.id, fullName: person.name, email: person.email })));
+});
 router.get('/admin/portfolio-summary', (_req, res) =>
-  res.json({
-    projectCount: projects.length,
-    requestCount: requests.length,
-    peopleWithCapacity: people.length,
-    demandRows: 12,
-    availability: new Array(1333).fill(0).map((_, i) => (i < 26 ? 38 : 0)),
-    demand: new Array(1333).fill(0).map((_, i) => (i < 26 ? 31 : 0)),
-    net: new Array(1333).fill(0).map((_, i) => (i < 26 ? 7 : 0)),
-  }),
+  res.json(dataService.getPortfolioSummary()),
 );
 
 router.post('/demand', (req, res) => {
-  const person = people.find((entry) => entry.id === req.body?.personId);
-  const project = projects.find((entry) => entry.id === req.body?.projectId);
-  const fn = functions.find((entry) => entry.id === req.body?.functionId);
+  const person = dataService.find('people', req.body?.personId);
+  const project = dataService.find('projects', req.body?.projectId);
+  const fn = dataService.find('functions', req.body?.functionId);
+  const demand = dataService.list('demand');
   if (person && demand.some((row) => row.projectId === req.body?.projectId && row.personId === person.id)) {
     res.status(409).json({ error: 'That person is already on this project team.' });
     return;
@@ -386,43 +253,101 @@ router.post('/demand', (req, res) => {
     endWeek: 0,
     status: 'Planned',
   } as (typeof demand)[number];
-  demand.push(record);
+  dataService.create('demand', record);
   res.status(201).json({ id: record.id });
 });
 
 router.patch('/demand/:id/weeks', asyncHandler(async (req, res) => {
-  const record = demand.find((entry) => entry.id === req.params.id);
-  if (!record) throw new HttpError(404, 'Demand row not found.');
-  const { week, startWeek, endWeek, hours } = req.body ?? {};
-  if (Number.isFinite(week)) {
-    record.weeks[week] = hours;
-  } else if (Number.isFinite(startWeek) && Number.isFinite(endWeek)) {
-    for (let i = startWeek; i <= endWeek && i < record.weeks.length; i += 1) record.weeks[i] = hours;
-  } else {
+  const { week, startWeek, endWeek } = req.body ?? {};
+  if (!Number.isFinite(week) && !(Number.isFinite(startWeek) && Number.isFinite(endWeek))) {
     throw new HttpError(400, 'Provide either week or startWeek/endWeek.');
   }
+  const record = dataService.updateWeeks('demand', req.params.id, req.body ?? {});
+  if (!record) throw new HttpError(404, 'Demand row not found.');
   res.json({ id: record.id, weeks: record.weeks });
 }));
 
 router.patch('/demand/:id', asyncHandler(async (req, res) => {
-  res.json(patch(demand, req.params.id, req.body));
+  res.json(patch('demand', req.params.id, req.body));
 }));
 
-router.get('/non-project-demand/categories', (_req, res) => res.json(nonProjectDemandCategories));
+router.get('/skills/categories', (_req, res) => res.json(dataService.listSkillCategories()));
+
+router.post('/skills/categories', (req, res) => {
+  const name = String(req.body?.name ?? '').trim();
+  if (!name) throw new HttpError(400, 'Category name is required.');
+  if (dataService.listSkillCategories().some((category) => category.name.toLowerCase() === name.toLowerCase())) {
+    throw new HttpError(409, 'That skill category already exists.');
+  }
+  const category = dataService.createSkillCategory(name);
+  res.status(201).json({ id: category.id });
+});
+
+router.patch('/skills/categories/:id', (req, res) => {
+  const category = dataService.updateSkillCategory(req.params.id, {
+    name: typeof req.body?.name === 'string' ? req.body.name.trim() : undefined,
+    isActive: typeof req.body?.isActive === 'boolean' ? req.body.isActive : undefined,
+  });
+  if (!category) throw new HttpError(404, 'Skill category not found.');
+  res.json({ id: category.id });
+});
+
+router.get('/skills', (req, res) => {
+  const categoryId = req.query.categoryId ? String(req.query.categoryId) : undefined;
+  res.json(dataService.listSkills(categoryId));
+});
+
+/** Any authenticated user can add a new skill to an existing category. */
+router.post('/skills', (req, res) => {
+  const categoryId = String(req.body?.categoryId ?? '');
+  const name = String(req.body?.name ?? '').trim();
+  const category = dataService.findSkillCategory(categoryId);
+  if (!category?.isActive) throw new HttpError(404, 'Active skill category not found.');
+  if (!name) throw new HttpError(400, 'Skill name is required.');
+  if (dataService.listSkills(categoryId).some((skill) => skill.name.toLowerCase() === name.toLowerCase())) {
+    throw new HttpError(409, 'That skill already exists in this category.');
+  }
+  const skill = dataService.createSkill(categoryId, name);
+  res.status(201).json({ id: skill.id });
+});
+
+router.patch('/skills/:id', (req, res) => {
+  const skill = dataService.updateSkill(req.params.id, {
+    name: typeof req.body?.name === 'string' ? req.body.name.trim() : undefined,
+    isActive: typeof req.body?.isActive === 'boolean' ? req.body.isActive : undefined,
+  });
+  if (!skill) throw new HttpError(404, 'Skill not found.');
+  res.json({ id: skill.id });
+});
+
+router.get('/skills/people/:personId', (req, res) => res.json(dataService.listPersonSkills(req.params.personId)));
+
+router.post('/skills/people/:personId', (req, res) => {
+  const skillId = String(req.body?.skillId ?? '');
+  const record = dataService.addPersonSkill(req.params.personId, skillId);
+  if (!record) throw new HttpError(404, 'Skill not found.');
+  res.status(201).json({ id: record.id });
+});
+
+router.delete('/skills/people/:personId/:skillId', (req, res) => {
+  dataService.removePersonSkill(req.params.personId, req.params.skillId);
+  res.status(204).end();
+});
+
+router.get('/non-project-demand/categories', (_req, res) => res.json(dataService.listNonProjectDemandCategories()));
 
 router.post('/non-project-demand/categories', (req, res) => {
   const name = String(req.body?.name ?? '').trim();
   if (!name) throw new HttpError(400, 'Category name is required.');
-  if (nonProjectDemandCategories.some((category) => category.name.toLowerCase() === name.toLowerCase())) {
+  if (dataService.listNonProjectDemandCategories().some((category) => category.name.toLowerCase() === name.toLowerCase())) {
     throw new HttpError(409, 'That non-project demand category already exists.');
   }
-  const category = { id: id(nonProjectDemandCategories.length + 20, 'c'), name, isActive: true };
-  nonProjectDemandCategories.push(category);
+  const category = dataService.createNonProjectDemandCategory(name);
   res.status(201).json({ id: category.id });
 });
 
 router.patch('/non-project-demand/categories/:id', (req, res) => {
-  const category = nonProjectDemandCategories.find((entry) => entry.id === req.params.id);
+  const category = dataService.findNonProjectDemandCategory(req.params.id);
   if (!category) throw new HttpError(404, 'Non-project demand category not found.');
   if (req.body?.name !== undefined) category.name = String(req.body.name).trim();
   if (req.body?.isActive !== undefined) category.isActive = Boolean(req.body.isActive);
@@ -431,25 +356,24 @@ router.patch('/non-project-demand/categories/:id', (req, res) => {
 
 router.get('/non-project-demand/subcategories', (req, res) => {
   const categoryId = req.query.categoryId ? String(req.query.categoryId) : undefined;
-  res.json(nonProjectDemandSubcategories.filter((subcategory) => !categoryId || subcategory.categoryId === categoryId));
+  res.json(dataService.listNonProjectDemandSubcategories(categoryId));
 });
 
 router.post('/non-project-demand/subcategories', (req, res) => {
   const categoryId = String(req.body?.categoryId ?? '');
   const name = String(req.body?.name ?? '').trim();
-  if (!nonProjectDemandCategories.some((category) => category.id === categoryId && category.isActive)) {
+  if (!dataService.findNonProjectDemandCategory(categoryId)?.isActive) {
     throw new HttpError(404, 'Active non-project demand category not found.');
   }
-  if (nonProjectDemandSubcategories.some((subcategory) => subcategory.categoryId === categoryId && subcategory.name.toLowerCase() === name.toLowerCase())) {
+  if (dataService.listNonProjectDemandSubcategories(categoryId).some((subcategory) => subcategory.name.toLowerCase() === name.toLowerCase())) {
     throw new HttpError(409, 'That subcategory already exists in this category.');
   }
-  const subcategory = { id: id(nonProjectDemandSubcategories.length + 40, 'c'), categoryId, name, isActive: true };
-  nonProjectDemandSubcategories.push(subcategory);
+  const subcategory = dataService.createNonProjectDemandSubcategory(categoryId, name);
   res.status(201).json({ id: subcategory.id });
 });
 
 router.patch('/non-project-demand/subcategories/:id', (req, res) => {
-  const subcategory = nonProjectDemandSubcategories.find((entry) => entry.id === req.params.id);
+  const subcategory = dataService.findNonProjectDemandSubcategory(req.params.id);
   if (!subcategory) throw new HttpError(404, 'Non-project demand subcategory not found.');
   if (req.body?.name !== undefined) subcategory.name = String(req.body.name).trim();
   if (req.body?.isActive !== undefined) subcategory.isActive = Boolean(req.body.isActive);
@@ -460,20 +384,18 @@ router.get('/non-project-demand', (req, res) => {
   const personId = req.query.personId ? String(req.query.personId) : undefined;
   const departmentId = req.query.departmentId ? String(req.query.departmentId) : undefined;
   res.json(
-    nonProjectDemand.filter(
-      (row) => (!personId || row.personId === personId) && (!departmentId || row.departmentId === departmentId),
-    ),
+    dataService.listNonProjectDemand(personId, departmentId),
   );
 });
 
 router.post('/non-project-demand', (req, res) => {
-  const subcategory = nonProjectDemandSubcategories.find((entry) => entry.id === req.body?.subcategoryId && entry.isActive);
-  const category = nonProjectDemandCategories.find((entry) => entry.id === subcategory?.categoryId && entry.isActive);
+  const subcategory = dataService.findNonProjectDemandSubcategory(String(req.body?.subcategoryId ?? ''));
+  const category = subcategory ? dataService.findNonProjectDemandCategory(subcategory.categoryId) : undefined;
   if (!subcategory || !category) throw new HttpError(404, 'Active non-project demand subcategory not found.');
   const description = String(req.body?.description ?? '').trim();
   if (!description) throw new HttpError(400, 'Description is required.');
   const row = {
-    id: id(nonProjectDemand.length + 30, 'n'),
+    id: id(dataService.listNonProjectDemand().length + 30, 'n'),
     categoryId: category.id,
     categoryName: category.name,
     subcategoryId: subcategory.id,
@@ -481,14 +403,15 @@ router.post('/non-project-demand', (req, res) => {
     personId: String(req.body?.personId ?? ''),
     departmentId: String(req.body?.departmentId ?? ''),
     description,
-    weeks: weeksOf(0, 0),
+    weeks: new Array(1333).fill(0),
+    isActive: true,
   };
-  nonProjectDemand.push(row);
+  dataService.createNonProjectDemand(row);
   res.status(201).json({ id: row.id });
 });
 
 router.patch('/non-project-demand/:id/weeks', (req, res) => {
-  const row = nonProjectDemand.find((entry) => entry.id === req.params.id);
+  const row = dataService.findNonProjectDemand(req.params.id);
   if (!row) throw new HttpError(404, 'Non-project demand row not found.');
   const { week, startWeek, endWeek, hours } = req.body ?? {};
   if (Number.isFinite(week)) row.weeks[week] = hours;
@@ -498,15 +421,22 @@ router.patch('/non-project-demand/:id/weeks', (req, res) => {
   res.json({ id: row.id, weeks: row.weeks });
 });
 
+router.patch('/non-project-demand/:id', (req, res) => {
+  const row = dataService.updateNonProjectDemand(req.params.id, {
+    isActive: typeof req.body?.isActive === 'boolean' ? req.body.isActive : undefined,
+    description: typeof req.body?.description === 'string' ? req.body.description : undefined,
+  });
+  if (!row) throw new HttpError(404, 'Non-project demand row not found.');
+  res.json({ id: row.id });
+});
+
 router.delete('/non-project-demand/:id', (req, res) => {
-  const index = nonProjectDemand.findIndex((entry) => entry.id === req.params.id);
-  if (index >= 0) nonProjectDemand.splice(index, 1);
+  dataService.removeNonProjectDemand(req.params.id);
   res.status(204).end();
 });
 
 router.delete('/demand/:id', (req, res) => {
-  const index = demand.findIndex((entry) => entry.id === req.params.id);
-  if (index >= 0) demand.splice(index, 1);
+  dataService.remove('demand', req.params.id);
   res.status(204).end();
 });
 

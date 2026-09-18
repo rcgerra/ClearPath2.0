@@ -19,6 +19,7 @@ import peopleRoutes from './routes/people';
 import prioritizationRoutes from './routes/prioritization';
 import projectRoutes from './routes/projects';
 import requestRoutes from './routes/requests';
+import skillsRoutes from './routes/skills';
 import userRoutes from './routes/users';
 
 assertProductionSecrets();
@@ -55,6 +56,7 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/requests', requestRoutes);
 app.use('/api/demand', demandRoutes);
 app.use('/api/non-project-demand', nonProjectDemandRoutes);
+app.use('/api/skills', skillsRoutes);
 app.use('/api/capacity', capacityRoutes);
 app.use('/api/prioritization', prioritizationRoutes);
 app.use('/api/users', userRoutes);

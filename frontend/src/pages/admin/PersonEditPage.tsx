@@ -1,8 +1,11 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { departmentsApi, errorMessage, lookupsApi, peopleApi, usersApi } from '../../api/client';
+import { departmentsApi, errorMessage, peopleApi, usersApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
+import SkillsCard from '../../components/SkillsCard';
+import { useAuthStore } from '../../store/authStore';
+import { canEditAvailability } from '../../utils/permissions';
 
 const EMPLOYMENT_TYPES = ['FTE', 'Contractor'];
 
@@ -13,15 +16,24 @@ export default function PersonEditPage() {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState('');
+  const [directoryUserId, setDirectoryUserId] = useState('');
+  const [departmentId, setDepartmentId] = useState('');
+  const [isActive, setIsActive] = useState(true);
 
   const person = useQuery({ queryKey: ['person', id], queryFn: () => peopleApi.get(id!), enabled: !isNew });
   const departments = useQuery({ queryKey: ['departments'], queryFn: departmentsApi.list });
-  const functions = useQuery({ queryKey: ['lookups', 'functions'], queryFn: () => lookupsApi.list('functions') });
   const directory = useQuery({
     queryKey: ['users', userSearch],
     queryFn: () => usersApi.search(userSearch),
     enabled: isNew && userSearch.length > 2,
   });
+
+  const current = person.data;
+
+  useEffect(() => {
+    setDepartmentId(current?.departmentId ?? '');
+    setIsActive(current?.isActive !== false);
+  }, [current?.id]);
 
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) => (isNew ? peopleApi.create(body) : peopleApi.update(id!, body)),
@@ -33,36 +45,44 @@ export default function PersonEditPage() {
     onError: (err) => setError(errorMessage(err)),
   });
 
+  const selectedDirectoryUser = directory.data?.find((entry) => entry.id === directoryUserId);
+  const selectedDepartment = departments.data?.find((dept) => dept.id === departmentId);
+  const email = selectedDirectoryUser?.email ?? current?.email ?? '';
+  const title = selectedDirectoryUser?.jobTitle ?? current?.title ?? '';
+  const functionName = selectedDepartment?.functionName ?? 'Inferred from department';
+  const authUser = useAuthStore((state) => state.user);
+  const canEditSkills = Boolean(current) && canEditAvailability(authUser, { personId: current?.id, department: selectedDepartment });
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     const form = new FormData(event.currentTarget);
     const text = (key: string) => String(form.get(key) || '').trim() || undefined;
-    const directoryId = text('userId');
-    const selected = directory.data?.find((entry) => entry.id === directoryId);
-    const weeklyHours = Number(form.get('weeklyHours'));
 
     save.mutate({
-      name: selected?.fullName ?? text('name'),
-      email: selected?.email ?? text('email'),
-      userId: directoryId,
-      departmentId: text('departmentId'),
-      functionId: text('functionId'),
+      name: selectedDirectoryUser?.fullName ?? text('name'),
+      email: email || undefined,
+      userId: directoryUserId || undefined,
+      departmentId: departmentId || undefined,
       employmentType: text('employmentType'),
-      title: text('title'),
+      title: title || undefined,
       role: text('role'),
-      weeklyHours: Number.isFinite(weeklyHours) && weeklyHours > 0 ? weeklyHours : undefined,
-      isActive: form.get('isActive') === 'on',
+      isActive,
     });
   }
-
-  const current = person.data;
 
   return (
     <AccentSection
       accent="people"
       title={isNew ? 'New person' : (current?.name ?? 'Edit person')}
       subtitle={isNew ? 'Add someone to the roster.' : 'Update roster details.'}
+      actions={
+        <label className="switch" style={{ margin: 0 }}>
+          <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
+          <span className="switch-track" aria-hidden="true" />
+          <span className="switch-label">{isActive ? 'Active' : 'Inactive'}</span>
+        </label>
+      }
     >
       {error && <div className="alert error">{error}</div>}
       {!isNew && person.isLoading ? (
@@ -82,7 +102,7 @@ export default function PersonEditPage() {
               </div>
               <div className="field">
                 <label htmlFor="userId">Linked directory user</label>
-                <select id="userId" name="userId">
+                <select id="userId" name="userId" value={directoryUserId} onChange={(event) => setDirectoryUserId(event.target.value)}>
                   <option value="">— not linked —</option>
                   {directory.data?.map((entry) => (
                     <option key={entry.id} value={entry.id}>
@@ -101,14 +121,14 @@ export default function PersonEditPage() {
             </div>
             <div className="field">
               <label htmlFor="email">Email</label>
-              <input id="email" name="email" type="email" maxLength={320} defaultValue={current?.email ?? ''} />
+              <input id="email" value={email} disabled title="Sourced from Active Directory" />
             </div>
           </div>
 
           <div className="grid cols-3">
             <div className="field">
               <label htmlFor="departmentId">Department</label>
-              <select id="departmentId" name="departmentId" defaultValue={current?.departmentId ?? ''}>
+              <select id="departmentId" name="departmentId" value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>
                 <option value="">—</option>
                 {departments.data?.map((dept) => (
                   <option key={dept.id} value={dept.id}>
@@ -118,15 +138,8 @@ export default function PersonEditPage() {
               </select>
             </div>
             <div className="field">
-              <label htmlFor="functionId">Function</label>
-              <select id="functionId" name="functionId" defaultValue={current?.functionId ?? ''}>
-                <option value="">—</option>
-                {functions.data?.map((fn) => (
-                  <option key={fn.id} value={fn.id}>
-                    {fn.name}
-                  </option>
-                ))}
-              </select>
+              <label htmlFor="functionDisplay">Function</label>
+              <input id="functionDisplay" value={functionName} disabled />
             </div>
             <div className="field">
               <label htmlFor="employmentType">Employment type</label>
@@ -140,10 +153,10 @@ export default function PersonEditPage() {
             </div>
           </div>
 
-          <div className="grid cols-3">
+          <div className="grid cols-2">
             <div className="field">
               <label htmlFor="title">Job title</label>
-              <input id="title" name="title" maxLength={200} defaultValue={current?.title ?? ''} />
+              <input id="title" value={title} disabled title="Sourced from Active Directory" />
             </div>
             <div className="field">
               <label htmlFor="role">App roles (semicolon separated)</label>
@@ -155,24 +168,7 @@ export default function PersonEditPage() {
                 defaultValue={current?.role ?? ''}
               />
             </div>
-            <div className="field">
-              <label htmlFor="weeklyHours">Weekly hours</label>
-              <input
-                id="weeklyHours"
-                name="weeklyHours"
-                type="number"
-                min={0}
-                max={99}
-                defaultValue={current?.weeklyHours ?? 40}
-              />
-            </div>
           </div>
-
-          <label className="switch" style={{ marginBottom: '1rem' }}>
-            <input type="checkbox" name="isActive" defaultChecked={current?.isActive !== false} />
-            <span className="switch-track" aria-hidden="true" />
-            <span className="switch-label">Active</span>
-          </label>
 
           <div className="row-actions">
             <button className="accent-button" type="submit" disabled={save.isPending}>
@@ -183,6 +179,9 @@ export default function PersonEditPage() {
             </button>
           </div>
         </form>
+      )}
+      {!isNew && current && (
+        <SkillsCard personId={current.id} canEdit={canEditSkills} subtitle="Skills recorded on this person's profile." />
       )}
     </AccentSection>
   );

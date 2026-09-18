@@ -26,6 +26,12 @@ const AREAS = [
     description: 'Roster — department, employment type and status.',
   },
   {
+    to: '/admin/skills',
+    accent: 'people',
+    title: 'Skills',
+    description: 'Maintain the skill categories people can select from.',
+  },
+  {
     to: '/admin/access',
     accent: 'access',
     title: 'Security Roles',

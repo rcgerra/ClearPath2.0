@@ -24,7 +24,7 @@ export const env = {
 
   jwtSecret: process.env.JWT_SECRET ?? 'change-me-in-production',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '8h',
-  /** 'dev' allows directory-only sign-in; 'entra' requires an Entra ID access token. */
+  /** Temporary user selection; 'entra' is reserved for the future Entra migration. */
   authMode: (process.env.AUTH_MODE ?? 'dev') as 'dev' | 'entra',
   /** Serves in-memory sample data instead of Dataverse so the UI can be reviewed without credentials. */
   demoMode: bool(process.env.DEMO_MODE, false),
@@ -68,10 +68,7 @@ export function assertProductionSecrets(): void {
   if (env.jwtSecret === 'change-me-in-production' || env.jwtSecret.length < 32) {
     throw new Error('JWT_SECRET must be set to a strong value (>=32 chars) in production.');
   }
-  if (!isDataverseConfigured()) {
-    throw new Error('Dataverse connection settings are required in production.');
-  }
-  if (env.authMode !== 'entra') {
-    throw new Error('AUTH_MODE must be "entra" in production; directory-only sign-in is for local development.');
+  if (!env.sql.enabled) {
+    throw new Error('SQL Server must be enabled in production.');
   }
 }

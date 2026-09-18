@@ -1,20 +1,15 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import * as dv from '../dataverse/client';
-import { COLUMNS, formatted } from '../dataverse/fields';
-import { authenticate, requireRole } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
-import { assertAvailabilityEditable, ownerForCapacity } from '../middleware/recordAccess';
-import { aggregateArrays, decodeArray, encodeArray, setWeekRange, setWeekValue } from '../utils/arrayParser';
+import { assertAvailabilityEditable } from '../middleware/recordAccess';
+import { capacityRepository } from '../repositories/sql';
 
 const router = Router();
-const C = COLUMNS.capacity;
-const D = COLUMNS.demand;
-const select = [C.id, C.name, C.personId, C.departmentId, C.hoursArray, C.weeklyBaseline, C.notes, C.isActive];
 
 const upsertSchema = z.object({
-  personId: z.string().uuid(),
-  departmentId: z.string().uuid().optional(),
+  personId: z.string().min(1),
+  departmentId: z.string().min(1).optional(),
   name: z.string().max(200).optional(),
   notes: z.string().max(2000).optional(),
   isActive: z.boolean().optional(),
@@ -29,141 +24,85 @@ const weekUpdateSchema = z.object({
   hours: z.number().int().min(0).max(99),
 });
 
-function toCapacity(record: Record<string, unknown>) {
+function toCapacity(record: Awaited<ReturnType<typeof capacityRepository.findByIdentifier>>) {
+  if (!record) throw new HttpError(404, 'Capacity record not found.');
   return {
-    id: record[C.id],
-    name: record[C.name],
-    personId: record[C.personId],
-    personName: formatted(record, C.personId),
-    departmentId: record[C.departmentId],
-    departmentName: formatted(record, C.departmentId),
-    availabilityHours: record[C.hoursArray],
-    weeks: decodeArray(record[C.hoursArray] as string | null),
-    weeklyBaseline: record[C.weeklyBaseline],
-    notes: record[C.notes],
-    isActive: record[C.isActive],
+    id: record.CapacityApiId,
+    name: record.PersonName,
+    personId: record.PersonApiId,
+    personName: record.PersonName,
+    departmentId: record.DepartmentApiId,
+    departmentName: record.DepartmentName,
+    availabilityHours: record.AvailabilityHours,
+    weeks: record.Weeks,
+    weeklyBaseline: record.WeeklyBaseline,
+    notes: record.Notes,
+    isActive: record.IsActive,
   };
 }
 
 router.use(authenticate);
 
-router.get(
-  '/',
-  asyncHandler(async (req, res) => {
-    const filters: string[] = [];
-    if (req.query.personId) filters.push(`${C.personId} eq ${dv.encodeGuid(String(req.query.personId))}`);
-    if (req.query.departmentId) filters.push(`${C.departmentId} eq ${dv.encodeGuid(String(req.query.departmentId))}`);
-    if (req.query.mine === 'true') {
-      if (!req.user?.personId) throw new HttpError(400, 'No person record is linked to your account.');
-      filters.push(`${C.personId} eq ${dv.encodeGuid(req.user.personId)}`);
-    }
-    const records = await dv.list('capacity', { select, filter: filters.join(' and ') || undefined, top: 5000 });
-    res.json(records.map(toCapacity));
-  }),
-);
+router.get('/', asyncHandler(async (req, res) => {
+  if (req.query.mine === 'true' && !req.user?.personId) throw new HttpError(400, 'No person record is linked to your account.');
+  const records = await capacityRepository.list({
+    includeInactive: true,
+    personId: req.query.mine === 'true' ? req.user?.personId : req.query.personId ? String(req.query.personId) : undefined,
+    departmentId: req.query.departmentId ? String(req.query.departmentId) : undefined,
+  });
+  res.json(records.map((record) => toCapacity(record)));
+}));
 
-/** Availability minus committed demand, per week, for one person. */
-router.get(
-  '/person/:personId/net',
-  asyncHandler(async (req, res) => {
-    const personId = dv.encodeGuid(req.params.personId);
-    const [capacity, demand] = await Promise.all([
-      dv.list('capacity', { select: [C.id, C.hoursArray], filter: `${C.personId} eq ${personId}`, top: 100 }),
-      dv.list('demand', {
-        select: [D.id, D.projectId, D.hoursArray],
-        filter: `${D.personId} eq ${personId}`,
-        top: 1000,
-      }),
-    ]);
+router.get('/person/:personId/net', asyncHandler(async (req, res) => {
+  res.json(await capacityRepository.net(req.params.personId));
+}));
 
-    const availability = aggregateArrays(capacity.map((row) => row[C.hoursArray] as string | null));
-    const committed = aggregateArrays(demand.map((row) => row[D.hoursArray] as string | null));
-    res.json({
-      personId,
-      availability,
-      demand: committed,
-      net: availability.map((value, index) => value - committed[index]),
-      overAllocatedWeeks: availability
-        .map((value, index) => ({ week: index, over: committed[index] - value }))
-        .filter((entry) => entry.over > 0),
-    });
-  }),
-);
+router.post('/', asyncHandler(async (req, res) => {
+  const input = upsertSchema.parse(req.body);
+  await assertAvailabilityEditable(req.user, { personId: input.personId, departmentId: input.departmentId });
+  const personId = await capacityRepository.resolvePersonId(input.personId);
+  if (!personId) throw new HttpError(404, 'Person not found.');
+  const id = await capacityRepository.create({ PersonId: personId, WeeklyBaseline: input.weeklyBaseline, Notes: input.notes }, input.weeks ?? []);
+  const created = await capacityRepository.findByIdentifier(String(id));
+  res.status(201).json({ id: toCapacity(created).id });
+}));
 
-router.post(
-  '/',
-  asyncHandler(async (req, res) => {
-    const input = upsertSchema.parse(req.body);
-    await assertAvailabilityEditable(req.user, { personId: input.personId, departmentId: input.departmentId });
-    const record: Record<string, unknown> = {
-      [C.hoursArray]: encodeArray(input.weeks ?? []),
-    };
-    if (input.name) record[C.name] = input.name;
-    if (input.notes !== undefined) record[C.notes] = input.notes;
-    if (input.weeklyBaseline !== undefined) record[C.weeklyBaseline] = input.weeklyBaseline;
-    Object.assign(record, await dv.lookupBind(C.personBind, 'new_people', input.personId));
-    if (input.departmentId) {
-      Object.assign(record, await dv.lookupBind(C.departmentBind, 'new_department', input.departmentId));
-    }
-    res.status(201).json({ id: await dv.create('capacity', record) });
-  }),
-);
+router.patch('/:id/weeks', asyncHandler(async (req, res) => {
+  const input = weekUpdateSchema.parse(req.body);
+  const current = await capacityRepository.findByIdentifier(req.params.id);
+  if (!current) throw new HttpError(404, 'Capacity record not found.');
+  await assertAvailabilityEditable(req.user, { personId: current.PersonApiId, departmentId: current.DepartmentApiId ?? undefined });
+  if (input.week !== undefined) {
+    const updated = await capacityRepository.setWeek(current.CapacityId, input.week, input.hours);
+    if (!updated) throw new HttpError(404, 'Capacity record not found.');
+    res.json({ id: req.params.id, weeks: updated.Weeks });
+    return;
+  }
+  if (input.startWeek === undefined || input.endWeek === undefined) throw new HttpError(400, 'Provide either week or startWeek/endWeek.');
+  if (input.endWeek < input.startWeek) throw new HttpError(400, 'endWeek must be on or after startWeek.');
+  const updated = await capacityRepository.setRange(current.CapacityId, input.startWeek, input.endWeek, input.hours);
+  if (!updated) throw new HttpError(404, 'Capacity record not found.');
+  res.json({ id: req.params.id, weeks: updated.Weeks });
+}));
 
-router.patch(
-  '/:id/weeks',
-  asyncHandler(async (req, res) => {
-    const input = weekUpdateSchema.parse(req.body);
-    const current = (await dv.retrieve('capacity', req.params.id, {
-      select: [C.id, C.personId, C.departmentId, C.hoursArray],
-    })) as Record<string, unknown>;
+router.patch('/:id', asyncHandler(async (req, res) => {
+  const current = await capacityRepository.findByIdentifier(req.params.id);
+  if (!current) throw new HttpError(404, 'Capacity record not found.');
+  await assertAvailabilityEditable(req.user, { personId: current.PersonApiId, departmentId: current.DepartmentApiId ?? undefined });
+  const input = upsertSchema.partial().parse(req.body);
+  const personId = input.personId ? await capacityRepository.resolvePersonId(input.personId) : undefined;
+  const updated = await capacityRepository.update(current.CapacityId, { PersonId: personId ?? undefined, WeeklyBaseline: input.weeklyBaseline, Notes: input.notes }, input.weeks);
+  if (input.isActive === false) await capacityRepository.deactivate(current.CapacityId);
+  if (!updated) throw new HttpError(404, 'Capacity record not found.');
+  res.json({ id: req.params.id });
+}));
 
-    await assertAvailabilityEditable(req.user, {
-      personId: current[C.personId] ? String(current[C.personId]) : undefined,
-      departmentId: current[C.departmentId] ? String(current[C.departmentId]) : undefined,
-    });
-
-    const existing = (current[C.hoursArray] as string | null) ?? null;
-    let encoded: string;
-    if (input.week !== undefined) {
-      encoded = setWeekValue(existing, input.week, input.hours);
-    } else if (input.startWeek !== undefined && input.endWeek !== undefined) {
-      if (input.endWeek < input.startWeek) throw new HttpError(400, 'endWeek must be on or after startWeek.');
-      encoded = setWeekRange(existing, input.startWeek, input.endWeek, input.hours);
-    } else {
-      throw new HttpError(400, 'Provide either week or startWeek/endWeek.');
-    }
-
-    await dv.update('capacity', req.params.id, { [C.hoursArray]: encoded });
-    res.json({ id: req.params.id, weeks: decodeArray(encoded) });
-  }),
-);
-
-router.patch(
-  '/:id',
-  asyncHandler(async (req, res) => {
-    await assertAvailabilityEditable(req.user, await ownerForCapacity(req.params.id));
-    const input = upsertSchema.partial().parse(req.body);
-    const record: Record<string, unknown> = {};
-    if (input.weeks) record[C.hoursArray] = encodeArray(input.weeks);
-    if (input.name !== undefined) record[C.name] = input.name;
-    if (input.notes !== undefined) record[C.notes] = input.notes;
-    if (input.weeklyBaseline !== undefined) record[C.weeklyBaseline] = input.weeklyBaseline;
-    if (input.isActive !== undefined) record[C.isActive] = input.isActive;
-    if (input.departmentId) {
-      Object.assign(record, await dv.lookupBind(C.departmentBind, 'new_department', input.departmentId));
-    }
-    await dv.update('capacity', req.params.id, record);
-    res.json({ id: req.params.id });
-  }),
-);
-
-router.delete(
-  '/:id',
-  asyncHandler(async (req, res) => {
-    await assertAvailabilityEditable(req.user, await ownerForCapacity(req.params.id));
-    await dv.remove('capacity', req.params.id);
-    res.status(204).end();
-  }),
-);
+router.delete('/:id', asyncHandler(async (req, res) => {
+  const current = await capacityRepository.findByIdentifier(req.params.id);
+  if (!current) throw new HttpError(404, 'Capacity record not found.');
+  await assertAvailabilityEditable(req.user, { personId: current.PersonApiId, departmentId: current.DepartmentApiId ?? undefined });
+  await capacityRepository.deactivate(current.CapacityId);
+  res.status(204).end();
+}));
 
 export default router;

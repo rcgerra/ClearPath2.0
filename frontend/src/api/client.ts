@@ -19,6 +19,9 @@ import type {
   Question,
   RankedRequest,
   Role,
+  Skill,
+  SkillCategory,
+  PersonSkill,
   TeamMember,
 } from '../types';
 
@@ -46,7 +49,8 @@ export function errorMessage(error: unknown): string {
 }
 
 export const authApi = {
-  session: () => api.get<{ token: string; user: AuthUser }>('/auth/session').then((r) => r.data),
+  users: (search?: string) => api.get<DirectoryUser[]>('/auth/users', { params: { search } }).then((r) => r.data),
+  session: (userId: string) => api.get<{ token: string; user: AuthUser }>('/auth/session', { params: { userId } }).then((r) => r.data),
   me: () => api.get<{ user: AuthUser }>('/auth/me').then((r) => r.data.user),
 };
 
@@ -128,7 +132,24 @@ export const nonProjectDemandApi = {
     api.post<{ id: string }>('/non-project-demand', body).then((response) => response.data),
   setWeeks: (id: string, body: { week?: number; startWeek?: number; endWeek?: number; hours: number }) =>
     api.patch<{ id: string; weeks: number[] }>(`/non-project-demand/${id}/weeks`, body).then((response) => response.data),
+  update: (id: string, body: { isActive?: boolean; description?: string }) =>
+    api.patch<{ id: string }>(`/non-project-demand/${id}`, body).then((response) => response.data),
   remove: (id: string) => api.delete(`/non-project-demand/${id}`),
+};
+
+export const skillsApi = {
+  categories: () => api.get<SkillCategory[]>('/skills/categories').then((response) => response.data),
+  createCategory: (name: string) => api.post<{ id: string }>('/skills/categories', { name }).then((response) => response.data),
+  updateCategory: (id: string, body: { name?: string; isActive?: boolean }) =>
+    api.patch<{ id: string }>(`/skills/categories/${id}`, body).then((response) => response.data),
+  list: (categoryId?: string) => api.get<Skill[]>('/skills', { params: { categoryId } }).then((response) => response.data),
+  create: (body: { categoryId: string; name: string }) => api.post<{ id: string }>('/skills', body).then((response) => response.data),
+  update: (id: string, body: { name?: string; isActive?: boolean }) =>
+    api.patch<{ id: string }>(`/skills/${id}`, body).then((response) => response.data),
+  personSkills: (personId: string) => api.get<PersonSkill[]>(`/skills/people/${personId}`).then((response) => response.data),
+  addPersonSkill: (personId: string, skillId: string) =>
+    api.post<{ id: string }>(`/skills/people/${personId}`, { skillId }).then((response) => response.data),
+  removePersonSkill: (personId: string, skillId: string) => api.delete(`/skills/people/${personId}/${skillId}`),
 };
 
 export const capacityApi = {
@@ -163,6 +184,7 @@ export const lookupsApi = {
 
 export const usersApi = {
   search: (search?: string) => api.get<DirectoryUser[]>('/users', { params: { search } }).then((r) => r.data),
+  get: (id: string) => api.get<DirectoryUser>(`/users/${id}`).then((r) => r.data),
 };
 
 export const adminApi = {

@@ -1,8 +1,9 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { departmentsApi, errorMessage, peopleApi, prioritizationApi, requestsApi } from '../../api/client';
+import { departmentsApi, errorMessage, prioritizationApi, requestsApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
+import UserSelect from '../../components/admin/UserSelect';
 import { DEFAULT_REQUEST_PHASE, REQUEST_PHASES } from '../../constants/phases';
 
 export default function RequestEditPage() {
@@ -14,7 +15,6 @@ export default function RequestEditPage() {
   const request = useQuery({ queryKey: ['request', id], queryFn: () => requestsApi.get(id!), enabled: Boolean(id) });
   const departments = useQuery({ queryKey: ['departments'], queryFn: departmentsApi.list });
   const categories = useQuery({ queryKey: ['categories'], queryFn: prioritizationApi.categories });
-  const people = useQuery({ queryKey: ['people'], queryFn: () => peopleApi.list() });
 
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) => requestsApi.update(id!, body),
@@ -165,17 +165,7 @@ export default function RequestEditPage() {
             </div>
           </div>
 
-          <div className="field">
-            <label htmlFor="delegatePersonId">Delegate</label>
-            <select id="delegatePersonId" name="delegatePersonId" defaultValue={current?.delegatePersonId ?? ''}>
-              <option value="">—</option>
-              {people.data?.map((person) => (
-                <option key={person.id} value={person.id}>
-                  {person.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <UserSelect id="delegatePersonId" name="delegatePersonId" label="Delegate" personValue defaultValue={current?.delegatePersonId} />
 
           <label className="switch" style={{ marginBottom: '1rem' }}>
             <input type="checkbox" name="isActive" defaultChecked={current?.isActive !== false} />

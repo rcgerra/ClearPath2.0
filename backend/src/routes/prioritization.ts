@@ -4,11 +4,11 @@ import * as dv from '../dataverse/client';
 import { COLUMNS, formatted } from '../dataverse/fields';
 import { authenticate, requireRole } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
+import { categoryRepository } from '../repositories/sql';
 
 const router = Router();
 const Q = COLUMNS.questions;
 const A = COLUMNS.answers;
-const CAT = COLUMNS.categories;
 const R = COLUMNS.requests;
 
 const answerSchema = z.object({
@@ -28,12 +28,14 @@ router.use(authenticate);
 router.get(
   '/categories',
   asyncHandler(async (_req, res) => {
-    const records = await dv.list('categories', {
-      select: [CAT.id, CAT.name, CAT.weight],
-      orderBy: `${CAT.name} asc`,
-      top: 500,
-    });
-    res.json(records.map((r) => ({ id: r[CAT.id], name: r[CAT.name], weight: r[CAT.weight] })));
+    const records = (await categoryRepository.list(true)).sort((left, right) => left.Name.localeCompare(right.Name));
+    res.json(
+      records.map((record) => ({
+        id: String(record.LegacyDataverseId ?? record.CategoryId),
+        name: record.Name,
+        weight: record.CategoryWeight,
+      })),
+    );
   }),
 );
 

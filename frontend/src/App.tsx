@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import SessionGate from './components/SessionGate';
+import { AuthProvider } from './contexts/AuthContext';
 import AdminDashboard from './pages/AdminDashboard';
 import AccessListPage from './pages/admin/AccessListPage';
 import AdminHome from './pages/admin/AdminHome';
@@ -14,10 +15,12 @@ import ProjectEditPage from './pages/admin/ProjectEditPage';
 import ProjectsListPage from './pages/admin/ProjectsListPage';
 import RequestEditPage from './pages/admin/RequestEditPage';
 import RequestsListPage from './pages/admin/RequestsListPage';
+import SkillsPage from './pages/admin/SkillsPage';
 import DeptLeadDashboard from './pages/DeptLeadDashboard';
 import DepartmentsPage from './pages/DepartmentsPage';
 import DepartmentTeamPage from './pages/DepartmentTeamPage';
 import IndividualDashboard from './pages/IndividualDashboard';
+import OtherWorkPage from './pages/OtherWorkPage';
 import PrioritizationPage from './pages/PrioritizationPage';
 import ProjectCapturePage from './pages/ProjectCapturePage';
 import ProjectManagerDashboard from './pages/ProjectManagerDashboard';
@@ -31,8 +34,9 @@ function HomeRedirect() {
 
 export default function App() {
   return (
-    <SessionGate>
-      <Routes>
+    <AuthProvider>
+      <SessionGate>
+        <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<HomeRedirect />} />
           <Route
@@ -57,6 +61,7 @@ export default function App() {
                   <Route path="departments" element={<DepartmentsListPage />} />
                   <Route path="departments/:id" element={<DepartmentEditPage />} />
                   <Route path="non-project-demand-categories" element={<NonProjectDemandCategoriesPage />} />
+                  <Route path="skills" element={<SkillsPage />} />
                   <Route path="people" element={<PeopleListPage />} />
                   <Route path="people/:id" element={<PersonEditPage />} />
                 </Routes>
@@ -109,12 +114,16 @@ export default function App() {
             }
           />
           <Route path="/me" element={<IndividualDashboard />} />
+          <Route path="/other-work" element={<OtherWorkPage />} />
+          <Route path="/people" element={<PeopleListPage />} />
+          <Route path="/skills" element={<SkillsPage />} />
           <Route path="/requests" element={<RequestsPage />} />
           <Route path="/capture" element={<ProjectCapturePage />} />
           <Route path="/prioritization" element={<PrioritizationPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </SessionGate>
+        </Routes>
+      </SessionGate>
+    </AuthProvider>
   );
 }

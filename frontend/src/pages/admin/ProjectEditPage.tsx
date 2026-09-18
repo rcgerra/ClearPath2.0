@@ -1,8 +1,9 @@
 import { FormEvent, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { departmentsApi, errorMessage, peopleApi, projectsApi } from '../../api/client';
+import { departmentsApi, errorMessage, projectsApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
+import UserSelect from '../../components/admin/UserSelect';
 
 const STATUSES = ['Intake', 'Planning', 'Active', 'On hold', 'Complete', 'Cancelled'];
 
@@ -27,7 +28,6 @@ export default function ProjectEditPage() {
     queryFn: () => projectsApi.get(id!),
     enabled: !isNew,
   });
-  const people = useQuery({ queryKey: ['people'], queryFn: () => peopleApi.list() });
   const departments = useQuery({ queryKey: ['departments'], queryFn: departmentsApi.list });
 
   const save = useMutation({
@@ -92,28 +92,8 @@ export default function ProjectEditPage() {
           </div>
 
           <div className="grid cols-2">
-            <div className="field">
-              <label htmlFor="managerPersonId">Project manager</label>
-              <select id="managerPersonId" name="managerPersonId" defaultValue={current?.managerPersonId ?? ''}>
-                <option value="">—</option>
-                {people.data?.map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="sponsorPersonId">Project sponsor</label>
-              <select id="sponsorPersonId" name="sponsorPersonId" defaultValue={current?.sponsorPersonId ?? ''}>
-                <option value="">—</option>
-                {people.data?.map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <UserSelect id="managerPersonId" name="managerPersonId" label="Project manager" personValue defaultValue={current?.managerPersonId} />
+            <UserSelect id="sponsorPersonId" name="sponsorPersonId" label="Project sponsor" personValue defaultValue={current?.sponsorPersonId} />
           </div>
 
           <div className="grid cols-3">
@@ -169,16 +149,8 @@ export default function ProjectEditPage() {
             />
           </div>
 
-          <div className="field" style={{ maxWidth: 320 }}>
-            <label htmlFor="delegatePersonId">Delegate</label>
-            <select id="delegatePersonId" name="delegatePersonId" defaultValue={current?.delegatePersonId ?? ''}>
-              <option value="">—</option>
-              {people.data?.map((person) => (
-                <option key={person.id} value={person.id}>
-                  {person.name}
-                </option>
-              ))}
-            </select>
+          <div style={{ maxWidth: 320 }}>
+            <UserSelect id="delegatePersonId" name="delegatePersonId" label="Delegate" personValue defaultValue={current?.delegatePersonId} />
           </div>
 
           <label className="switch" style={{ marginBottom: '1rem' }}>

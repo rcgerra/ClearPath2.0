@@ -130,6 +130,28 @@ export interface NonProjectDemandCategory {
   isActive: boolean;
 }
 
+export interface SkillCategory {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+
+export interface Skill {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  name: string;
+  isActive: boolean;
+}
+
+export interface PersonSkill {
+  id: string;
+  skillId: string;
+  skillName: string;
+  categoryId: string;
+  categoryName: string;
+}
+
 export interface NonProjectDemandSubcategory {
   id: string;
   categoryId: string;
@@ -147,6 +169,7 @@ export interface NonProjectDemandRow {
   departmentId?: string;
   description?: string;
   weeks: number[];
+  isActive?: boolean;
 }
 
 export interface CapacityRow {
@@ -207,6 +230,7 @@ export interface Lookup {
 
 export interface DirectoryUser {
   id: string;
+  personId?: string;
   fullName: string;
   email?: string;
   jobTitle?: string;

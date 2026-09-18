@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { capacityApi, demandApi, departmentsApi, errorMessage, nonProjectDemandApi, peopleApi, projectsApi } from '../api/client';
 import PersonDemandChart from '../components/PersonDemandChart';
 import TeamDemandChart from '../components/TeamDemandChart';
+import UserSelect from '../components/admin/UserSelect';
 import { useAuthStore } from '../store/authStore';
 import { weekLabel, weekLabelShort, weekYear } from '../utils/arrayParser';
 import { formatDate } from '../utils/dates';
@@ -185,11 +186,6 @@ export default function DepartmentTeamPage() {
     }
     return { weeksOver, hoursOver };
   }
-
-  const assigned = new Set((capacity.data ?? []).map((row) => row.personId?.toLowerCase()).filter(Boolean) as string[]);
-  const available = (people.data ?? []).filter(
-    (person) => !assigned.has(person.id.toLowerCase()) && person.isActive !== false,
-  );
 
   const columns = useMemo(() => Array.from({ length: WEEKS }, (_, index) => index), []);
 
@@ -687,16 +683,7 @@ export default function DepartmentTeamPage() {
             }}
           >
             <div style={{ flex: 2 }}>
-              <label htmlFor="personId">Person</label>
-              <select id="personId" name="personId" required>
-                <option value="">Select…</option>
-                {available.map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.name}
-                    {person.departmentName ? ` · ${person.departmentName}` : ''}
-                  </option>
-                ))}
-              </select>
+              <UserSelect id="personId" name="personId" label="Person" personValue required />
             </div>
             <button className="primary" type="submit" disabled={addPerson.isPending}>
               Add to department

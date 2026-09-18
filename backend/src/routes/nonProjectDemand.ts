@@ -44,6 +44,7 @@ interface DemandRecord {
   departmentId?: string;
   description?: string;
   demandHours: string;
+  isActive: boolean;
 }
 
 function toDemand(row: DemandRecord) {
@@ -57,6 +58,7 @@ function toDemand(row: DemandRecord) {
     departmentId: row.departmentId,
     description: row.description,
     weeks: decodeArray(row.demandHours),
+    isActive: row.isActive,
   };
 }
 
@@ -64,7 +66,8 @@ async function getDemand(id: string): Promise<DemandRecord> {
   const rows = await query<DemandRecord>(
         `SELECT d.NonProjectDemandId AS id, d.CategoryId AS categoryId, c.Name AS categoryName,
           d.SubcategoryId AS subcategoryId, s.Name AS subcategoryName,
-            d.PersonId AS personId, d.DepartmentId AS departmentId, d.Description AS description, d.DemandHours AS demandHours
+            d.PersonId AS personId, d.DepartmentId AS departmentId, d.Description AS description, d.DemandHours AS demandHours,
+            d.IsActive AS isActive
        FROM dbo.FactNonProjectDemand d
        JOIN dbo.DimNonProjectDemandCategory c ON c.CategoryId = d.CategoryId
            LEFT JOIN dbo.DimNonProjectDemandSubcategory s ON s.SubcategoryId = d.SubcategoryId
@@ -195,7 +198,8 @@ router.get(
     const rows = await query<DemandRecord>(
             `SELECT d.NonProjectDemandId AS id, d.CategoryId AS categoryId, c.Name AS categoryName,
               d.SubcategoryId AS subcategoryId, s.Name AS subcategoryName,
-              d.PersonId AS personId, d.DepartmentId AS departmentId, d.Description AS description, d.DemandHours AS demandHours
+              d.PersonId AS personId, d.DepartmentId AS departmentId, d.Description AS description, d.DemandHours AS demandHours,
+              d.IsActive AS isActive
          FROM dbo.FactNonProjectDemand d
          JOIN dbo.DimNonProjectDemandCategory c ON c.CategoryId = d.CategoryId
          LEFT JOIN dbo.DimNonProjectDemandSubcategory s ON s.SubcategoryId = d.SubcategoryId
@@ -260,6 +264,25 @@ router.patch(
       { id: req.params.id, demandHours },
     );
     res.json({ id: req.params.id, weeks: decodeArray(demandHours) });
+  }),
+);
+
+router.patch(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    const input = z.object({ isActive: z.boolean().optional(), description: z.string().trim().min(1).max(200).optional() }).parse(req.body);
+    if (input.isActive === undefined && input.description === undefined) {
+      throw new HttpError(400, 'No changes provided.');
+    }
+    const current = await getDemand(req.params.id);
+    await assertAvailabilityEditable(req.user, { personId: current.personId, departmentId: current.departmentId });
+    await query(
+      `UPDATE dbo.FactNonProjectDemand
+          SET IsActive = COALESCE(@isActive, IsActive), Description = COALESCE(@description, Description), UpdatedOn = SYSUTCDATETIME()
+        WHERE NonProjectDemandId = @id`,
+      { id: req.params.id, isActive: input.isActive ?? null, description: input.description ?? null },
+    );
+    res.json({ id: req.params.id });
   }),
 );
 

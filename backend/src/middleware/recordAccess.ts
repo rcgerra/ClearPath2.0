@@ -1,5 +1,7 @@
 import * as dv from '../dataverse/client';
 import { COLUMNS } from '../dataverse/fields';
+import { projectRepository } from '../repositories/sql';
+import { departmentRepository } from '../repositories/sql/DepartmentRepository';
 import { AuthUser } from './auth';
 import { HttpError } from './errorHandler';
 
@@ -21,13 +23,7 @@ export async function assertProjectEditable(user: AuthUser | undefined, projectI
   const current = requireUser(user);
   if (isAdmin(current)) return;
 
-  const PR = COLUMNS.projects;
-  const project = (await dv.retrieve('projects', projectId, {
-    select: [PR.id, PR.managerPersonId, PR.delegatePersonId],
-    includeFormattedValues: false,
-  })) as Record<string, unknown>;
-
-  if (same(project[PR.managerPersonId], current.personId) || same(project[PR.delegatePersonId], current.personId)) {
+  if (current.personId && await projectRepository.canPersonEdit(projectId, current.personId)) {
     return;
   }
   throw new HttpError(403, 'Only the project manager, their delegate or an admin can change this project.');
@@ -38,13 +34,7 @@ export async function assertDepartmentEditable(user: AuthUser | undefined, depar
   const current = requireUser(user);
   if (isAdmin(current)) return;
 
-  const D = COLUMNS.departments;
-  const department = (await dv.retrieve('departments', departmentId, {
-    select: [D.id, D.leadPersonId, D.delegatePersonId],
-    includeFormattedValues: false,
-  })) as Record<string, unknown>;
-
-  if (same(department[D.leadPersonId], current.personId) || same(department[D.delegatePersonId], current.personId)) {
+  if (current.personId && await departmentRepository.canPersonEdit(departmentId, current.personId)) {
     return;
   }
   throw new HttpError(403, 'Only the department lead, their delegate or an admin can change this department.');
@@ -82,13 +72,7 @@ export async function assertAvailabilityEditable(
   if (same(target.personId, current.personId)) return;
 
   if (target.departmentId) {
-    const D = COLUMNS.departments;
-    const department = (await dv.retrieve('departments', target.departmentId, {
-      select: [D.id, D.leadPersonId, D.delegatePersonId],
-      includeFormattedValues: false,
-    })) as Record<string, unknown>;
-
-    if (same(department[D.leadPersonId], current.personId) || same(department[D.delegatePersonId], current.personId)) {
+    if (current.personId && await departmentRepository.canPersonEdit(target.departmentId, current.personId)) {
       return;
     }
   }

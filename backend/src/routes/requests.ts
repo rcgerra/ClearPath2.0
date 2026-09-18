@@ -1,34 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import * as dv from '../dataverse/client';
-import { COLUMNS, formatted } from '../dataverse/fields';
 import { authenticate, requireRole } from '../middleware/auth';
-import { asyncHandler } from '../middleware/errorHandler';
+import { asyncHandler, HttpError } from '../middleware/errorHandler';
+import { projectRepository, requestRepository } from '../repositories/sql';
 
 const router = Router();
-const R = COLUMNS.requests;
-const select = [
-  R.id,
-  R.name,
-  R.title,
-  R.shortTitle,
-  R.spotId,
-  R.phase,
-  R.problemStatement,
-  R.businessCase,
-  R.expectedBenefit,
-  R.status,
-  R.submittedOn,
-  R.requesterPersonId,
-  R.delegatePersonId,
-  R.isActive,
-  R.departmentId,
-  R.categoryId,
-  R.priorityScore,
-  R.projectId,
-];
 
-/** Project capture form payload. */
 const captureSchema = z.object({
   title: z.string().min(3).max(200),
   shortTitle: z.string().max(100).optional(),
@@ -37,157 +14,130 @@ const captureSchema = z.object({
   problemStatement: z.string().min(10).max(4000),
   businessCase: z.string().max(4000).optional(),
   expectedBenefit: z.string().max(4000).optional(),
-  departmentId: z.string().uuid().optional(),
-  categoryId: z.string().uuid().optional(),
-  delegatePersonId: z.string().uuid().optional(),
+  departmentId: z.string().min(1).optional(),
+  categoryId: z.string().min(1).optional(),
+  delegatePersonId: z.string().min(1).optional(),
   isActive: z.boolean().optional(),
   status: z.string().max(100).optional(),
 });
 
 const updateSchema = captureSchema.partial().extend({
   priorityScore: z.number().min(0).max(1000).optional(),
-  projectId: z.string().uuid().optional(),
+  projectId: z.string().min(1).optional(),
 });
 
-function toRequest(record: Record<string, unknown>) {
+function toRequest(record: Awaited<ReturnType<typeof requestRepository.findById>>) {
+  if (!record) throw new HttpError(404, 'Request not found.');
   return {
-    id: record[R.id],
-    name: record[R.name],
-    title: record[R.title],
-    shortTitle: record[R.shortTitle],
-    spotId: record[R.spotId],
-    phase: formatted(record, R.phase) ?? record[R.phase],
-    problemStatement: record[R.problemStatement],
-    businessCase: record[R.businessCase],
-    expectedBenefit: record[R.expectedBenefit],
-    status: formatted(record, R.status) ?? record[R.status],
-    submittedOn: record[R.submittedOn],
-    requesterPersonId: record[R.requesterPersonId],
-    requesterName: formatted(record, R.requesterPersonId),
-    delegatePersonId: record[R.delegatePersonId],
-    delegateName: formatted(record, R.delegatePersonId),
-    isActive: record[R.isActive],
-    departmentId: record[R.departmentId],
-    departmentName: formatted(record, R.departmentId),
-    categoryId: record[R.categoryId],
-    categoryName: formatted(record, R.categoryId),
-    priorityScore: record[R.priorityScore],
-    projectId: record[R.projectId],
+    id: record.RequestApiId,
+    name: record.Name,
+    title: record.Title ?? record.Name,
+    shortTitle: record.ShortTitle,
+    spotId: record.SpotId,
+    phase: record.Phase,
+    problemStatement: record.ProblemStatement,
+    businessCase: record.BusinessCase,
+    expectedBenefit: record.ExpectedBenefit,
+    status: record.Status,
+    submittedOn: record.SubmittedOn,
+    requesterPersonId: record.RequesterPersonApiId ?? undefined,
+    requesterName: record.RequesterName ?? undefined,
+    delegatePersonId: record.DelegatePersonApiId ?? undefined,
+    delegateName: record.DelegateName ?? undefined,
+    isActive: record.IsActive,
+    departmentId: record.DepartmentApiId ?? undefined,
+    departmentName: record.DepartmentName ?? undefined,
+    categoryId: record.CategoryApiId ?? undefined,
+    categoryName: record.CategoryName ?? undefined,
+    priorityScore: record.PriorityScore,
+    projectId: record.ProjectApiId ?? undefined,
   };
 }
 
-async function toRecord(input: z.infer<typeof updateSchema>) {
-  const record: Record<string, unknown> = {};
-  if (input.title !== undefined) {
-    record[R.title] = input.title;
-    record[R.name] = input.title;
-  }
-  if (input.problemStatement !== undefined) record[R.problemStatement] = input.problemStatement;
-  if (input.shortTitle !== undefined) record[R.shortTitle] = input.shortTitle;
-  if (input.spotId !== undefined) record[R.spotId] = input.spotId;
-  if (input.phase !== undefined) record[R.phase] = input.phase;
-  if (input.isActive !== undefined) record[R.isActive] = input.isActive;
-  if (input.businessCase !== undefined) record[R.businessCase] = input.businessCase;
-  if (input.expectedBenefit !== undefined) record[R.expectedBenefit] = input.expectedBenefit;
-  if (input.status !== undefined) record[R.status] = input.status;
-  if (input.priorityScore !== undefined) record[R.priorityScore] = input.priorityScore;
-  if (input.departmentId) Object.assign(record, await dv.lookupBind(R.departmentBind, 'new_department', input.departmentId));
-  if (input.categoryId) Object.assign(record, await dv.lookupBind(R.categoryBind, 'cr714_categories', input.categoryId));
-  if (input.delegatePersonId) Object.assign(record, await dv.lookupBind(R.delegateBind, 'new_people', input.delegatePersonId));
-  if (input.projectId) Object.assign(record, await dv.lookupBind(R.projectBind, 'new_projects', input.projectId));
-  return record;
+async function resolveInput(input: z.infer<typeof updateSchema>) {
+  return {
+    Name: input.title,
+    Title: input.title,
+    ShortTitle: input.shortTitle,
+    SpotId: input.spotId,
+    Phase: input.phase,
+    ProblemStatement: input.problemStatement,
+    BusinessCase: input.businessCase,
+    ExpectedBenefit: input.expectedBenefit,
+    Status: input.status,
+    IsActive: input.isActive,
+    PriorityScore: input.priorityScore,
+    DepartmentId: input.departmentId === undefined ? undefined : await requestRepository.resolveId('Departments', 'DepartmentId', input.departmentId),
+    CategoryId: input.categoryId === undefined ? undefined : await requestRepository.resolveId('ScoringCategories', 'CategoryId', input.categoryId),
+    DelegatePersonId: input.delegatePersonId === undefined ? undefined : await requestRepository.resolvePersonId(input.delegatePersonId),
+    ProjectId: input.projectId === undefined ? undefined : await requestRepository.resolveId('Projects', 'ProjectId', input.projectId),
+  };
 }
 
 router.use(authenticate);
 
-router.get(
-  '/',
-  asyncHandler(async (req, res) => {
-    const filters: string[] = [];
-    if (req.query.mine === 'true' && req.user?.personId) {
-      filters.push(`${R.requesterPersonId} eq ${dv.encodeGuid(req.user.personId)}`);
-    }
-    if (req.query.departmentId) {
-      filters.push(`${R.departmentId} eq ${dv.encodeGuid(String(req.query.departmentId))}`);
-    }
-    if (req.query.status) filters.push(`${R.status} eq ${dv.odataString(String(req.query.status))}`);
-    const records = await dv.list('requests', {
-      select,
-      filter: filters.join(' and ') || undefined,
-      orderBy: `${R.priorityScore} desc,${R.submittedOn} desc`,
-      top: 2000,
-    });
-    res.json(records.map(toRequest));
-  }),
-);
+router.get('/', asyncHandler(async (req, res) => {
+  const records = await requestRepository.listFiltered({
+    includeInactive: true,
+    minePersonId: req.query.mine === 'true' ? req.user?.personId : undefined,
+    departmentId: req.query.departmentId ? String(req.query.departmentId) : undefined,
+    status: req.query.status ? String(req.query.status) : undefined,
+  });
+  res.json(records.map(toRequest));
+}));
 
-router.get(
-  '/:id',
-  asyncHandler(async (req, res) => {
-    res.json(toRequest(await dv.retrieve('requests', req.params.id, { select })));
-  }),
-);
+router.get('/:id', asyncHandler(async (req, res) => {
+  res.json(toRequest(await requestRepository.findByIdentifier(req.params.id)));
+}));
 
-router.post(
-  '/',
-  asyncHandler(async (req, res) => {
-    const input = captureSchema.parse(req.body);
-    const record = await toRecord(input);
-    record[R.submittedOn] = new Date().toISOString();
-    record[R.status] = input.status ?? 'Submitted';
-    record[R.phase] = input.phase ?? 'Draft';
-    record[R.isActive] = true;
-    if (req.user?.personId) {
-      Object.assign(record, await dv.lookupBind(R.requesterBind, 'new_people', req.user.personId));
-    }
-    res.status(201).json({ id: await dv.create('requests', record) });
-  }),
-);
+router.post('/', asyncHandler(async (req, res) => {
+  const input = captureSchema.parse(req.body);
+  const requesterPersonId = req.user?.personId ? await requestRepository.resolvePersonId(req.user.personId) : null;
+  const id = await requestRepository.create({
+    ...(await resolveInput(input)),
+    Name: input.title,
+    Title: input.title,
+    RequesterPersonId: requesterPersonId,
+    SubmittedOn: new Date(),
+    Status: input.status ?? 'Submitted',
+    Phase: input.phase ?? 'Draft',
+    IsActive: true,
+  });
+  const created = await requestRepository.findById(id);
+  res.status(201).json({ id: toRequest(created).id });
+}));
 
-router.patch(
-  '/:id',
-  requireRole('admin', 'demand_moderator', 'availability_moderator'),
-  asyncHandler(async (req, res) => {
-    const input = updateSchema.parse(req.body);
-    await dv.update('requests', req.params.id, await toRecord(input));
-    res.json({ id: req.params.id });
-  }),
-);
+router.patch('/:id', requireRole('admin', 'demand_moderator', 'availability_moderator'), asyncHandler(async (req, res) => {
+  const input = updateSchema.parse(req.body);
+  const current = await requestRepository.findByIdentifier(req.params.id);
+  if (!current) throw new HttpError(404, 'Request not found.');
+  await requestRepository.update(current.RequestId, await resolveInput(input));
+  res.json({ id: req.params.id });
+}));
 
-/** Promotes an approved request into a project. */
-router.post(
-  '/:id/promote',
-  requireRole('admin', 'demand_moderator'),
-  asyncHandler(async (req, res) => {
-    const request = (await dv.retrieve('requests', req.params.id, { select })) as Record<string, unknown>;
-    const PR = COLUMNS.projects;
-    const project: Record<string, unknown> = {
-      [PR.name]: request[R.title] ?? request[R.name],
-      [PR.problemStatement]: request[R.problemStatement],
-      [PR.description]: request[R.businessCase],
-      [PR.status]: 'Planning',
-      [PR.priorityScore]: request[R.priorityScore] ?? 0,
-    };
-    if (request[R.departmentId]) {
-      Object.assign(project, await dv.lookupBind(PR.departmentBind, 'new_department', String(request[R.departmentId])));
-    }
-    Object.assign(project, await dv.lookupBind(PR.requestBind, 'cr714_requests', req.params.id));
-    const projectId = await dv.create('projects', project);
-    await dv.update('requests', req.params.id, {
-      [R.status]: 'Approved',
-      ...(await dv.lookupBind(R.projectBind, 'new_projects', projectId)),
-    });
-    res.status(201).json({ projectId });
-  }),
-);
+router.post('/:id/promote', requireRole('admin', 'demand_moderator'), asyncHandler(async (req, res) => {
+  const current = await requestRepository.findByIdentifier(req.params.id);
+  if (!current) throw new HttpError(404, 'Request not found.');
+  const projectId = await projectRepository.create(await projectRepository.resolveInput({
+    name: current.Title ?? current.Name,
+    problemStatement: current.ProblemStatement,
+    description: current.BusinessCase,
+    status: 'Planning',
+    priorityScore: current.PriorityScore ?? 0,
+    requestId: String(current.RequestId),
+    departmentId: current.DepartmentApiId ?? undefined,
+  }));
+  const project = await projectRepository.findById(projectId);
+  if (!project) throw new HttpError(500, 'Promoted project could not be retrieved.');
+  await requestRepository.update(current.RequestId, { Status: 'Approved', ProjectId: projectId });
+  res.status(201).json({ projectId: project.ProjectApiId });
+}));
 
-router.delete(
-  '/:id',
-  requireRole('admin'),
-  asyncHandler(async (req, res) => {
-    await dv.remove('requests', req.params.id);
-    res.status(204).end();
-  }),
-);
+router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
+  const request = await requestRepository.findByIdentifier(req.params.id);
+  if (!request) throw new HttpError(404, 'Request not found.');
+  await requestRepository.deactivate(request.RequestId);
+  res.status(204).end();
+}));
 
 export default router;

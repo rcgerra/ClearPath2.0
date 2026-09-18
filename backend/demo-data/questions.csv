@@ -1,0 +1,88 @@
+﻿"cr714__questionsid","importsequencenumber","cr714_isactive","cr714_label0","cr714_label1","cr714_label10","cr714_label15","cr714_label5","cr714_metric","cr714_questionhelptext","cr714_questionsubtitle","cr714_name","cr714_questionweight","cr714_required","statuscode","statecode","timezoneruleversionnumber","utcconversiontimezonecode","versionnumber","cr714_categoryid","owningbusinessunit"
+"6e1c0e50-9289-f011-b4cc-002248271486","","True","None","A.) Enables another project with production benefits","A.) UPB or DS Yield Output Increase > 5%","A.) Cycle Time Reduction at Bottleneck Steps","A.) Cycle Time Reduction (non-bottleneck) 
+
+B.) UPB or DS Yield Output Increase ≤ 5%","Production Benefits","","","What production benefits should be expected?","1","False","1","0","","","20470218","5b8245f7-9089-f011-b4cc-7c1e527cd923","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"740adf46-9289-f011-b4cc-7c1e527cd923","","True","None","A.) CAPEX Avoidance
+B.) FTE Cost Avoidance 
+C.) Operating Cost Avoidance","A.) 0.5 to 1.0 OkuYen COP Savings 
+B.) Any FTE ","A.) >1.0 OkuYen COP Savings","A.) <0.5 OkuYen COP Savings","Financial Benefits","","","What Financial benefits should be expected?","1","False","1","0","","","20466676","5b8245f7-9089-f011-b4cc-7c1e527cd923","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"40a9de76-9289-f011-b4cc-7c1e527cd923","","True","None","A.) Impact to production schedule but no slowdown required. 
+
+B.) No Impact to Annual Batches Delivered
+
+C.) No Impact to Production Schedule","A.) Hard Outage Required: <2 weeks","A.) Hard Outage Required: 2+ weeks","A.) Production Slowdown Required.  
+
+B.) Potential Impact to annual batches delivered","Production Schedule Impact","","","How will implementation of this project impact production?","1","True","1","0","","","20466669","99e6a804-9189-f011-b4cc-7c1e527d2157","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"3182c040-9289-f011-b4cc-7c1e527cd923","","True","None","A.) System/Equipment Upgrade/Replacement with no impact to production
+
+B.) Requirement to allow for workforce automation and/or AI incentives","A.) System/Equipment replacement and/or upgrade where failure would delay production by >1 day 
+
+B.) No redundancy, no spare parts
+
+C.) Required for cybersecurity/site digital infrastructure reliability","A.) Required to mitigate potential GMS/GQ OpU Global Supply Gap","A.) System/Equipment replacement and/or upgrade where failure would delay production by <1 day 
+
+B.) Required for site roadmap","Business Criticality/Continuity","Explain what system, area or buildings need to be shut down, for how long and why","","What risks to Business Criticality/Continuity exist in the current state?","1","False","1","0","","","20465707","398245f7-9089-f011-b4cc-7c1e527cd923","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"c29afc0a-9289-f011-b4cc-7c1e527d2157","","True","A.)  A Temporary Mitigation Exists but the Root Cause Remains + Little to No Impact on Production/Yield
+
+B.) No Mitigation Exists + Little to No Impact on Production/Yield
+
+C.) A Permanent Mitigation Plan In Place + Little to No Impact on Production/Yield
+
+D.) A Permanent Mitigation Plan In Place + Quantifiable Yield Loss OR RISK of Single Batch Loss
+
+E.) A Permanent Mitigation Plan In Place + Single Batch Loss","A.) No Mitigation Exists + The Failure has Occurred before +Little to No Impact on Production /  Yield
+
+B.) A Temporary Mitigation Exists but the Root Cause Remains + Quantifiable Yield Loss OR RISK of Single Batch Loss
+
+C.) A Permanent Mitigation Plan In Place + Multiple Batch Loss","A.) No Mitigation Exists + The Failure has Occurred before + Quantifiable Yield Loss OR RISK of Single Batch Loss
+
+B.) No Mitigation Exists + The Failure has not previously Occurred + Single Batch Loss
+
+C.) A Temporary Mitigation Exists but the Root Cause Remains + Multiple Batch Loss","A.) No Mitigation Exists + The Failure has Occurred Before + Single or Multiple Batch Loss","A.) No Mitigation Exists + The failure has not previously occurred + Quantifiable Yield Loss OR RISK of Single Batch Loss
+
+B.)  A Temporary Mitigation Exists but the Root Cause Remains + Single Batch Loss","Production Risk","","Refer to the Production Risk Matrix","What risks to production exist in the current state?","1","False","1","0","","","20240634","398245f7-9089-f011-b4cc-7c1e527cd923","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"fc7f63d0-9189-f011-b4cc-002248271486","","True","A.) None
+
+B.) ORM Current Risk Level: Extremely Low","A.) ORM Current Risk Level: Low","A.) ORM Current Risk Level: High","A.) ORM Current Risk Level: Extremely High","A.) ORM Current Risk Level: Medium","EHS Risk Register","Provide Beacon ORM Number","Source: BEACON Operational Risk Management (ORM) Current Risk Level","Which EHS Risk Register Item does this project address","1","False","1","0","","","20240625","c3f8fbea-9089-f011-b4cc-7c1e527cd923","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"23511df6-9189-f011-b4cc-7c1e527d2157","","True","None","A.) Internal Audit Inspection Observation
+
+B.) Deviation Correction","A.) Mitigates Major Deficiency
+
+B.) Mitigates Known Regulatory Requirement (not yet a finding or commitment)
+
+C.) Compliance Risk (Top 10 gap, external audit observation)","A.) Mitigates Top 5 gap
+
+B.) External Major/Critical Audit Observation
+
+C.) Data Integrity","A.) Compliance/Risk (Medium/Moderate Impact)
+
+B.) Lab Equipment Lifecycle
+
+C.) CAPAs Associated with Negative Trends
+
+D.) Gap Remediation due to Global Change","Quality Compliance","Provide Risk Register ID#","","Which Quality Risk Register Item does this project address?","1","False","1","0","","","20240621","909ca8ed-9089-f011-b4cc-002248271486","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"cba1c26b-9289-f011-b4cc-7c1e527d2157","","True","None","A.) Lots of experience available
+
+B.) No technical challenges
+
+C.) Low complexity
+
+D.) Simple projects","A.) Limited experience
+
+B.) Known & Unknown technical challenges
+
+C.) Highly complex.","A.) No experience
+
+B.) Unknown technical challenges
+
+C.) Extremely complex","A.) Some experience available
+
+B.) Known technical challenges
+
+C.) Medium complexity.","Technical Risk","","","How difficult do you anticipate the technical solution will be to develop?","1","True","1","0","","","20240619","a5e23dfd-9089-f011-b4cc-7c1e527cd923","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"124ef45c-9289-f011-b4cc-002248271486","","True","None","A.) Non-measurable impact to site strategy/goals.","A.) Significant & measurable impact (value creation) to site strategy required to meet Site Goals, Strategic Imperatives, or Breakthrough Objectives.","A.) Measurable must-do to meet Site Goals, Strategic Imperatives, or Breakthrough Objectives.","A.) Measurable impact (value creation) to site strategy, but not required to meet site goals.","Site Strategy","Indicate which SALT or Tier2 Team has endorsed this and explain the benefit strategy","An effort that has been reviewed by a SALT or Tier2 Team and has endorsed this as a roadmap item","To which Site Strategic Objectives does this contribute?","1","False","1","0","","","20240617","5b8245f7-9089-f011-b4cc-7c1e527cd923","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"c91de0e9-9189-f011-b4cc-7c1e527d2157","","True","None","<500  m3 reduced Water Usage ","5,000-10,000  m3 reduced Water Usage",">10,000 m3 reduced Water Usage","500-5,000  m3 reduced Water Usage","Sustainability","Explain how the water reduction is going to be achieved and how this is accounted for in the MBO Emissions Profile","Total Waste Reduction upon Go-Live.  This must be endorsed by the Site Sustainability Team.","What is the projected Water Usage Reduction benefits (M3/Yr)","1","False","1","0","","","20173076","c3f8fbea-9089-f011-b4cc-7c1e527cd923","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"31d4e7e3-9189-f011-b4cc-7c1e527d2157","","True","None","<50 Tons Waste Diversion From Landfill","100-150 Tons Waste Diversion From Landfill",">150 Tons Waste Diversion From Landfill","50-100 Tons Waste Diversion From Landfill","Sustainability","Explain how the waste reduction is going to be achieved and how this is accounted for in the MBO Emissions Profile","Total Waste Reduction upon Go-Live.  This must be endorsed by the Site Sustainability Team.","What is the projected Waste to Landfill Reduction benefits (kG/Yr)","1","False","1","0","","","20173069","c3f8fbea-9089-f011-b4cc-7c1e527cd923","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"300edd89-9289-f011-b4cc-7c1e527d2157","","True","None","Up to 0.5 OkuYen","1-5 OkuYen","5+ OkuYen","0.5 to 1 OkuYen","Cost","","Estimated Total Project Cost (Incremental OPEX and CAPEX)","What is the anticipated Total Project Cost?","1","True","1","0","","","20173062","49f3b519-9189-f011-b4cc-002248271486","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"a633db83-9289-f011-b4cc-7c1e527d2157","","True","None","< 300 Labor Hours","2,000 – 4,000  Labor Hours","> 4,000 Labor Hours","300 – 2,000 Labor Hours","Project Resources","Estimated Total Labor Hours Needed to Complete Development and Implementation Activities","Estimated Total Labor Hours Needed to Complete Development and Implementation Activities","What is the anticipated Level of Effort for this project?","1","True","1","0","","","20173043","6ccaff06-9189-f011-b4cc-002248271486","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+"09e36ed6-9189-f011-b4cc-002248271486","","True","None","<100 mTons","500-700 mTons",">700 mTons ","100-500 mTons ","Sustainability","Explain how the carbon reduction is going to be achieved and how this is accounted for in the MBO Emissions Profile","Total CO2 Reduction upon Go-Live.  This must be endorsed by the Site Sustainability Team.","What are the projected Carbon Reduction benefits (MTCO2/Yr)","1","False","1","0","","","20098056","c3f8fbea-9089-f011-b4cc-7c1e527cd923","04d25798-3a42-ee11-bdf5-000d3a8fd327"

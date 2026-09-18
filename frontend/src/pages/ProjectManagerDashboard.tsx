@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { demandApi, errorMessage, lookupsApi, peopleApi, projectsApi } from '../api/client';
+import { demandApi, errorMessage, lookupsApi, projectsApi } from '../api/client';
 import WeeklyGrid from '../components/WeeklyGrid';
+import UserSelect from '../components/admin/UserSelect';
 import { useAuthStore } from '../store/authStore';
 import { sumWeeks } from '../utils/arrayParser';
 
@@ -16,7 +17,6 @@ export default function ProjectManagerDashboard() {
     queryKey: ['projects', 'mine', user?.personId],
     queryFn: () => projectsApi.list(user?.personId ? { managerPersonId: user.personId } : undefined),
   });
-  const people = useQuery({ queryKey: ['people'], queryFn: () => peopleApi.list({ active: true }) });
   const functions = useQuery({ queryKey: ['lookups', 'functions'], queryFn: () => lookupsApi.list('functions') });
   const team = useQuery({
     queryKey: ['project-team', projectId],
@@ -109,16 +109,7 @@ export default function ProjectManagerDashboard() {
         <h2>Add demand</h2>
         <form onSubmit={handleAddDemand} className="toolbar">
           <div style={{ flex: 2 }}>
-            <label htmlFor="personId">Person</label>
-            <select id="personId" name="personId">
-              <option value="">Unnamed (role placeholder)</option>
-              {people.data?.map((person) => (
-                <option key={person.id} value={person.id}>
-                  {person.name}
-                  {person.departmentName ? ` · ${person.departmentName}` : ''}
-                </option>
-              ))}
-            </select>
+            <UserSelect id="personId" name="personId" label="Person" personValue />
           </div>
           <div style={{ flex: 1 }}>
             <label htmlFor="demandFunction">Function</label>

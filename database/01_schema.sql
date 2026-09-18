@@ -125,6 +125,59 @@ WHEN MATCHED THEN
     UPDATE SET Name = source.Name, UpdatedOn = SYSUTCDATETIME();
 GO
 
+/* ---------- Skills repository ---------- */
+
+IF OBJECT_ID('dbo.DimSkillCategory', 'U') IS NULL
+CREATE TABLE dbo.DimSkillCategory (
+    CategoryId         UNIQUEIDENTIFIER NOT NULL PRIMARY KEY DEFAULT NEWID(),
+    Name               NVARCHAR(200) NOT NULL UNIQUE,
+    IsActive           BIT NOT NULL DEFAULT 1,
+    CreatedOn          DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+    UpdatedOn          DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME()
+);
+GO
+
+MERGE dbo.DimSkillCategory AS target
+USING (VALUES
+    ('s3000001-0000-4000-8000-000000000001', N'Certifications'),
+    ('s3000002-0000-4000-8000-000000000002', N'Software & Systems'),
+    ('s3000003-0000-4000-8000-000000000003', N'Engineering & Equipment'),
+    ('s3000004-0000-4000-8000-000000000004', N'Project & Program Management'),
+    ('s3000005-0000-4000-8000-000000000005', N'Process & Quality'),
+    ('s3000006-0000-4000-8000-000000000006', N'General')
+) AS source (CategoryId, Name)
+ON target.CategoryId = source.CategoryId
+WHEN NOT MATCHED THEN
+    INSERT (CategoryId, Name) VALUES (source.CategoryId, source.Name)
+WHEN MATCHED THEN
+    UPDATE SET Name = source.Name, UpdatedOn = SYSUTCDATETIME();
+GO
+
+IF OBJECT_ID('dbo.DimSkill', 'U') IS NULL
+CREATE TABLE dbo.DimSkill (
+    SkillId            UNIQUEIDENTIFIER NOT NULL PRIMARY KEY DEFAULT NEWID(),
+    CategoryId         UNIQUEIDENTIFIER NOT NULL,
+    Name               NVARCHAR(200) NOT NULL,
+    IsActive           BIT NOT NULL DEFAULT 1,
+    CreatedByPersonId  UNIQUEIDENTIFIER NULL,
+    CreatedOn          DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+    UpdatedOn          DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_Skill_Category FOREIGN KEY (CategoryId) REFERENCES dbo.DimSkillCategory (CategoryId),
+    CONSTRAINT UQ_Skill_CategoryName UNIQUE (CategoryId, Name)
+);
+GO
+
+IF OBJECT_ID('dbo.FactPersonSkill', 'U') IS NULL
+CREATE TABLE dbo.FactPersonSkill (
+    PersonSkillId      UNIQUEIDENTIFIER NOT NULL PRIMARY KEY DEFAULT NEWID(),
+    PersonId           UNIQUEIDENTIFIER NOT NULL,
+    SkillId            UNIQUEIDENTIFIER NOT NULL,
+    CreatedOn          DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_PersonSkill_Skill FOREIGN KEY (SkillId) REFERENCES dbo.DimSkill (SkillId),
+    CONSTRAINT UQ_PersonSkill UNIQUE (PersonId, SkillId)
+);
+GO
+
 IF OBJECT_ID('dbo.DimNonProjectDemandSubcategory', 'U') IS NULL
 CREATE TABLE dbo.DimNonProjectDemandSubcategory (
     SubcategoryId      UNIQUEIDENTIFIER NOT NULL PRIMARY KEY DEFAULT NEWID(),

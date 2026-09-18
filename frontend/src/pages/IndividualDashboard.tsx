@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { capacityApi, demandApi, errorMessage, nonProjectDemandApi, projectsApi } from '../api/client';
 import PersonDemandChart from '../components/PersonDemandChart';
+import SkillsCard from '../components/SkillsCard';
 import { useAuthStore } from '../store/authStore';
 import { weekLabel, weekLabelShort, weekYear, MAX_POSITIONS } from '../utils/arrayParser';
 import { DemandRow, NonProjectDemandRow } from '../types';
@@ -30,8 +31,8 @@ export default function IndividualDashboard() {
   const [addingAssignment, setAddingAssignment] = useState(false);
   const [addingNonProjectDemand, setAddingNonProjectDemand] = useState(false);
   const [nonProjectCategoryId, setNonProjectCategoryId] = useState('');
-  const [hideZeroProjectRows, setHideZeroProjectRows] = useState(false);
-  const [hideZeroOtherRows, setHideZeroOtherRows] = useState(false);
+  const [hideInactiveProjectRows, setHideInactiveProjectRows] = useState(false);
+  const [hideInactiveOtherRows, setHideInactiveOtherRows] = useState(false);
   const [workloadCollapsed, setWorkloadCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -122,6 +123,16 @@ export default function IndividualDashboard() {
     },
     onError: (cause) => setError(errorMessage(cause)),
   });
+  const setNonProjectDemandActive = useMutation({
+    mutationFn: ({ demandId, isActive }: { demandId: string; isActive: boolean }) =>
+      nonProjectDemandApi.update(demandId, { isActive }),
+    onSuccess: (_result, variables) => {
+      queryClient.setQueryData<NonProjectDemandRow[]>(['non-project-demand', 'mine', personId], (current) =>
+        current?.map((row) => (row.id === variables.demandId ? { ...row, isActive: variables.isActive } : row)),
+      );
+    },
+    onError: (cause) => setError(errorMessage(cause)),
+  });
 
   function commitDemand(demandId: string, currentHours: number, week: number, raw: string) {
     const key = `${demandId}:${week}`;
@@ -158,6 +169,7 @@ export default function IndividualDashboard() {
         projectId: row.projectId,
         projectName: row.projectName ?? row.name ?? 'Unnamed project',
         weeks: row.weeks,
+        isActive: row.isActive !== false,
       }))
       .sort((a, b) => a.projectName.localeCompare(b.projectName));
   }, [demand.data]);
@@ -169,12 +181,12 @@ export default function IndividualDashboard() {
   }, [nonProjectDemand.data]);
 
   const selectedProjectTotal = useMemo(
-    () => sumArrays(selectedProjectDemand.map((row) => row.weeks), weeks),
+    () => sumArrays(selectedProjectDemand.filter((row) => row.isActive).map((row) => row.weeks), weeks),
     [selectedProjectDemand, weeks],
   );
 
   const selectedNonProjectTotal = useMemo(
-    () => sumArrays(selectedNonProjectDemand.map((row) => row.weeks), weeks),
+    () => sumArrays(selectedNonProjectDemand.filter((row) => row.isActive !== false).map((row) => row.weeks), weeks),
     [selectedNonProjectDemand, weeks],
   );
 
@@ -200,31 +212,33 @@ export default function IndividualDashboard() {
         const rows = assignedRows
           .map((row) => ({ id: row.id, name: row.subcategoryName ?? 'General', description: row.description ?? '', demand: row }))
           .sort((a, b) => a.name.localeCompare(b.name) || a.description.localeCompare(b.description));
-        const total = sumArrays(assignedRows.map((row) => row.weeks), weeks);
+        const total = sumArrays(assignedRows.filter((row) => row.isActive !== false).map((row) => row.weeks), weeks);
         return { ...category, rows, total };
       })
       .filter((category) => category.rows.length > 0);
   }, [availableNonProjectCategories, selectedNonProjectDemand, weeks]);
 
-  /** Assignment rows to render, honoring the "hide zero rows" toggle. */
+  /** Assignment rows to render, honoring the "hide inactive" toggle. */
   const visibleProjectDemand = useMemo(() => {
-    if (!hideZeroProjectRows) return selectedProjectDemand;
-    return selectedProjectDemand.filter((project) => project.weeks.slice(0, weeks).some((hours) => hours > 0));
-  }, [selectedProjectDemand, hideZeroProjectRows, weeks]);
+    if (!hideInactiveProjectRows) return selectedProjectDemand;
+    return selectedProjectDemand.filter((project) => project.isActive);
+  }, [selectedProjectDemand, hideInactiveProjectRows]);
 
-  /** Other-demand categories/rows to render, honoring the "hide zero rows" toggle. */
+  /** Other-demand categories/rows to render, honoring the "hide inactive" toggle. */
   const visibleNonProjectGroups = useMemo(() => {
-    if (!hideZeroOtherRows) return nonProjectDemandGroups;
+    if (!hideInactiveOtherRows) return nonProjectDemandGroups;
     return nonProjectDemandGroups
       .map((category) => ({
         ...category,
-        rows: category.rows.filter((row) => row.demand.weeks.slice(0, weeks).some((hours) => hours > 0)),
+        rows: category.rows.filter((row) => row.demand.isActive !== false),
       }))
       .filter((category) => category.rows.length > 0);
-  }, [nonProjectDemandGroups, hideZeroOtherRows, weeks]);
+  }, [nonProjectDemandGroups, hideInactiveOtherRows]);
 
   const metrics = useMemo(() => {
-    const assignedProjects = selectedProjectDemand.filter((row) => row.weeks.slice(0, weeks).some((value) => value > 0)).length;
+    const assignedProjects = selectedProjectDemand.filter(
+      (row) => row.isActive && row.weeks.slice(0, weeks).some((value) => value > 0),
+    ).length;
     let overWeeks = 0;
     let overHours = 0;
     for (let index = 0; index < weeks; index += 1) {
@@ -360,14 +374,14 @@ export default function IndividualDashboard() {
               </svg>
               <span>Add assignment</span>
             </button>
-            <label className="switch demand-zero-toggle" title="Hide rows with zero demand">
+            <label className="switch demand-zero-toggle" title="Hide inactive assignments">
               <input
                 type="checkbox"
-                checked={hideZeroProjectRows}
-                onChange={(event) => setHideZeroProjectRows(event.target.checked)}
+                checked={hideInactiveProjectRows}
+                onChange={(event) => setHideInactiveProjectRows(event.target.checked)}
               />
               <span className="switch-track" aria-hidden="true" />
-              <span className="switch-label">Hide zero rows</span>
+              <span className="switch-label">Hide inactive</span>
             </label>
           </div>
 
@@ -475,14 +489,14 @@ export default function IndividualDashboard() {
               <span aria-hidden="true">+</span>
               <span>Add assignment</span>
             </button>
-            <label className="switch demand-zero-toggle" title="Hide rows with zero demand">
+            <label className="switch demand-zero-toggle" title="Hide inactive items">
               <input
                 type="checkbox"
-                checked={hideZeroOtherRows}
-                onChange={(event) => setHideZeroOtherRows(event.target.checked)}
+                checked={hideInactiveOtherRows}
+                onChange={(event) => setHideInactiveOtherRows(event.target.checked)}
               />
               <span className="switch-track" aria-hidden="true" />
-              <span className="switch-label">Hide zero rows</span>
+              <span className="switch-label">Hide inactive</span>
             </label>
           </div>
 
@@ -593,8 +607,27 @@ export default function IndividualDashboard() {
                       {chartColumns.map((week) => <td key={week}>{category.total[week] || ''}</td>)}
                     </tr>
                     {category.rows.map((subcategory, rowIndex) => (
-                      <tr key={subcategory.id} className={`assignment-row non-project-demand-row ${rowIndex % 2 === 0 ? 'band-strong' : 'band-light'}`}>
+                      <tr
+                        key={subcategory.id}
+                        className={`assignment-row non-project-demand-row ${rowIndex % 2 === 0 ? 'band-strong' : 'band-light'}${
+                          subcategory.demand.isActive === false ? ' inactive-row' : ''
+                        }`}
+                      >
                         <th scope="row" className="matrix-label">
+                          <button
+                            type="button"
+                            className="icon-button non-project-demand-toggle"
+                            title={subcategory.demand.isActive === false ? 'Mark active' : 'Mark inactive'}
+                            aria-label={subcategory.demand.isActive === false ? `Mark ${subcategory.name} active` : `Mark ${subcategory.name} inactive`}
+                            onClick={() =>
+                              setNonProjectDemandActive.mutate({
+                                demandId: subcategory.demand.id,
+                                isActive: subcategory.demand.isActive === false,
+                              })
+                            }
+                          >
+                            {subcategory.demand.isActive === false ? '↺' : '⊘'}
+                          </button>
                           {subcategory.name}
                           {subcategory.description && <span className="non-project-demand-description"> — {subcategory.description}</span>}
                         </th>
@@ -700,6 +733,8 @@ export default function IndividualDashboard() {
           </div>
         </div>
       </div>
+
+      <SkillsCard personId={personId} canEdit title="My Skills" subtitle="Skills you've added to your profile." />
     </>
   );
 }
