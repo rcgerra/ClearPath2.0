@@ -13,7 +13,6 @@ const ROLE_LABELS: Array<[string, string]> = [
 const USER_NAV = [
   { to: '/me', label: 'My Work', end: true, accent: '' },
   { to: '/projects', label: 'Projects', end: false, accent: 'accent-projects' },
-  { to: '/other-work', label: 'Other Work', end: false, accent: '' },
   { to: '/departments', label: 'Departments', end: false, accent: 'accent-departments' },
   { to: '/requests', label: 'Requests', end: false, accent: 'accent-requests' },
   { to: '/people', label: 'People', end: false, accent: 'accent-people' },
@@ -26,6 +25,7 @@ const ADMIN_NAV = [
   { to: '/admin/requests', label: 'Requests', end: false, accent: 'accent-requests' },
   { to: '/admin/projects', label: 'Projects', end: false, accent: 'accent-projects' },
   { to: '/admin/non-project-demand-categories', label: 'Non-Projects', end: false, accent: 'accent-projects' },
+  { to: '/admin/other-work', label: 'Other Work', end: false, accent: '' },
   { to: '/admin/departments', label: 'Departments', end: false, accent: 'accent-departments' },
   { to: '/admin/people', label: 'People', end: false, accent: 'accent-people' },
   { to: '/admin/skills', label: 'Skills', end: false, accent: 'accent-people' },
@@ -51,7 +51,7 @@ function accentForPath(pathname: string): string {
     return 'accent-departments';
   }
   if (pathname.startsWith('/admin/people') || pathname.startsWith('/people')) return 'accent-people';
-  if (pathname.startsWith('/admin/skills') || pathname.startsWith('/skills') || pathname.startsWith('/other-work')) return 'accent-people';
+  if (pathname.startsWith('/admin/skills') || pathname.startsWith('/skills') || pathname.startsWith('/admin/other-work')) return 'accent-people';
   if (pathname.startsWith('/admin')) return 'accent-access';
   return '';
 }

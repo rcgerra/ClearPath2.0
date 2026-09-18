@@ -30,10 +30,11 @@ export default function IndividualDashboard() {
   const [draftDemand, setDraftDemand] = useState<Record<string, string>>({});
   const [addingAssignment, setAddingAssignment] = useState(false);
   const [addingNonProjectDemand, setAddingNonProjectDemand] = useState(false);
-  const [nonProjectCategoryId, setNonProjectCategoryId] = useState('');
-  const [hideInactiveProjectRows, setHideInactiveProjectRows] = useState(false);
-  const [hideInactiveOtherRows, setHideInactiveOtherRows] = useState(false);
+  const [addingNewActivity, setAddingNewActivity] = useState(false);
+  const [hideInactiveProjectRows, setHideInactiveProjectRows] = useState(true);
+  const [hideInactiveOtherRows, setHideInactiveOtherRows] = useState(true);
   const [workloadCollapsed, setWorkloadCollapsed] = useState(false);
+  const [activeDemandTab, setActiveDemandTab] = useState<'project' | 'other'>('project');
   const [error, setError] = useState<string | null>(null);
 
   const capacity = useQuery({
@@ -89,20 +90,17 @@ export default function IndividualDashboard() {
     onError: (cause) => setError(errorMessage(cause)),
   });
   const addNonProjectDemand = useMutation({
-    mutationFn: async (body: { categoryId: string; subcategoryId?: string; newSubcategoryName?: string; description: string }) => {
+    mutationFn: async (body: { categoryId?: string; subcategoryId?: string; newActivityName?: string; description: string }) => {
       let subcategoryId = body.subcategoryId;
-      if (body.newSubcategoryName) {
-        subcategoryId = (await nonProjectDemandApi.createSubcategory({
-          categoryId: body.categoryId,
-          name: body.newSubcategoryName,
-        })).id;
+      if (body.newActivityName && body.categoryId) {
+        subcategoryId = (await nonProjectDemandApi.createSubcategory({ categoryId: body.categoryId, name: body.newActivityName })).id;
       }
-      if (!subcategoryId) throw new Error('Select a subcategory or add a new one.');
+      if (!subcategoryId) throw new Error('Select an activity or create a new one.');
       return nonProjectDemandApi.create({ subcategoryId, personId: personId!, description: body.description });
     },
     onSuccess: () => {
       setAddingNonProjectDemand(false);
-      setNonProjectCategoryId('');
+      setAddingNewActivity(false);
       setError(null);
       queryClient.invalidateQueries({ queryKey: ['non-project-demand', 'mine', personId] });
       queryClient.invalidateQueries({ queryKey: ['non-project-demand-subcategories'] });
@@ -196,14 +194,19 @@ export default function IndividualDashboard() {
   );
 
   const availableNonProjectCategories = useMemo(() => {
-    return (nonProjectCategories.data ?? []).filter((category) => category.isActive);
+    return (nonProjectCategories.data ?? [])
+      .filter((category) => category.isActive)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [nonProjectCategories.data]);
 
-  const availableNonProjectSubcategories = useMemo(() => {
-    return (nonProjectSubcategories.data ?? []).filter(
-      (subcategory) => subcategory.isActive && subcategory.categoryId === nonProjectCategoryId,
-    );
-  }, [nonProjectSubcategories.data, nonProjectCategoryId]);
+  const availableNonProjectSubcategories = useMemo(
+    () => (nonProjectSubcategories.data ?? [])
+      .filter((subcategory) => subcategory.isActive)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [nonProjectSubcategories.data],
+  );
 
   const nonProjectDemandGroups = useMemo(() => {
     return availableNonProjectCategories
@@ -259,7 +262,10 @@ export default function IndividualDashboard() {
   }, [selectedProjectDemand, totalDemand, availability, weeks]);
 
   const assignedProjectIds = new Set((demand.data ?? []).map((row) => row.projectId));
-  const availableProjects = (projects.data ?? []).filter((project) => !assignedProjectIds.has(project.id));
+  const availableProjects = (projects.data ?? [])
+    .filter((project) => !assignedProjectIds.has(project.id))
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
   const chartColumns = useMemo(() => Array.from({ length: weeks }, (_, index) => index), [weeks]);
 
   if (!personId) {
@@ -355,15 +361,39 @@ export default function IndividualDashboard() {
           )}
 
           <div className="demand-section-toolbar">
-            <h3 className="demand-section-title">Project demand</h3>
+            <div className="demand-tabs" role="tablist" aria-label="Demand type">
+              <button
+                type="button"
+                role="tab"
+                className={activeDemandTab === 'project' ? 'demand-tab active' : 'demand-tab'}
+                aria-selected={activeDemandTab === 'project'}
+                onClick={() => setActiveDemandTab('project')}
+              >
+                Project demand
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className={activeDemandTab === 'other' ? 'demand-tab active' : 'demand-tab'}
+                aria-selected={activeDemandTab === 'other'}
+                onClick={() => setActiveDemandTab('other')}
+              >
+                Other demand
+              </button>
+            </div>
             <button
               type="button"
               className="icon-button icon-button-add icon-button-add-labeled person-detail-action my-work-action"
               title="Add assignment"
               aria-label="Add assignment"
               onClick={() => {
-                setAddingAssignment((value) => !value);
-                setAddingNonProjectDemand(false);
+                if (activeDemandTab === 'project') {
+                  setAddingAssignment((value) => !value);
+                  setAddingNonProjectDemand(false);
+                } else {
+                  setAddingNonProjectDemand((value) => !value);
+                  setAddingAssignment(false);
+                }
               }}
             >
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -374,17 +404,21 @@ export default function IndividualDashboard() {
               </svg>
               <span>Add assignment</span>
             </button>
-            <label className="switch demand-zero-toggle" title="Hide inactive assignments">
+            <label className="switch demand-zero-toggle" title="Hide inactive">
               <input
                 type="checkbox"
-                checked={hideInactiveProjectRows}
-                onChange={(event) => setHideInactiveProjectRows(event.target.checked)}
+                checked={activeDemandTab === 'project' ? hideInactiveProjectRows : hideInactiveOtherRows}
+                onChange={(event) => {
+                  if (activeDemandTab === 'project') setHideInactiveProjectRows(event.target.checked);
+                  else setHideInactiveOtherRows(event.target.checked);
+                }}
               />
               <span className="switch-track" aria-hidden="true" />
               <span className="switch-label">Hide inactive</span>
             </label>
           </div>
 
+          <div id="active-demand-content" hidden={activeDemandTab !== 'project'}>
           {addingAssignment && (
             <form
               className="toolbar assignment-picker"
@@ -416,6 +450,10 @@ export default function IndividualDashboard() {
 
           <div className="matrix-scroll">
             <table className="weekly-matrix demand-grid department-person-matrix">
+              <colgroup>
+                <col className="matrix-label-column" />
+                <col span={chartColumns.length} />
+              </colgroup>
               <thead>
                 <tr>
                   <th className="matrix-label" aria-hidden="true" />
@@ -473,46 +511,21 @@ export default function IndividualDashboard() {
               </tfoot>
             </table>
           </div>
-
-          <div className="demand-section-toolbar">
-            <h3 className="demand-section-title">Other demand</h3>
-            <button
-              type="button"
-              className="icon-button icon-button-add icon-button-add-labeled person-detail-action my-work-action"
-              title="Add assignment"
-              aria-label="Add assignment"
-              onClick={() => {
-                setAddingNonProjectDemand((value) => !value);
-                setAddingAssignment(false);
-              }}
-            >
-              <span aria-hidden="true">+</span>
-              <span>Add assignment</span>
-            </button>
-            <label className="switch demand-zero-toggle" title="Hide inactive items">
-              <input
-                type="checkbox"
-                checked={hideInactiveOtherRows}
-                onChange={(event) => setHideInactiveOtherRows(event.target.checked)}
-              />
-              <span className="switch-track" aria-hidden="true" />
-              <span className="switch-label">Hide inactive</span>
-            </label>
           </div>
 
+          <div id="other-demand-content" hidden={activeDemandTab !== 'other'}>
           {addingNonProjectDemand && (
             <form
               className="toolbar assignment-picker non-project-demand-form"
               onSubmit={(event) => {
                 event.preventDefault();
                 const form = new FormData(event.currentTarget);
-                const categoryId = String(form.get('categoryId') || '');
                 const subcategoryId = String(form.get('subcategoryId') || '');
-                const newSubcategoryName = String(form.get('newSubcategoryName') || '').trim();
+                const categoryId = String(form.get('categoryId') || '');
+                const newActivityName = String(form.get('newActivityName') || '').trim();
                 const description = String(form.get('description') || '').trim();
-                if (!categoryId) return;
-                if (!subcategoryId && !newSubcategoryName) {
-                  setError('Select a subcategory or add a new one.');
+                if (addingNewActivity ? !categoryId || !newActivityName : !subcategoryId) {
+                  setError('Select an activity.');
                   return;
                 }
                 if (!description) {
@@ -520,48 +533,47 @@ export default function IndividualDashboard() {
                   return;
                 }
                 addNonProjectDemand.mutate({
-                  categoryId,
-                  subcategoryId: subcategoryId || undefined,
-                  newSubcategoryName: newSubcategoryName || undefined,
+                  categoryId: categoryId || undefined,
+                  subcategoryId: addingNewActivity ? undefined : subcategoryId,
+                  newActivityName: addingNewActivity ? newActivityName : undefined,
                   description,
                 });
               }}
             >
               <div>
-                <label htmlFor="nonProjectCategoryId">Category</label>
+                <label htmlFor="nonProjectSubcategoryId">Activity</label>
                 <select
-                  id="nonProjectCategoryId"
-                  name="categoryId"
-                  required
-                  value={nonProjectCategoryId}
-                  onChange={(event) => setNonProjectCategoryId(event.target.value)}
+                  id="nonProjectSubcategoryId"
+                  name="subcategoryId"
+                  className="activity-selector"
+                  defaultValue=""
+                  required={!addingNewActivity}
+                  onChange={(event) => setAddingNewActivity(event.target.value === '__new__')}
                 >
-                  <option value="" disabled>
-                    {nonProjectCategories.isLoading ? 'Loading categories…' : 'Select…'}
-                  </option>
-                  {availableNonProjectCategories.map((category) => (
-                    <option key={category.id} value={category.id}>{category.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="nonProjectSubcategoryId">Subcategory</label>
-                <select id="nonProjectSubcategoryId" name="subcategoryId" defaultValue="" disabled={!nonProjectCategoryId}>
-                  <option value="">Select existing…</option>
+                  <option value="">Select activity…</option>
                   {availableNonProjectSubcategories.map((subcategory) => (
                     <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>
                   ))}
+                  <option value="__new__">Add new activity…</option>
                 </select>
               </div>
-              <div>
-                <label htmlFor="newNonProjectSubcategory">Or add a new subcategory</label>
-                <input
-                  id="newNonProjectSubcategory"
-                  name="newSubcategoryName"
-                  maxLength={200}
-                  disabled={!nonProjectCategoryId}
-                />
-              </div>
+              {addingNewActivity && (
+                <>
+                  <div>
+                    <label htmlFor="newActivityCategory">Category</label>
+                    <select id="newActivityCategory" name="categoryId" required defaultValue="">
+                      <option value="">Select category…</option>
+                      {availableNonProjectCategories.map((category) => (
+                        <option key={category.id} value={category.id}>{category.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="newActivityName">New activity</label>
+                    <input id="newActivityName" name="newActivityName" maxLength={200} required />
+                  </div>
+                </>
+              )}
               <div>
                 <label htmlFor="nonProjectDescription">Description</label>
                 <input
@@ -570,10 +582,9 @@ export default function IndividualDashboard() {
                   maxLength={200}
                   required
                   placeholder="e.g. Work order #12345"
-                  disabled={!nonProjectCategoryId}
                 />
               </div>
-              <button className="primary non-project-demand-action" type="submit" disabled={addNonProjectDemand.isPending || !nonProjectCategoryId}>
+              <button className="primary non-project-demand-action" type="submit" disabled={addNonProjectDemand.isPending}>
                 {addNonProjectDemand.isPending ? 'Submitting…' : 'Submit'}
               </button>
               <button type="button" onClick={() => setAddingNonProjectDemand(false)}>Cancel</button>
@@ -582,6 +593,10 @@ export default function IndividualDashboard() {
 
           <div className="matrix-scroll">
             <table className="weekly-matrix demand-grid department-person-matrix">
+              <colgroup>
+                <col className="matrix-label-column" />
+                <col span={chartColumns.length} />
+              </colgroup>
               <thead>
                 <tr>
                   <th className="matrix-label" aria-hidden="true" />
@@ -614,20 +629,33 @@ export default function IndividualDashboard() {
                         }`}
                       >
                         <th scope="row" className="matrix-label">
-                          <button
-                            type="button"
-                            className="icon-button non-project-demand-toggle"
-                            title={subcategory.demand.isActive === false ? 'Mark active' : 'Mark inactive'}
-                            aria-label={subcategory.demand.isActive === false ? `Mark ${subcategory.name} active` : `Mark ${subcategory.name} inactive`}
-                            onClick={() =>
-                              setNonProjectDemandActive.mutate({
-                                demandId: subcategory.demand.id,
-                                isActive: subcategory.demand.isActive === false,
-                              })
-                            }
-                          >
-                            {subcategory.demand.isActive === false ? '↺' : '⊘'}
-                          </button>
+                          <span className="person-actions non-project-demand-actions">
+                            <button
+                              type="button"
+                              className={`icon-button non-project-demand-toggle ${subcategory.demand.isActive === false ? 'success' : 'danger'}`}
+                              title={subcategory.demand.isActive === false ? `Unhide ${subcategory.name}` : `Hide ${subcategory.name}`}
+                              aria-label={subcategory.demand.isActive === false ? `Unhide ${subcategory.name}` : `Hide ${subcategory.name}`}
+                              onClick={() =>
+                                setNonProjectDemandActive.mutate({
+                                  demandId: subcategory.demand.id,
+                                  isActive: subcategory.demand.isActive === false,
+                                })
+                              }
+                            >
+                              {subcategory.demand.isActive === false ? (
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                  <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+                                  <circle cx="12" cy="12" r="2.5" />
+                                  <line x1="3" y1="3" x2="21" y2="21" />
+                                </svg>
+                              ) : (
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                  <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+                                  <circle cx="12" cy="12" r="2.5" />
+                                </svg>
+                              )}
+                            </button>
+                          </span>
                           {subcategory.name}
                           {subcategory.description && <span className="non-project-demand-description"> — {subcategory.description}</span>}
                         </th>
@@ -672,9 +700,16 @@ export default function IndividualDashboard() {
               </tfoot>
             </table>
           </div>
+          </div>
+
+        </div>
 
           <div className="matrix-scroll">
             <table className="weekly-matrix demand-grid department-person-matrix">
+              <colgroup>
+                <col className="matrix-label-column" />
+                <col span={chartColumns.length} />
+              </colgroup>
               <thead>
                 <tr>
                   <th className="matrix-label" aria-hidden="true" />
@@ -731,7 +766,6 @@ export default function IndividualDashboard() {
               </tfoot>
             </table>
           </div>
-        </div>
       </div>
 
       <SkillsCard personId={personId} canEdit title="My Skills" subtitle="Skills you've added to your profile." />

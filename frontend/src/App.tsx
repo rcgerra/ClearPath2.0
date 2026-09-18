@@ -61,6 +61,7 @@ export default function App() {
                   <Route path="departments" element={<DepartmentsListPage />} />
                   <Route path="departments/:id" element={<DepartmentEditPage />} />
                   <Route path="non-project-demand-categories" element={<NonProjectDemandCategoriesPage />} />
+                  <Route path="other-work" element={<OtherWorkPage />} />
                   <Route path="skills" element={<SkillsPage />} />
                   <Route path="people" element={<PeopleListPage />} />
                   <Route path="people/:id" element={<PersonEditPage />} />
@@ -114,7 +115,6 @@ export default function App() {
             }
           />
           <Route path="/me" element={<IndividualDashboard />} />
-          <Route path="/other-work" element={<OtherWorkPage />} />
           <Route path="/people" element={<PeopleListPage />} />
           <Route path="/skills" element={<SkillsPage />} />
           <Route path="/requests" element={<RequestsPage />} />

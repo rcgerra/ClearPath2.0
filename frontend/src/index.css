@@ -1,43 +1,47 @@
 :root {
-  /* Takeda corporate palette (primary) */
-  --takeda-red: #e1242a;
-  --azuki-maroon: #891515;
-  --black: #000000;
+  /* Takeda corporate base palette */
+  --takeda-red: #d92d36;
+  --azuki-maroon: #7d1d2b;
+  --black: #121821;
   --white: #ffffff;
-  --dark-grey: #34373f;
-  --medium-grey: #a1a4ac;
-  --light-grey: #edf2f4;
+  --dark-grey: #2a2f37;
+  --medium-grey: #89919e;
+  --light-grey: #edf3f5;
 
-  /* Tints */
-  --light-pink: #f78c85;
-  --dark-red: #bd120a;
-  --dark-maroon: #450a0a;
+  /* Corporate accent palette */
+  --azuki-blue: #2b6cb5;
+  --sorairo-blue: #2f7ec7;
+  --sakura-pink: #d95d8f;
+  --fuji-purple: #6d5ca8;
+  --matsutake-green: #688d58;
 
-  /* Accents (internal materials only, used sparingly for status) */
-  --akane-red: #ea5532;
-  --sakura-pink: #da5283;
-  --fuji-purple: #9b72b0;
-  --asagi-blue: #51b1bf;
-  --matsuba-green: #abb436;
-  --yamabuki-yellow: #eba800;
-  --sorairo-blue: #4c9bcf;
+  /* Secondary / status tints */
+  --light-pink: #f8d8e7;
+  --dark-red: #9f1d29;
+  --dark-maroon: #4f0d17;
+  --akane-red: #ea5e4d;
+  --asagi-blue: #4e9dd0;
+  --matsuba-green: #7ea35b;
+  --yamabuki-yellow: #e6aa1a;
 
   /* Semantic tokens */
-  --bg: var(--light-grey);
-  --surface: var(--white);
-  --border: #d7dee2;
+  --bg: #edf2f4;
+  --surface: rgba(255, 255, 255, 0.96);
+  --surface-strong: #ffffff;
+  --border: #d9e1e6;
   --text: var(--dark-grey);
-  --muted: #6b6f79;
+  --muted: #5d6470;
   --brand: var(--takeda-red);
   --brand-dark: var(--azuki-maroon);
-  --brand-soft: rgba(225, 36, 42, 0.1);
+  --brand-soft: rgba(217, 45, 54, 0.1);
   --danger: var(--dark-red);
-  --success: #7f8a1f;
+  --success: #5d8760;
   --warn: #a97a00;
   --info: var(--sorairo-blue);
 
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   color: var(--text);
+  background-color: var(--bg);
 }
 
 * {
@@ -46,7 +50,23 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(237, 242, 244, 0.82) 100%),
+    radial-gradient(circle at top left, rgba(217, 45, 54, 0.08), transparent 34%),
+    linear-gradient(135deg, #eef3f5 0%, #edf2f4 100%);
+  background-attachment: fixed;
+  color: var(--text);
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(18, 24, 33, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(18, 24, 33, 0.02) 1px, transparent 1px);
+  background-size: 18px 18px;
+  pointer-events: none;
 }
 
 a {
@@ -55,22 +75,23 @@ a {
 
 button {
   font: inherit;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 249, 0.96));
   padding: 0.45rem 0.9rem;
   cursor: pointer;
+  box-shadow: 0 1px 0 rgba(18, 24, 33, 0.04);
 }
 
 button.primary {
-  background: var(--brand);
-  border-color: var(--brand);
+  background: linear-gradient(135deg, var(--takeda-red) 0%, var(--azuki-maroon) 100%);
+  border-color: transparent;
   color: var(--white);
+  box-shadow: 0 10px 20px rgba(125, 29, 43, 0.2);
 }
 
 button.primary:hover {
-  background: var(--brand-dark);
-  border-color: var(--brand-dark);
+  filter: brightness(1.03);
 }
 
 button:focus-visible,

@@ -17,10 +17,12 @@ interface Props {
   showThis?: boolean;
   /** Pin the y-axis to a fixed maximum instead of scaling to the data. */
   maxY?: number;
+  /** Highlights total-demand bars above the department alert threshold. */
+  alertThreshold?: number;
 }
 
 const FALLBACK_COL_WIDTH = 16;
-const PAD_TOP = 18;
+const PAD_TOP = 30;
 const PAD_BOTTOM = 34;
 const PAD_LEFT = 10;
 
@@ -37,6 +39,7 @@ export default function PersonDemandChart({
   otherColor,
   showThis = true,
   maxY,
+  alertThreshold,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -53,7 +56,7 @@ export default function PersonDemandChart({
   const width = PAD_LEFT + weeks * colWidth + 12;
   const plotHeight = height - PAD_TOP - PAD_BOTTOM;
   const stacked = Array.from({ length: weeks }, (_, i) => (thisProject[i] ?? 0) + (otherProjects[i] ?? 0));
-  const peak = maxY ?? Math.max(1, ...stacked, ...availability.slice(0, weeks));
+  const peak = maxY ?? Math.max(1, ...stacked, ...availability.slice(0, weeks), alertThreshold ?? 0);
   const scale = (value: number) => (value / peak) * plotHeight;
   const y = (value: number) => PAD_TOP + plotHeight - scale(value);
 
@@ -72,7 +75,6 @@ export default function PersonDemandChart({
         {ticks.map((tick) => (
           <line key={tick} x1={PAD_LEFT} x2={width - 6} y1={y(tick)} y2={y(tick)} className="chart-gridline" />
         ))}
-
         {Array.from({ length: weeks }, (_, index) => {
           const mine = thisProject[index] ?? 0;
           const others = otherProjects[index] ?? 0;
@@ -103,7 +105,7 @@ export default function PersonDemandChart({
                 <text
                   x={PAD_LEFT + index * colWidth + colWidth / 2}
                   y={y(total) - 4}
-                  className="chart-value-label"
+                  className={total > (alertThreshold ?? Number.POSITIVE_INFINITY) ? 'chart-value-label chart-value-alert' : 'chart-value-label'}
                   textAnchor="middle"
                 >
                   {total}
@@ -135,6 +137,24 @@ export default function PersonDemandChart({
             </g>
           );
         })}
+
+        {alertThreshold !== undefined && (
+          <g className="chart-alert-level">
+            <line x1={PAD_LEFT} x2={width - 6} y1={y(alertThreshold)} y2={y(alertThreshold)} className="chart-alert-line" />
+            <g transform={`translate(0, ${Math.max(2, y(alertThreshold) - 8)})`}>
+              <title>{`Alert level: ${alertThreshold} hours`}</title>
+              <path d="M9 0 18 17H0Z" />
+              <line x1="9" y1="5" x2="9" y2="11" />
+              <circle cx="9" cy="14" r="1" />
+            </g>
+            <g transform={`translate(${width - 18}, ${Math.max(2, y(alertThreshold) - 8)})`}>
+              <title>{`Alert level: ${alertThreshold} hours`}</title>
+              <path d="M9 0 18 17H0Z" />
+              <line x1="9" y1="5" x2="9" y2="11" />
+              <circle cx="9" cy="14" r="1" />
+            </g>
+          </g>
+        )}
 
         <polyline points={stepPoints} className="chart-step chart-step-dotted" />
         <line x1={PAD_LEFT} x2={width - 6} y1={PAD_TOP + plotHeight} y2={PAD_TOP + plotHeight} className="chart-axis" />

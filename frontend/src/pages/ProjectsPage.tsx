@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { projectsApi } from '../api/client';
+import { capacityApi, demandApi, nonProjectDemandApi, projectsApi } from '../api/client';
 import DataTable, { Column } from '../components/admin/DataTable';
 import ListToolbar from '../components/admin/ListToolbar';
 import PersonCell from '../components/admin/PersonCell';
@@ -12,6 +12,32 @@ import { canEditProject } from '../utils/permissions';
 import { formatDate } from '../utils/dates';
 import type { Project } from '../types';
 
+const KPI_WEEKS = 26;
+
+function emptyWeeks(): number[] {
+  return new Array(KPI_WEEKS).fill(0);
+}
+
+function addInto(target: number[], source: number[] | undefined): number[] {
+  if (!source) return target;
+  for (let index = 0; index < target.length; index += 1) target[index] += source[index] ?? 0;
+  return target;
+}
+
+interface ProjectKpis {
+  teamMembers: number;
+  totalDemand: number;
+  weeksOverAllocated: number;
+  hoursOverAllocated: number;
+}
+
+const EMPTY_KPIS: ProjectKpis = {
+  teamMembers: 0,
+  totalDemand: 0,
+  weeksOverAllocated: 0,
+  hoursOverAllocated: 0,
+};
+
 export default function ProjectsPage() {
   const user = useAuthStore((state) => state.user);
   const personId = user?.personId;
@@ -21,6 +47,83 @@ export default function ProjectsPage() {
   const [hideInactive, setHideInactive] = useState(true);
 
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.list() });
+  const allCapacity = useQuery({ queryKey: ['capacity', 'all'], queryFn: () => capacityApi.list() });
+  const allDemand = useQuery({ queryKey: ['demand', 'all'], queryFn: () => demandApi.list() });
+  const allNonProjectDemand = useQuery({ queryKey: ['non-project-demand', 'all'], queryFn: () => nonProjectDemandApi.list() });
+
+  const capacityByPerson = useMemo(() => {
+    const map = new Map<string, number[]>();
+    for (const row of allCapacity.data ?? []) {
+      if (!row.personId) continue;
+      map.set(row.personId.toLowerCase(), row.weeks.slice(0, KPI_WEEKS));
+    }
+    return map;
+  }, [allCapacity.data]);
+
+  const demandByPerson = useMemo(() => {
+    const map = new Map<string, number[]>();
+    for (const row of allDemand.data ?? []) {
+      if (!row.personId) continue;
+      const key = row.personId.toLowerCase();
+      map.set(key, addInto(map.get(key) ?? emptyWeeks(), row.weeks));
+    }
+    for (const row of allNonProjectDemand.data ?? []) {
+      const key = row.personId.toLowerCase();
+      map.set(key, addInto(map.get(key) ?? emptyWeeks(), row.weeks));
+    }
+    return map;
+  }, [allDemand.data, allNonProjectDemand.data]);
+
+  const projectDemandByProject = useMemo(() => {
+    const map = new Map<string, number[]>();
+    for (const row of allDemand.data ?? []) {
+      if (!row.projectId) continue;
+      map.set(row.projectId, addInto(map.get(row.projectId) ?? emptyWeeks(), row.weeks));
+    }
+    return map;
+  }, [allDemand.data]);
+
+  const personIdsByProject = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const row of allDemand.data ?? []) {
+      if (!row.personId) continue;
+      if (!row.weeks.slice(0, KPI_WEEKS).some((value) => value > 0)) continue;
+      const set = map.get(row.projectId) ?? new Set<string>();
+      set.add(row.personId.toLowerCase());
+      map.set(row.projectId, set);
+    }
+    return map;
+  }, [allDemand.data]);
+
+  const kpisByProject = useMemo(() => {
+    const map = new Map<string, ProjectKpis>();
+    for (const project of projects.data ?? []) {
+      const memberIds = personIdsByProject.get(project.id) ?? new Set<string>();
+      const kpis: ProjectKpis = {
+        ...EMPTY_KPIS,
+        teamMembers: memberIds.size,
+        totalDemand: (projectDemandByProject.get(project.id) ?? emptyWeeks()).reduce((sum, value) => sum + value, 0),
+      };
+
+      const overAllocatedWeeks = new Set<number>();
+      for (const key of memberIds) {
+        const availability = capacityByPerson.get(key) ?? emptyWeeks();
+        const demand = demandByPerson.get(key) ?? emptyWeeks();
+        for (let week = 0; week < KPI_WEEKS; week += 1) {
+          const over = (demand[week] ?? 0) - (availability[week] ?? 0);
+          if (over > 0) {
+            overAllocatedWeeks.add(week);
+            kpis.hoursOverAllocated += over;
+          }
+        }
+      }
+
+      kpis.weeksOverAllocated = overAllocatedWeeks.size;
+      map.set(project.id, kpis);
+    }
+
+    return map;
+  }, [capacityByPerson, demandByPerson, personIdsByProject, projectDemandByProject, projects.data]);
 
   const rows = filterByScope(projects.data ?? [], scope, personId).filter(
     (row) => !hideInactive || row.isActive !== false,
@@ -58,6 +161,38 @@ export default function ProjectsPage() {
       label: 'Project sponsor',
       value: (row) => row.sponsorName,
       render: (row) => <PersonCell name={row.sponsorName} personId={row.sponsorPersonId} me={personId} />,
+    },
+    {
+      key: 'teamMembers',
+      label: 'People',
+      width: '68px',
+      value: (row) => kpisByProject.get(row.id)?.teamMembers ?? 0,
+    },
+    {
+      key: 'totalDemand',
+      label: 'Total demand',
+      width: '92px',
+      value: (row) => kpisByProject.get(row.id)?.totalDemand ?? 0,
+    },
+    {
+      key: 'weeksOver',
+      label: 'Wks over',
+      width: '72px',
+      value: (row) => kpisByProject.get(row.id)?.weeksOverAllocated ?? 0,
+      render: (row) => {
+        const value = kpisByProject.get(row.id)?.weeksOverAllocated ?? 0;
+        return <span style={{ color: value > 0 ? 'var(--danger)' : undefined }}>{value}</span>;
+      },
+    },
+    {
+      key: 'hoursOver',
+      label: 'Hrs over',
+      width: '72px',
+      value: (row) => kpisByProject.get(row.id)?.hoursOverAllocated ?? 0,
+      render: (row) => {
+        const value = kpisByProject.get(row.id)?.hoursOverAllocated ?? 0;
+        return <span style={{ color: value > 0 ? 'var(--danger)' : undefined }}>{value}</span>;
+      },
     },
     {
       key: 'lastCheckIn',
@@ -104,7 +239,7 @@ export default function ProjectsPage() {
         scope={{ value: scope, onChange: setScope, disabled: !personId }}
         toggles={[{ label: 'Hide inactive', checked: hideInactive, onChange: setHideInactive }]}
       />
-      <div className="card table-card">
+      <div className="card table-card projects-table-card">
         <DataTable
           rows={rows}
           columns={columns}
