@@ -81,6 +81,7 @@ button {
   padding: 0.45rem 0.9rem;
   cursor: pointer;
   box-shadow: 0 1px 0 rgba(18, 24, 33, 0.04);
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
 
 button.primary {
@@ -115,6 +116,11 @@ button.success {
 button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+button:not(:disabled):hover {
+  border-color: var(--accent, var(--takeda-red));
+  box-shadow: 0 3px 8px rgba(18, 24, 33, 0.08);
 }
 
 input,

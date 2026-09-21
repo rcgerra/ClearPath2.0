@@ -4,6 +4,139 @@
   flex-direction: column;
 }
 
+.employment-capacity-line {
+  stroke: var(--matsutake-green);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
+
+.analytics-comparison-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.department-analytics-insights {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.department-analytics-insights > .analytics-workstream-panel,
+.department-analytics-insights > .analytics-people-panel {
+  grid-column: span 2;
+}
+
+.analytics-workstream-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.analytics-workstream-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.8fr) auto minmax(80px, 3fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.78rem;
+}
+
+.analytics-workstream-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analytics-workstream-bar-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--light-grey);
+}
+
+.analytics-workstream-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--sorairo-blue);
+}
+
+.analytics-workstream-row strong {
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-workstream-header {
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.analytics-sort-header {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+
+.analytics-sort-header:hover {
+  color: var(--accent-ink, var(--matsutake-green));
+  text-decoration: underline;
+}
+
+.analytics-overallocated-bar {
+  background: var(--takeda-red);
+}
+
+.analytics-available-bar {
+  background: var(--matsutake-green);
+}
+
+.analytics-chart-panel {
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.analytics-chart-panel h3 {
+  margin: 0 0 0.5rem;
+  color: var(--accent-ink, var(--matsutake-green));
+  font-size: 0.9rem;
+}
+
+.chart-capacity-line {
+  stroke: var(--matsutake-green);
+  stroke-width: 2;
+  stroke-dasharray: 3 3;
+}
+
+@media (max-width: 900px) {
+  .analytics-comparison-charts,
+  .department-analytics-insights {
+    grid-template-columns: 1fr;
+  }
+
+  .department-analytics-insights > .analytics-chart-panel,
+  .department-analytics-insights > .analytics-workstream-panel,
+  .department-analytics-insights > .analytics-people-panel {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
 .app-header {
   display: flex;
   align-items: center;
@@ -134,6 +267,18 @@
   width: 100%;
 }
 
+.app-main > .page-title {
+  color: var(--accent-ink, var(--text));
+}
+
+.app-main > .card {
+  border-top: 3px solid var(--accent, var(--takeda-red));
+}
+
+.app-main > .card h2 {
+  color: var(--accent-ink, var(--text));
+}
+
 .back-button-row {
   margin-bottom: 1rem;
 }
@@ -258,9 +403,41 @@
   color: var(--muted);
   font-size: 0.92rem;
 }
+.analytics-capacity-gap-panel {
+  grid-column: span 2;
+  grid-row: 1;
+}
+
+.analytics-gap-weeks-panel {
+  grid-row: 1;
+  grid-column: span 1;
+}
+
+.analytics-gap-weeks-table {
+  width: 100%;
+}
+
+.analytics-gap-weeks-table th,
+.analytics-gap-weeks-table td {
+  padding: 0.35rem 0.45rem;
+  font-size: 0.76rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-gap-weeks-table th:first-child,
+.analytics-gap-weeks-table td:first-child {
+  text-align: left;
+}
+
+.analytics-gap-deficit { color: var(--dark-red); font-weight: 700; }
+.analytics-gap-surplus { color: #44643c; font-weight: 700; }
 
 .card {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 250, 251, 0.96));
+.analytics-low-demand-bar {
+  background: var(--asagi-blue);
+}
   border: 1px solid rgba(18, 24, 33, 0.06);
   border-radius: 14px;
   padding: 1.1rem 1.25rem;
@@ -682,6 +859,14 @@
   font-weight: 600;
   color: var(--text);
   border-right: 1px solid var(--border);
+}
+
+.department-roster-matrix .department-heatmap-person-cell {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: var(--surface-strong);
+  box-shadow: 3px 0 5px rgba(18, 24, 33, 0.08);
 }
 
 .my-workload-card {
@@ -1147,7 +1332,7 @@ button.danger-solid:hover:not(:disabled) {
   order: 1;
   min-width: 0;
   margin-bottom: 1.25rem;
-  padding: 1.1rem 1.25rem;
+  padding: 0 0 1.1rem 1.25rem;
   border: 1px solid rgba(18, 24, 33, 0.06);
   border-radius: 0 0 14px 14px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 250, 251, 0.96));
@@ -1165,35 +1350,115 @@ button.danger-solid:hover:not(:disabled) {
   flex-direction: column;
 }
 
+.department-layout.department-view-heatmap {
+  display: grid;
+  grid-template-columns: minmax(220px, 25%) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.department-layout.department-view-heatmap > .accent-section-header,
+.department-layout.department-view-heatmap > .alert,
+.department-layout.department-view-heatmap > .department-analytics-card,
+.department-layout.department-view-heatmap > .project-header {
+  grid-column: 1 / -1;
+}
+
+.department-layout.department-view-heatmap > .department-team-overview {
+  grid-row: 2;
+  min-width: 0;
+}
+
+.department-view-toggle {
+  align-self: center;
+  margin-left: auto;
+}
+
 .accent-section.accent-departments > .department-individual-details-card {
-  order: 1;
+  order: 2;
 }
 
 .accent-section.accent-departments > .department-team-overview {
-  order: 2;
+  order: 1;
 }
 
 .accent-section.accent-departments > .department-analytics-card {
   order: 3;
 }
 
-.accent-section.accent-departments > .project-header {
+.accent-section.accent-departments > .department-analytics-summary-card {
   order: 4;
 }
 
+.accent-section.accent-departments > .project-header {
+  order: 5;
+}
+
 .department-person-detail-content {
-  position: static;
-  padding-left: calc(22% + 1.5rem);
+  display: grid;
+  grid-template-columns: 22% minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0;
+  padding-left: 0;
   min-width: 0;
+}
+
+.department-detail-view-panel {
+  min-width: 0;
+  padding: 0 1.1rem 0.25rem;
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  background: var(--surface-strong);
+}
+
+.department-layout.department-view-heatmap .department-individual-details-card {
+  display: none;
+}
+
+.department-layout.department-view-heatmap .department-detail-roster-picker {
+  position: static;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border-right: 0;
+}
+
+.department-layout.department-view-heatmap .department-detail-view-panel {
+  display: none;
+}
+
+.department-layout.department-view-heatmap > .department-team-overview {
+  grid-column: 1 / -1;
+}
+
+.department-heatmap-person-cell .person-row,
+.department-heatmap-person-cell .person-identity,
+.department-heatmap-person-cell .person-name-row {
+  width: 100%;
+}
+
+.department-heatmap-person-cell .person-name-row {
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.department-heatmap-person-cell .department-detail-roster-actions {
+  margin-top: 0.25rem;
+  padding: 0;
 }
 
 .department-detail-roster-picker {
   position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   top: 0;
   bottom: 0;
   left: 0;
-  width: auto;
-  right: calc(78% + 1.5rem);
+  right: auto;
+  width: 22%;
   min-width: 190px;
   height: auto;
   align-self: start;
@@ -1205,7 +1470,12 @@ button.danger-solid:hover:not(:disabled) {
   background: var(--surface);
 }
 
+.department-person-detail-content > .department-detail-roster-picker {
+  box-shadow: 0 2px 8px rgba(18, 24, 33, 0.04);
+}
+
 .department-person-detail-content > :not(.department-detail-roster-picker) {
+  grid-column: 2;
   min-width: 0;
 }
 
@@ -1224,26 +1494,69 @@ button.danger-solid:hover:not(:disabled) {
 .department-detail-roster-list {
   display: grid;
   gap: 0.35rem;
-  height: calc(100% - 2rem);
-  max-height: calc(100vh - 14rem);
-  overflow-y: auto;
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  scrollbar-color: var(--medium-grey) var(--light-grey);
 }
 
-.department-detail-roster-list button {
+.department-detail-roster-list::-webkit-scrollbar {
+  width: 12px;
+}
+
+.department-detail-roster-list::-webkit-scrollbar-track {
+  background: var(--light-grey);
+  border-radius: 6px;
+}
+
+.department-detail-roster-list::-webkit-scrollbar-thumb {
+  background: var(--medium-grey);
+  border: 3px solid var(--light-grey);
+  border-radius: 6px;
+}
+
+.department-person-detail-content,
+.department-detail-roster-picker,
+.department-detail-view-panel {
+  min-height: 100%;
+}
+
+.department-detail-roster-item {
+  position: relative;
   display: grid;
   gap: 0.1rem;
-  width: 100%;
-  padding: 0.45rem 0.5rem;
   border: 1px solid transparent;
   border-radius: 4px;
-  background: transparent;
-  text-align: left;
-  box-shadow: none;
+  background: var(--white);
 }
 
-.department-detail-roster-list button span {
+.department-detail-roster-item:nth-child(even) {
+  background: rgba(104, 141, 88, 0.1);
+}
+
+.department-detail-roster-item.active,
+.department-detail-roster-item:hover {
+  border-color: var(--matsutake-green);
+  background: rgba(104, 141, 88, 0.12);
+}
+
+.department-detail-roster-list .department-detail-roster-select {
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border: 0;
+  border-radius: 4px 4px 0 0;
+  background: transparent;
   color: var(--muted);
   font-size: 0.7rem;
+  text-align: left;
+  box-shadow: none;
 }
 
 .department-detail-roster-name-line {
@@ -1253,9 +1566,19 @@ button.danger-solid:hover:not(:disabled) {
   gap: 0.35rem;
 }
 
+.department-detail-roster-list .department-detail-roster-select strong {
+  color: var(--text);
+}
+
+.department-detail-roster-list .department-detail-roster-metrics {
+  display: block;
+  padding-right: 3.5rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .department-detail-roster-pills {
   display: inline-flex;
-  gap: 0;
   flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid var(--matsutake-green);
@@ -1300,18 +1623,41 @@ button.danger-solid:hover:not(:disabled) {
   overflow-wrap: anywhere;
 }
 
-.department-detail-roster-list button:hover,
-.department-detail-roster-list button.active {
+.department-detail-roster-actions {
+  display: flex;
+  position: absolute;
+  right: 0.45rem;
+  bottom: 0.28rem;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  padding: 0;
+}
+
+.department-detail-roster-actions .icon-button {
+  width: 24px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.department-detail-roster-actions .icon-button:hover {
   border-color: var(--matsutake-green);
-  background: rgba(104, 141, 88, 0.12);
+  background: rgba(104, 141, 88, 0.16);
 }
 
 .department-person-detail-header {
   align-items: center;
-  margin: 0 0 0.85rem;
-  padding: 0 0 0.65rem calc(22% + 1.5rem);
-  border-bottom: 2px solid var(--matsuba-green);
-  background: transparent;
+  margin: 0 0 0 22%;
+  padding: 0.7rem 1.1rem 0.65rem;
+  border-bottom: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-top: 4px solid var(--matsutake-green);
+  border-radius: 8px 8px 0 0;
+  background: var(--surface-strong);
 }
 
 .department-person-detail .chart-axis {
@@ -1358,12 +1704,6 @@ button.non-project-demand-action.primary:hover:not(:disabled) {
   border-color: var(--azuki-blue);
   background: var(--azuki-blue);
   color: var(--white);
-}
-
-.person-detail-collapse-button {
-  margin-left: auto;
-  border-color: rgba(109, 116, 32, 0.55);
-  color: #6d7420;
 }
 
 .department-team-overview {
@@ -1476,9 +1816,56 @@ button.non-project-demand-action.primary:hover:not(:disabled) {
   font-weight: 800;
 }
 
+.department-roster-matrix td.heatmap-availability-cell,
+.department-roster-matrix td.heatmap-utilization-cell {
+  height: 26px;
+  padding: 0.15rem 0.35rem;
+  font-weight: 700;
+  color: var(--dark-grey);
+}
+
+.department-roster-matrix td.heatmap-availability-cell input {
+  width: 100%;
+  padding: 0.15rem 0.25rem;
+  border-color: transparent;
+  background: transparent;
+  color: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.department-roster-matrix td.heatmap-utilization-cell {
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.department-roster-matrix tbody tr.matrix-availability-row > * {
+  border-top: 1px solid var(--border);
+}
+
+.department-roster-matrix tbody tr.matrix-availability-row + tr > * {
+  border-bottom: 1px solid var(--border);
+}
+
 .team-overview-card .team-roster-section {
   min-height: 0;
   overflow: hidden;
+}
+
+.department-team-section-title {
+  margin: 0;
+  padding: 0 0 0.75rem;
+  color: var(--accent-ink, var(--matsutake-green));
+  font-size: 1.05rem;
+}
+
+.department-team-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .team-overview-card .matrix-scroll {
@@ -1503,6 +1890,104 @@ button.non-project-demand-action.primary:hover:not(:disabled) {
   border-bottom: 1px solid rgba(171, 180, 54, 0.45);
   border-radius: 9px 9px 0 0;
   background: rgba(171, 180, 54, 0.3);
+}
+
+.analytics-kpis {
+  margin-left: auto;
+}
+
+.department-header-kpi.analytics-gap-danger {
+  border-left-color: var(--takeda-red);
+  color: var(--dark-red);
+}
+
+.department-header-kpi.analytics-gap-positive {
+  border-left-color: var(--matsutake-green);
+  color: #44643c;
+}
+
+.department-header-kpi.analytics-gap-near {
+  border-left-color: var(--yamabuki-yellow);
+  color: #6d5100;
+}
+
+.analytics-table-section {
+  margin-top: 1rem;
+}
+
+.analytics-table-section h3 {
+  margin: 0 0 0.55rem;
+  color: var(--accent-ink, var(--matsutake-green));
+  font-size: 0.95rem;
+}
+
+.analytics-demand-table {
+  min-width: max-content;
+}
+
+.analytics-demand-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 7;
+  background: var(--surface-strong);
+  box-shadow: 0 1px 0 var(--border);
+}
+
+.analytics-demand-table thead th.matrix-label {
+  left: 0;
+  z-index: 8;
+  background: var(--surface-strong);
+}
+
+.analytics-demand-table thead th.year-shade-alt {
+  background: var(--light-grey);
+}
+
+.analytics-demand-table tbody th.matrix-label,
+.analytics-demand-table tfoot th.matrix-label {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  vertical-align: top;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+  background: var(--surface-strong);
+  box-shadow: 3px 0 5px rgba(18, 24, 33, 0.08);
+}
+
+.analytics-demand-table th.matrix-label {
+  min-width: 220px;
+  max-width: 320px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+
+.analytics-demand-table td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-demand-table tbody tr.analytics-row-shade > * {
+  background: rgba(104, 141, 88, 0.06);
+}
+
+.analytics-demand-table tbody tr.analytics-row-shade > th.matrix-label {
+  background: rgba(104, 141, 88, 0.06);
+}
+
+.analytics-demand-table thead th:nth-child(2),
+.analytics-demand-table tbody td:nth-child(2),
+.analytics-demand-table tfoot td:nth-child(2) {
+  border-left: 2px solid var(--matsutake-green);
+  font-weight: 800;
+}
+
+.analytics-demand-table .analytics-total-row > * {
+  border-top: 2px solid var(--matsutake-green);
+  background: rgba(104, 141, 88, 0.14);
+  font-weight: 800;
 }
 
 .department-section-collapse-button {
@@ -1533,16 +2018,24 @@ button.non-project-demand-action.primary:hover:not(:disabled) {
 }
 
 .department-team-overview .weekly-matrix thead th:not(.matrix-label) {
-  background: transparent;
+  position: sticky;
+  top: 0;
+  z-index: 7;
+  background: var(--surface-strong);
   color: var(--dark-grey);
 }
 
 .department-team-overview .weekly-matrix thead th.year-shade-alt {
-  background: rgba(52, 55, 63, 0.08);
+  background: var(--surface-strong);
 }
 
 .weekly-matrix.department-roster-matrix thead th {
   border-bottom: 2px solid var(--matsuba-green);
+}
+
+.weekly-matrix.department-roster-matrix thead th.matrix-label {
+  z-index: 8;
+  background: var(--surface-strong);
 }
 
 .weekly-matrix.department-person-matrix tbody .assignment-row > * {
@@ -1678,6 +2171,18 @@ button.non-project-demand-action.primary:hover:not(:disabled) {
   opacity: 0.85;
 }
 
+.non-project-demand-label {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  vertical-align: middle;
+  line-height: 1.25;
+}
+
+.non-project-demand-label > span:first-child {
+  font-weight: 600;
+}
+
 .non-project-demand-toggle {
   width: 26px;
   height: 26px;
@@ -1800,8 +2305,17 @@ button.non-project-demand-action.primary:hover:not(:disabled) {
 }
 
 .weekly-matrix.department-person-matrix tbody .non-project-demand-row .matrix-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   padding-left: 1.4rem;
   font-weight: 400;
+}
+
+.weekly-matrix.department-person-matrix tbody .non-project-demand-row .non-project-demand-label {
+  min-width: 0;
+  flex: 1;
 }
 
 .weekly-matrix.department-person-matrix tbody .non-project-category-row td:empty {
@@ -2404,7 +2918,9 @@ button.non-project-demand-action.primary:hover:not(:disabled) {
   display: grid;
   align-content: center;
   gap: 0.1rem;
-  min-width: 104px;
+  flex: 0 0 132px;
+  min-width: 132px;
+  min-height: 52px;
   padding: 0.35rem 0.65rem;
 }
 
@@ -2421,6 +2937,7 @@ button.non-project-demand-action.primary:hover:not(:disabled) {
 .department-header-kpi .label {
   color: var(--muted);
   font-size: 0.65rem;
+  line-height: 1.15;
   text-transform: uppercase;
 }
 
@@ -2978,12 +3495,26 @@ button.assign-me-button.primary:hover:not(:disabled) {
 }
 
 @media (max-width: 900px) {
+  .department-layout.department-view-heatmap {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .department-layout.department-view-heatmap > .department-team-overview {
+    width: 100%;
+  }
+
+  .department-view-toggle {
+    margin-left: 0;
+  }
+
   .department-person-detail-content {
     display: block;
     padding-left: 0;
   }
 
   .department-person-detail-header {
+    margin-left: 0;
     padding-left: 0;
   }
 
@@ -2997,6 +3528,7 @@ button.assign-me-button.primary:hover:not(:disabled) {
   .department-detail-roster-list {
     height: auto;
     max-height: 420px;
+    overflow-y: auto;
   }
 
   .team-overview-card {

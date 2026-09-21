@@ -24,7 +24,8 @@ function blockNonIntegerKeys(event: React.KeyboardEvent<HTMLInputElement>) {
 }
 
 export default function IndividualDashboard() {
-  const personId = useAuthStore((state) => state.user?.personId);
+  const user = useAuthStore((state) => state.user);
+  const personId = user?.personId;
   const queryClient = useQueryClient();
   const [weeks, setWeeks] = useState(DEFAULT_WEEKS);
   const [draftDemand, setDraftDemand] = useState<Record<string, string>>({});
@@ -279,36 +280,41 @@ export default function IndividualDashboard() {
     );
   }
 
+  const workloadKpis = (
+    <div className="department-header-kpis" aria-label="My work KPIs">
+      <div className="department-header-kpi">
+        <span className="value">{metrics.assignedProjects}</span>
+        <span className="label">Current assignments</span>
+      </div>
+      <div className="department-header-kpi">
+        <span className="value" style={{ color: metrics.overWeeks ? 'var(--danger)' : undefined }}>{metrics.overWeeks}</span>
+        <span className="label">Weeks overallocated</span>
+      </div>
+      <div className="department-header-kpi">
+        <span className="value" style={{ color: metrics.overHours ? 'var(--danger)' : undefined }}>{metrics.overHours}</span>
+        <span className="label">Hours overallocated</span>
+      </div>
+      <div className="department-header-kpi">
+        <span className="value">{metrics.utilization}%</span>
+        <span className="label">Utilization</span>
+      </div>
+    </div>
+  );
+
   return (
     <>
       <div className="my-work-header-row">
         <div>
-          <h1 className="page-title">My work</h1>
+          <h1 className="page-title">{user?.name ?? 'My work'}</h1>
           <p className="page-subtitle">Weekly demand against your availability.</p>
         </div>
-        <div className="department-header-kpis" aria-label="My work KPIs">
-          <div className="department-header-kpi">
-            <span className="value">{metrics.assignedProjects}</span>
-            <span className="label">Current assignments</span>
-          </div>
-          <div className="department-header-kpi">
-            <span className="value" style={{ color: metrics.overWeeks ? 'var(--danger)' : undefined }}>{metrics.overWeeks}</span>
-            <span className="label">Weeks overallocated</span>
-          </div>
-          <div className="department-header-kpi">
-            <span className="value" style={{ color: metrics.overHours ? 'var(--danger)' : undefined }}>{metrics.overHours}</span>
-            <span className="label">Hours overallocated</span>
-          </div>
-          <div className="department-header-kpi">
-            <span className="value">{metrics.utilization}%</span>
-            <span className="label">Utilization</span>
-          </div>
-        </div>
+        {!workloadCollapsed && workloadKpis}
       </div>
 
       <div className="card my-workload-card">
         <div className="toolbar my-workload-header">
           <h2 style={{ margin: 0, flex: 1 }}>My Workload</h2>
+          {workloadCollapsed && workloadKpis}
           <div className="weeks-lookahead-control">
             <label htmlFor="weeks">Weeks to look ahead</label>
             <input
@@ -508,6 +514,33 @@ export default function IndividualDashboard() {
                   </th>
                   {chartColumns.map((week) => <td key={week}>{selectedProjectTotal[week] || ''}</td>)}
                 </tr>
+                <tr className="matrix-total row-total-demand">
+                  <th scope="row" className="matrix-label">Total demand</th>
+                  {chartColumns.map((week) => <td key={week}>{totalDemand[week] || ''}</td>)}
+                </tr>
+                <tr className="row-availability">
+                  <th scope="row" className="matrix-label">My availability</th>
+                  {chartColumns.map((week) => (
+                    <td key={week} className={(availability[week] ?? 0) > 0 ? 'has-availability' : undefined}>
+                      {availability[week] ?? 0}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="row-utilization">
+                  <th scope="row" className="matrix-label">Utilization</th>
+                  {chartColumns.map((week) => {
+                    const availableHours = availability[week] ?? 0;
+                    const demandHours = totalDemand[week] ?? 0;
+                    const utilization = availableHours > 0 ? demandHours / availableHours : demandHours > 0 ? Infinity : null;
+                    const utilClass =
+                      utilization === null ? undefined : utilization > 1.25 ? 'utilization-danger' : utilization > 1 ? 'utilization-warn' : undefined;
+                    return (
+                      <td key={week} className={utilClass}>
+                        {utilization === null ? '—' : Number.isFinite(utilization) ? `${Math.round(utilization * 100)}%` : '∞'}
+                      </td>
+                    );
+                  })}
+                </tr>
               </tfoot>
             </table>
           </div>
@@ -629,12 +662,24 @@ export default function IndividualDashboard() {
                         }`}
                       >
                         <th scope="row" className="matrix-label">
+                          <span className="non-project-demand-label">
+                            <span>{subcategory.name}</span>
+                            {subcategory.description && <span className="non-project-demand-description">{subcategory.description}</span>}
+                          </span>
                           <span className="person-actions non-project-demand-actions">
                             <button
                               type="button"
                               className={`icon-button non-project-demand-toggle ${subcategory.demand.isActive === false ? 'success' : 'danger'}`}
-                              title={subcategory.demand.isActive === false ? `Unhide ${subcategory.name}` : `Hide ${subcategory.name}`}
-                              aria-label={subcategory.demand.isActive === false ? `Unhide ${subcategory.name}` : `Hide ${subcategory.name}`}
+                              title={
+                                subcategory.demand.isActive === false
+                                  ? `Reopen ${subcategory.name}`
+                                  : `Mark ${subcategory.name} as finished and stop tracking`
+                              }
+                              aria-label={
+                                subcategory.demand.isActive === false
+                                  ? `Reopen ${subcategory.name}`
+                                  : `Mark ${subcategory.name} as finished and stop tracking`
+                              }
                               onClick={() =>
                                 setNonProjectDemandActive.mutate({
                                   demandId: subcategory.demand.id,
@@ -656,8 +701,6 @@ export default function IndividualDashboard() {
                               )}
                             </button>
                           </span>
-                          {subcategory.name}
-                          {subcategory.description && <span className="non-project-demand-description"> — {subcategory.description}</span>}
                         </th>
                         {chartColumns.map((week) => {
                           const demandRow = subcategory.demand;
@@ -697,49 +740,12 @@ export default function IndividualDashboard() {
                   </th>
                   {chartColumns.map((week) => <td key={week}>{selectedNonProjectTotal[week] || ''}</td>)}
                 </tr>
-              </tfoot>
-            </table>
-          </div>
-          </div>
-
-        </div>
-
-          <div className="matrix-scroll">
-            <table className="weekly-matrix demand-grid department-person-matrix">
-              <colgroup>
-                <col className="matrix-label-column" />
-                <col span={chartColumns.length} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th className="matrix-label" aria-hidden="true" />
-                  {chartColumns.map((week) => (
-                    <th key={week} className={weekYear(week) % 2 === 1 ? 'year-shade-alt' : undefined}>
-                      {weekLabelShort(week)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              {!totalDemand.some((hours) => hours > 0) && (
-                <tbody>
-                  <tr className="no-demand-notice-row">
-                    <td colSpan={chartColumns.length + 1}>
-                      There is no assigned demand for you over the selected period.
-                    </td>
-                  </tr>
-                </tbody>
-              )}
-              <tfoot>
                 <tr className="matrix-total row-total-demand">
-                  <th scope="row" className="matrix-label">
-                    Total demand
-                  </th>
+                  <th scope="row" className="matrix-label">Total demand</th>
                   {chartColumns.map((week) => <td key={week}>{totalDemand[week] || ''}</td>)}
                 </tr>
                 <tr className="row-availability">
-                  <th scope="row" className="matrix-label">
-                    My availability
-                  </th>
+                  <th scope="row" className="matrix-label">My availability</th>
                   {chartColumns.map((week) => (
                     <td key={week} className={(availability[week] ?? 0) > 0 ? 'has-availability' : undefined}>
                       {availability[week] ?? 0}
@@ -747,9 +753,7 @@ export default function IndividualDashboard() {
                   ))}
                 </tr>
                 <tr className="row-utilization">
-                  <th scope="row" className="matrix-label">
-                    Utilization
-                  </th>
+                  <th scope="row" className="matrix-label">Utilization</th>
                   {chartColumns.map((week) => {
                     const availableHours = availability[week] ?? 0;
                     const demandHours = totalDemand[week] ?? 0;
@@ -766,6 +770,10 @@ export default function IndividualDashboard() {
               </tfoot>
             </table>
           </div>
+          </div>
+
+        </div>
+
       </div>
 
       <SkillsCard personId={personId} canEdit title="My Skills" subtitle="Skills you've added to your profile." />

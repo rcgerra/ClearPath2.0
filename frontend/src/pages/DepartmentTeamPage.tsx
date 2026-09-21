@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { capacityApi, demandApi, departmentsApi, errorMessage, nonProjectDemandApi, peopleApi, projectsApi } from '../api/client';
 import PersonDemandChart from '../components/PersonDemandChart';
 import TeamDemandChart from '../components/TeamDemandChart';
+import DepartmentAnalyticsInsights from '../components/DepartmentAnalyticsInsights';
 import UserSelect from '../components/admin/UserSelect';
 import { useAuthStore } from '../store/authStore';
 import { weekLabel, weekLabelShort, weekYear } from '../utils/arrayParser';
@@ -13,6 +14,10 @@ import type { CapacityRow, DemandRow, NonProjectDemandRow, Person } from '../typ
 
 const WEEKS = 104;
 const MAX_HOURS = 60;
+
+function formatWholeNumber(value: number) {
+  return Math.round(value).toLocaleString('en-US');
+}
 
 function emptyWeeks() {
   return new Array(WEEKS).fill(0);
@@ -38,7 +43,11 @@ export default function DepartmentTeamPage() {
   const [showInactive, setShowInactive] = useState(false);
   const [fteOnly, setFteOnly] = useState(false);
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
+  const [showAllPersonSeries, setShowAllPersonSeries] = useState(false);
+  const [selectedAnalyticsSeriesId, setSelectedAnalyticsSeriesId] = useState<string | null>(null);
   const [teamChartMode, setTeamChartMode] = useState<'person' | 'project'>('person');
+  const [analyticsTableSort, setAnalyticsTableSort] = useState<'name' | 'total'>('name');
+  const [analyticsTableSortDirection, setAnalyticsTableSortDirection] = useState<'asc' | 'desc'>('asc');
   const [activeDetailDemandTab, setActiveDetailDemandTab] = useState<'project' | 'other'>('project');
   const [detailWeeks, setDetailWeeks] = useState(52);
   const [alertThreshold, setAlertThreshold] = useState(40);
@@ -48,9 +57,10 @@ export default function DepartmentTeamPage() {
   const [addingNewActivity, setAddingNewActivity] = useState(false);
   const [hideZeroProjectRows, setHideZeroProjectRows] = useState(false);
   const [hideZeroOtherRows, setHideZeroOtherRows] = useState(false);
-  const [individualDetailCollapsed, setIndividualDetailCollapsed] = useState(false);
-  const [heatMapCollapsed, setHeatMapCollapsed] = useState(false);
+  const [departmentView, setDepartmentView] = useState<'details' | 'heatmap'>('details');
+  const [teamOverviewCollapsed, setTeamOverviewCollapsed] = useState(false);
   const [analyticsCollapsed, setAnalyticsCollapsed] = useState(false);
+  const [analyticsSummaryCollapsed, setAnalyticsSummaryCollapsed] = useState(false);
   const gridRef = useRef<HTMLTableElement>(null);
 
   const department = useQuery({
@@ -194,12 +204,26 @@ export default function DepartmentTeamPage() {
     return { weeksOver, hoursOver };
   }
 
-  function heatmapLevel(demand: number, availability: number) {
-    if (demand <= 0 && availability <= 0) return 'heatmap-empty';
-    if (demand > availability) return 'heatmap-danger';
-    if (availability > 0 && demand / availability >= 0.8) return 'heatmap-warn';
-    if (demand > 0) return 'heatmap-active';
-    return 'heatmap-available';
+  function heatmapColors(utilization: number | null) {
+    const stops = [
+      { value: 0, color: [104, 141, 88] },
+      { value: 1, color: [104, 141, 88] },
+      { value: 1.1, color: [230, 170, 26] },
+      { value: 1.35, color: [217, 45, 54] },
+      { value: 2.1, color: [125, 29, 43] },
+    ];
+    const value = Math.min(2.1, Math.max(0, utilization ?? 0));
+    const upperIndex = stops.findIndex((stop) => value <= stop.value);
+    const lower = stops[Math.max(0, upperIndex - 1)];
+    const upper = stops[Math.max(0, upperIndex)];
+    const range = upper.value - lower.value || 1;
+    const progress = (value - lower.value) / range;
+    const color = lower.color.map((channel, index) => Math.round(channel + (upper.color[index] - channel) * progress));
+    const luminance = (color[0] * 299 + color[1] * 587 + color[2] * 114) / 1000;
+    return {
+      backgroundColor: `rgb(${color.join(', ')})`,
+      color: luminance < 155 ? 'var(--white)' : 'var(--dark-grey)',
+    };
   }
 
   const columns = useMemo(() => Array.from({ length: detailWeeks }, (_, index) => index), [detailWeeks]);
@@ -342,11 +366,11 @@ export default function DepartmentTeamPage() {
   });
 
   const setAllAvailability = useMutation({
-    mutationFn: ({ capacityId, hours }: { capacityId: string; hours: number }) =>
-      capacityApi.update(capacityId, { weeks: new Array(WEEKS).fill(hours) }),
+    mutationFn: ({ capacityId, weeks }: { capacityId: string; weeks: number[] }) =>
+      capacityApi.update(capacityId, { weeks }),
     onSuccess: (_result, variables) => {
       queryClient.setQueryData<CapacityRow[]>(capacityKey, (current) =>
-        current?.map((row) => (row.id === variables.capacityId ? { ...row, weeks: new Array(WEEKS).fill(variables.hours) } : row)),
+        current?.map((row) => (row.id === variables.capacityId ? { ...row, weeks: variables.weeks } : row)),
       );
       setError(null);
     },
@@ -357,10 +381,10 @@ export default function DepartmentTeamPage() {
   function normalizeAvailability(row: CapacityRow) {
     const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks();
     const nextWeeks = row.weeks.slice();
-    for (let week = 0; week < WEEKS; week += 1) {
+    for (let week = 0; week < detailWeeks; week += 1) {
       nextWeeks[week] = Math.max(0, Math.min(MAX_HOURS, Math.round(demandWeeks[week] ?? 0)));
     }
-    const weeksAbove50 = nextWeeks.slice(0, WEEKS).filter((hours) => hours > 50).length;
+    const weeksAbove50 = nextWeeks.slice(0, detailWeeks).filter((hours) => hours > 50).length;
     if (
       weeksAbove50 > 0 &&
       !window.confirm(
@@ -452,14 +476,6 @@ export default function DepartmentTeamPage() {
     }
   }
 
-  /** Over-allocation compares the person's total demand with the availability in this row. */
-  function utilizationFor(row: CapacityRow, week: number): number | null {
-    const demandHours = demandByPerson.get(row.personId?.toLowerCase() ?? '')?.[week] ?? 0;
-    const availability = row.weeks[week] ?? 0;
-    if (availability <= 0) return demandHours > 0 ? Infinity : null;
-    return demandHours / availability;
-  }
-
   const selected = rows.find((row) => row.id === selectedRow);
   const selectedDemand = selected ? demandByPerson.get(selected.personId?.toLowerCase() ?? '') ?? emptyWeeks() : [];
 
@@ -467,7 +483,7 @@ export default function DepartmentTeamPage() {
   const selectedEqualizeDisabled = (() => {
     if (!selected) return true;
     let alreadyMatches = true;
-    for (let week = 0; week < WEEKS; week += 1) {
+    for (let week = 0; week < detailWeeks; week += 1) {
       const demandHours = selectedDemand[week] ?? 0;
       if ((selected.weeks[week] ?? 0) !== demandHours) alreadyMatches = false;
     }
@@ -585,39 +601,99 @@ export default function DepartmentTeamPage() {
   /** Same demand, sliced by project instead of person — only from projects the visible roster is staffed on. */
   const teamSeriesByProject = useMemo(() => {
     const personIds = new Set(rows.map((row) => row.personId?.toLowerCase()).filter(Boolean) as string[]);
-    const map = new Map<string, { id: string; label: string; weeks: number[] }>();
+    const map = new Map<string, { id: string; label: string; weeks: number[]; people: Set<string> }>();
+    const categoryNames = new Map((nonProjectCategories.data ?? []).map((category) => [category.id, category.name]));
     for (const demandRow of allDemand.data ?? []) {
       if (!demandRow.personId || !personIds.has(demandRow.personId.toLowerCase())) continue;
       const existing = map.get(demandRow.projectId);
-      if (existing) addInto(existing.weeks, demandRow.weeks);
+      if (existing) {
+        addInto(existing.weeks, demandRow.weeks);
+        existing.people.add(demandRow.personId.toLowerCase());
+      }
       else
         map.set(demandRow.projectId, {
           id: demandRow.projectId,
           label: demandRow.projectName ?? 'Project',
           weeks: addInto(emptyWeeks(), demandRow.weeks),
+          people: new Set([demandRow.personId.toLowerCase()]),
         });
     }
     for (const demandRow of nonProjectDemand.data ?? []) {
       if (!personIds.has(demandRow.personId.toLowerCase())) continue;
       const key = `non-project:${demandRow.categoryId}`;
       const existing = map.get(key);
-      if (existing) addInto(existing.weeks, demandRow.weeks);
+      if (existing) {
+        addInto(existing.weeks, demandRow.weeks);
+        existing.people.add(demandRow.personId.toLowerCase());
+      }
       else
         map.set(key, {
           id: key,
-          label: `Non-project: ${demandRow.categoryName}`,
+          label: `Non-project: ${demandRow.categoryName ?? categoryNames.get(demandRow.categoryId) ?? 'Other work'}`,
           weeks: addInto(emptyWeeks(), demandRow.weeks),
+          people: new Set([demandRow.personId.toLowerCase()]),
         });
     }
-    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
-  }, [rows, allDemand.data, nonProjectDemand.data]);
+    return Array.from(map.values())
+      .map(({ people, ...series }) => ({ ...series, peopleCount: people.size }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [rows, allDemand.data, nonProjectDemand.data, nonProjectCategories.data]);
+
+  const analyticsTotalDemand = useMemo(
+    () => (teamChartMode === 'person' ? teamSeries : teamSeriesByProject).reduce(
+      (total, series) => total + series.weeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0),
+      0,
+    ),
+    [teamChartMode, teamSeries, teamSeriesByProject, detailWeeks],
+  );
+  const analyticsTotalCapacity = useMemo(
+    () => rows.reduce((total, row) => total + row.weeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0), 0),
+    [rows, detailWeeks],
+  );
+  const analyticsSeries = teamChartMode === 'person' ? teamSeries : teamSeriesByProject;
+  const sortedAnalyticsTableSeries = useMemo(() => [...analyticsSeries].sort((a, b) => {
+    const result = analyticsTableSort === 'name'
+      ? a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' })
+      : (a.weeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0) - b.weeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0));
+    return analyticsTableSortDirection === 'asc' ? result : -result;
+  }), [analyticsSeries, analyticsTableSort, analyticsTableSortDirection, detailWeeks]);
+
+  function toggleAnalyticsTableSort(key: 'name' | 'total') {
+    if (key === analyticsTableSort) setAnalyticsTableSortDirection((current) => current === 'asc' ? 'desc' : 'asc');
+    else {
+      setAnalyticsTableSort(key);
+      setAnalyticsTableSortDirection('asc');
+    }
+  }
+    const analyticsWeeklyDemand = useMemo(() => {
+      const total = emptyWeeks();
+      for (const row of rows) addInto(total, demandByPerson.get(row.personId?.toLowerCase() ?? ''));
+      return total;
+    }, [rows, demandByPerson]);
+    const peopleAnalytics = useMemo(
+      () => rows.map((row) => {
+        const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks();
+        const demand = demandWeeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0);
+        const capacity = row.weeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0);
+        const overWeeks = demandWeeks.slice(0, detailWeeks).reduce((count, value, week) => count + (value > (row.weeks[week] ?? 0) ? 1 : 0), 0);
+        return { id: row.id, label: row.personName ?? 'Unassigned', overAllocated: Math.max(0, demand - capacity), overWeeks, available: Math.max(0, capacity - demand), assignments: assignmentCountByPerson.get(row.personId?.toLowerCase() ?? '') ?? 0 };
+      }),
+      [rows, demandByPerson, detailWeeks, assignmentCountByPerson],
+    );
+  const analyticsCapacityGap = analyticsTotalCapacity - analyticsTotalDemand;
+  const analyticsCapacityGapClass =
+    analyticsTotalCapacity > 0 && Math.abs(analyticsCapacityGap) <= analyticsTotalCapacity * 0.05
+      ? 'near'
+      : analyticsCapacityGap < 0
+        ? 'danger'
+        : 'positive';
 
   if (department.isLoading) return <p className="muted">Loading…</p>;
 
   const details = department.data;
 
   return (
-    <section className="accent-section accent-departments">
+    <section className={`accent-section accent-departments department-layout department-view-${departmentView}`}>
       <div className="accent-section-header">
         <div className="department-title-row">
           <button type="button" className="back-button department-inline-back" onClick={() => navigate(-1)} aria-label="Go back" title="Go back">
@@ -636,38 +712,24 @@ export default function DepartmentTeamPage() {
           </div>
         </div>
         <div className="department-header-actions">
-          <label className="weeks-lookahead-control" htmlFor="department-detail-weeks">
-            Weeks to show
-            <input
-              id="department-detail-weeks"
-              type="number"
-              min={1}
-              max={WEEKS}
-              value={detailWeeks}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                if (Number.isFinite(next)) setDetailWeeks(Math.min(WEEKS, Math.max(1, Math.round(next))));
-              }}
-            />
-          </label>
-          <div className="department-header-kpis" aria-label="Department KPIs">
+          {!teamOverviewCollapsed && <div className="department-header-kpis" aria-label="Department KPIs">
             <div className="department-header-kpi">
               <span className="value" style={{ color: kpis.weeksOverAllocated > 0 ? 'var(--danger)' : undefined }}>
-                {kpis.weeksOverAllocated}
+                {formatWholeNumber(kpis.weeksOverAllocated)}
               </span>
               <span className="label">Weeks overallocated</span>
             </div>
             <div className="department-header-kpi">
               <span className="value" style={{ color: kpis.hoursOverAllocated > 0 ? 'var(--danger)' : undefined }}>
-                {kpis.hoursOverAllocated}
+                {formatWholeNumber(kpis.hoursOverAllocated)}
               </span>
               <span className="label">Hours overallocated</span>
             </div>
             <div className="department-header-kpi">
-              <span className="value">{kpis.activityCount}</span>
+              <span className="value">{formatWholeNumber(kpis.activityCount)}</span>
               <span className="label">Activities supported</span>
             </div>
-          </div>
+          </div>}
           <button
             type="button"
             className={['icon-button', 'icon-button-add', 'icon-button-add-labeled', checkInClass].filter(Boolean).join(' ')}
@@ -691,10 +753,32 @@ export default function DepartmentTeamPage() {
 
       {error && <div className="alert error">{error}</div>}
 
-      <div className="card department-team-overview">
+        <div className="card department-team-overview">
         <div className="toolbar department-team-overview-header">
-            <h2 style={{ margin: 0, flex: 1 }}>Heat Map</h2>
-          {editable && (
+          <h2 style={{ margin: 0, flex: 1 }}>Team Members</h2>
+          {!teamOverviewCollapsed && <label className="weeks-lookahead-control" htmlFor="department-detail-weeks">
+            Weeks to show
+            <input
+              id="department-detail-weeks"
+              type="number"
+              min={1}
+              max={WEEKS}
+              value={detailWeeks}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                if (Number.isFinite(next)) setDetailWeeks(Math.min(WEEKS, Math.max(1, Math.round(next))));
+              }}
+            />
+          </label>}
+          {!teamOverviewCollapsed && <div className="pill-toggle department-view-toggle" role="group" aria-label="Department view">
+            <button type="button" className={departmentView === 'details' ? 'active' : ''} onClick={() => setDepartmentView('details')}>
+              Details
+            </button>
+            <button type="button" className={departmentView === 'heatmap' ? 'active' : ''} onClick={() => setDepartmentView('heatmap')}>
+              Heat Map
+            </button>
+          </div>}
+          {!teamOverviewCollapsed && editable && (
             <button
               type="button"
               className="icon-button icon-button-add icon-button-add-labeled"
@@ -705,26 +789,46 @@ export default function DepartmentTeamPage() {
               <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="9" cy="7" r="3" />
                 <path d="M3 20v-1a6 6 0 0 1 6-6h0a6 6 0 0 1 4.2 1.7" />
-                <line x1="18" y1="8" x2="18" y2="14" />
-                <line x1="15" y1="11" x2="21" y2="11" />
+                <line x1="18" y1="8" x2="21" y2="8" />
+                <line x1="19.5" y1="6.5" x2="19.5" y2="9.5" />
               </svg>
               <span>Add person</span>
             </button>
           )}
+          {teamOverviewCollapsed && (
+            <div className="department-header-kpis team-overview-collapsed-kpis" aria-label="Team Overview KPIs">
+              <div className="department-header-kpi">
+                <span className="value" style={{ color: kpis.weeksOverAllocated > 0 ? 'var(--danger)' : undefined }}>{formatWholeNumber(kpis.weeksOverAllocated)}</span>
+                <span className="label">Weeks overallocated</span>
+              </div>
+              <div className="department-header-kpi">
+                <span className="value" style={{ color: kpis.hoursOverAllocated > 0 ? 'var(--danger)' : undefined }}>{formatWholeNumber(kpis.hoursOverAllocated)}</span>
+                <span className="label">Hours overallocated</span>
+              </div>
+              <div className="department-header-kpi">
+                <span className="value">{formatWholeNumber(kpis.activityCount)}</span>
+                <span className="label">Activities supported</span>
+              </div>
+            </div>
+          )}
           <button
             type="button"
             className="workload-collapse-button department-section-collapse-button"
-            aria-label={heatMapCollapsed ? 'Expand Heat Map' : 'Collapse Heat Map'}
-            aria-expanded={!heatMapCollapsed}
-            aria-controls="department-team-roster-section"
-            title={heatMapCollapsed ? 'Expand Heat Map' : 'Collapse Heat Map'}
-            onClick={() => setHeatMapCollapsed((value) => !value)}
+            aria-label={teamOverviewCollapsed ? 'Expand Team Members' : 'Collapse Team Members'}
+            aria-expanded={!teamOverviewCollapsed}
+            aria-controls="department-team-overview-content"
+            title={teamOverviewCollapsed ? 'Expand Team Members' : 'Collapse Team Members'}
+            onClick={() => setTeamOverviewCollapsed((value) => !value)}
           >
-            <span className={heatMapCollapsed ? 'workload-collapse-chevron collapsed' : 'workload-collapse-chevron'} aria-hidden="true" />
+            <span className={teamOverviewCollapsed ? 'workload-collapse-chevron collapsed' : 'workload-collapse-chevron'} aria-hidden="true" />
           </button>
         </div>
-        <div className="team-overview-card">
-        <section id="department-team-roster-section" className="team-roster-section" hidden={heatMapCollapsed}>
+        <div id="department-team-overview-content" hidden={teamOverviewCollapsed}>
+        <div className="team-overview-card" hidden={departmentView !== 'heatmap'}>
+        <div className="department-team-section-heading">
+          <h2 className="department-team-section-title">Heat Map</h2>
+        </div>
+        <section id="department-team-roster-section" className="team-roster-section">
         {transferring && selected && (
           <form
             className="toolbar transfer-person-form"
@@ -796,13 +900,13 @@ export default function DepartmentTeamPage() {
                 const isMe = Boolean(user?.personId && row.personId?.toLowerCase() === user.personId.toLowerCase());
                 const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks();
                 const isSelected = selectedRow === row.id;
-                const { weeksOver, hoursOver } = overallocationFor(row, demandWeeks);
-                const assignments = assignmentCountByPerson.get(row.personId?.toLowerCase() ?? '') ?? 0;
+                const totalDemand = demandWeeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0);
+                const totalAvailability = row.weeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0);
                 return (
                   <Fragment key={row.id}>
                     <tr
                       className={[
-                        'matrix-demand-row',
+                        'matrix-availability-row',
                         isSelected ? 'row-selected' : '',
                         row.isActive === false ? 'row-inactive' : '',
                       ]
@@ -810,7 +914,7 @@ export default function DepartmentTeamPage() {
                         .join(' ')}
                       onClick={() => setSelectedRow(row.id)}
                     >
-                      <th rowSpan={2} scope="rowgroup" className="matrix-label">
+                      <th rowSpan={2} scope="rowgroup" className="matrix-label department-heatmap-person-cell">
                         <span className="person-row">
                           <span className="person-identity">
                             <span className="person-name-row">
@@ -820,19 +924,22 @@ export default function DepartmentTeamPage() {
                                 </span>
                                 {row.isActive === false && <span className="badge danger">Inactive</span>}
                               </span>
-                              {canManageRoster && (
+                              <span className="department-detail-roster-pills">
+                                <span className={totalDemand > totalAvailability ? 'department-detail-roster-pill demand-alert' : 'department-detail-roster-pill'} title="Total demand">
+                                  {formatWholeNumber(totalDemand)}
+                                </span>
+                                <span className={totalAvailability > alertThreshold * detailWeeks ? 'department-detail-roster-pill availability-alert' : 'department-detail-roster-pill'} title="Total availability">
+                                  {formatWholeNumber(totalAvailability)}
+                                </span>
+                              </span>
+                            </span>
+                            {departmentView === 'details' && canManageRoster && (
+                              <span className="department-detail-roster-actions">
                                 <button
+                                  type="button"
                                   className={['icon-button', 'icon-button-plain', row.isActive === false ? 'success' : 'danger'].join(' ')}
-                                  aria-label={
-                                    row.isActive === false
-                                      ? `Reactivate ${row.personName ?? 'this person'}'s availability`
-                                      : `Inactivate ${row.personName ?? 'this person'}'s availability`
-                                  }
-                                  title={
-                                    row.isActive === false
-                                      ? `Reactivate ${row.personName ?? 'this person'}'s availability`
-                                      : `Inactivate ${row.personName ?? 'this person'}'s availability`
-                                  }
+                                  aria-label={row.isActive === false ? `Reactivate ${row.personName ?? 'this person'}'s availability` : `Inactivate ${row.personName ?? 'this person'}'s availability`}
+                                  title={row.isActive === false ? `Reactivate ${row.personName ?? 'this person'}'s availability` : `Inactivate ${row.personName ?? 'this person'}'s availability`}
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     setRowActive.mutate({ capacityId: row.id, isActive: row.isActive === false });
@@ -840,8 +947,6 @@ export default function DepartmentTeamPage() {
                                 >
                                   {row.isActive === false ? '↻' : '⊘'}
                                 </button>
-                              )}
-                              {canManageRoster && (
                                 <button
                                   type="button"
                                   className="icon-button icon-button-plain transfer-person-inline-action"
@@ -861,28 +966,50 @@ export default function DepartmentTeamPage() {
                                     <path d="m7 17 3-3" />
                                   </svg>
                                 </button>
-                              )}
-                            </span>
-                            <span className="person-stat-line">
-                              Weeks over: <strong className={weeksOver > 0 ? 'stat-over' : undefined}>{weeksOver}</strong>
-                              {' · '}
-                              Hours over: <strong className={hoursOver > 0 ? 'stat-over' : undefined}>{hoursOver}</strong>
-                              {' · '}
-                              Assignments: <strong>{assignments}</strong>
-                            </span>
+                              </span>
+                            )}
                           </span>
                         </span>
                       </th>
                       {columns.map((week) => {
-                        const utilization = utilizationFor(row, week);
-                        const over = utilization !== null && utilization > 1;
+                        const key = `${row.id}:${week}`;
+                        const value = draft[key] ?? String(row.weeks[week] ?? 0);
+                        const availability = Number(value);
+                        const demand = demandWeeks[week] ?? 0;
+                        const utilization = availability > 0 ? demand / availability : demand > 0 ? Infinity : 0;
                         return (
                           <td
                             key={week}
-                            className={['demand-only-cell', heatmapLevel(demandWeeks[week] ?? 0, row.weeks[week] ?? 0), over ? 'over-allocated' : ''].filter(Boolean).join(' ')}
-                            title={`Total demand, week of ${weekLabel(week)}`}
+                            className={`heatmap-availability-cell${availability > 40 && availability <= 50 ? ' availability-high' : availability > 50 ? ' availability-over' : ''}`}
+                            style={
+                              availability > 40 && availability <= 50
+                                ? { backgroundColor: 'var(--yamabuki-yellow)', color: 'var(--dark-grey)' }
+                                : availability > 50
+                                  ? { backgroundColor: 'var(--takeda-red)', color: 'var(--white)' }
+                                  : heatmapColors(utilization)
+                            }
+                            title={`Availability ${availability} hours, utilization ${Number.isFinite(utilization) ? `${Math.round(utilization * 100)}%` : 'over 210%'} in week of ${weekLabel(week)}`}
                           >
-                            {demandWeeks[week] ?? 0}
+                            <input
+                              type="number"
+                              min={0}
+                              max={MAX_HOURS}
+                              step={1}
+                              data-row={rowIndex}
+                              data-week={week}
+                              value={value}
+                              style={{ fontWeight: Math.round(400 + Math.min(40, Math.max(0, availability)) / 40 * 400) }}
+                              readOnly={!canManageRoster}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => setDraft((prev) => ({ ...prev, [key]: event.target.value }))}
+                              onFocus={(event) => event.target.select()}
+                              onBlur={(event) => commit(row, week, event.target.value)}
+                              onKeyDown={(event) => {
+                                blockNonIntegerKeys(event);
+                                handleKey(event, rowIndex, week);
+                              }}
+                              aria-label={`${row.personName ?? 'Person'} availability week of ${weekLabel(week)}`}
+                            />
                           </td>
                         );
                       })}
@@ -894,43 +1021,17 @@ export default function DepartmentTeamPage() {
                       onClick={() => setSelectedRow(row.id)}
                     >
                       {columns.map((week) => {
-                        const key = `${row.id}:${week}`;
-                        const value = draft[key] ?? String(row.weeks[week] ?? 0);
-                        const utilization = utilizationFor(row, week);
-                        const over = utilization !== null && utilization > 1;
+                        const availability = row.weeks[week] ?? 0;
+                        const demand = demandWeeks[week] ?? 0;
+                        const utilization = availability > 0 ? demand / availability : demand > 0 ? Infinity : 0;
                         return (
                           <td
                             key={week}
-                            className={[heatmapLevel(demandWeeks[week] ?? 0, Number(value)), Number(value) > 0 ? 'has-availability' : '', Number(value) > alertThreshold ? 'threshold-alert' : '', over ? 'over-allocated' : '']
-                              .filter(Boolean)
-                              .join(' ')}
-                            title={
-                              utilization === null
-                                ? undefined
-                                : `Utilization ${
-                                    Number.isFinite(utilization) ? `${Math.round(utilization * 100)}%` : 'no availability'
-                                  } in week of ${weekLabel(week)}`
-                            }
+                            className="heatmap-utilization-cell"
+                            style={heatmapColors(utilization)}
+                            title={`Utilization ${Number.isFinite(utilization) ? `${Math.round(utilization * 100)}%` : 'over 210%'} in week of ${weekLabel(week)}`}
                           >
-                            <input
-                              type="number"
-                              min={0}
-                              max={MAX_HOURS}
-                              step={1}
-                              data-row={rowIndex}
-                              data-week={week}
-                              value={value}
-                              readOnly={!canManageRoster}
-                              onClick={(event) => event.stopPropagation()}
-                              onChange={(event) => setDraft((prev) => ({ ...prev, [key]: event.target.value }))}
-                              onFocus={(event) => event.target.select()}
-                              onBlur={(event) => commit(row, week, event.target.value)}
-                              onKeyDown={(event) => {
-                                blockNonIntegerKeys(event);
-                                handleKey(event, rowIndex, week);
-                              }}
-                              aria-label={`${row.personName ?? 'Person'} week of ${weekLabel(week)}`}
-                            />
+                            {Number.isFinite(utilization) ? `${Math.round(utilization * 100)}%` : '>210%'}
                           </td>
                         );
                       })}
@@ -972,19 +1073,19 @@ export default function DepartmentTeamPage() {
         </div>
         <p className="muted table-count">
           {rows.length} {rows.length === 1 ? 'person' : 'people'} · hours per week, maximum {MAX_HOURS} · top row is
-          total demand (reference only), bottom row is editable availability · shaded cells are weeks where demand
-          exceeds availability
+          editable availability, bottom row is utilization · color shows utilization and font weight emphasizes availability
         </p>
         </section>
+        </div>
         </div>
       </div>
 
       {selected && (
-        <div className="card department-individual-details-card">
+        <div className="card department-individual-details-card" hidden={teamOverviewCollapsed || departmentView !== 'details'}>
         <section id="department-individual-detail-section" className="department-person-detail individual-detail-section">
           <div className="toolbar department-person-detail-header">
             <h2 style={{ margin: 0, flex: 1 }}>
-              {individualDetailCollapsed ? 'Individual Details' : selected.personName ?? 'Person'}
+              {selected.personName ?? 'Person'}
             </h2>
             {canManageRoster && (
               <label className="weeks-lookahead-control" htmlFor="department-alert-threshold">
@@ -1008,7 +1109,7 @@ export default function DepartmentTeamPage() {
                 />
               </label>
             )}
-            {!individualDetailCollapsed && canManageRoster && (
+            {canManageRoster && (
               <>
               <button
                 type="button"
@@ -1037,7 +1138,12 @@ export default function DepartmentTeamPage() {
                   aria-label={`Set all weeks to ${bulkAvailability} hours for ${selected.personName ?? 'this person'}`}
                   title={`Set all weeks to ${bulkAvailability} hours`}
                   disabled={setAllAvailability.isPending || !/^(?:[0-9]|[1-3][0-9]|40)$/.test(bulkAvailability)}
-                  onClick={() => setAllAvailability.mutate({ capacityId: selected.id, hours: Number(bulkAvailability) })}
+                  onClick={() =>
+                    setAllAvailability.mutate({
+                      capacityId: selected.id,
+                      weeks: selected.weeks.map((value, week) => (week < detailWeeks ? Number(bulkAvailability) : value)),
+                    })
+                  }
                 >
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M4 12h16" />
@@ -1063,20 +1169,9 @@ export default function DepartmentTeamPage() {
               </div>
               </>
             )}
-            <button
-              type="button"
-              className="workload-collapse-button person-detail-collapse-button"
-              aria-label={individualDetailCollapsed ? `Expand ${selected.personName ?? 'person'} details` : `Collapse ${selected.personName ?? 'person'} details`}
-              aria-expanded={!individualDetailCollapsed}
-              aria-controls="department-person-detail-content"
-              title={individualDetailCollapsed ? 'Expand individual details' : 'Collapse individual details'}
-              onClick={() => setIndividualDetailCollapsed((value) => !value)}
-            >
-              <span className={individualDetailCollapsed ? 'workload-collapse-chevron collapsed' : 'workload-collapse-chevron'} aria-hidden="true" />
-            </button>
           </div>
-          <div id="department-person-detail-content" className="department-person-detail-content" hidden={individualDetailCollapsed}>
-          <aside className="department-detail-roster-picker" aria-label="Department roster">
+          <div id="department-person-detail-content" className="department-person-detail-content">
+          <aside className="department-detail-roster-picker" aria-label="Department roster" hidden={departmentView === 'heatmap'}>
             <h3>
               Roster <span className="department-detail-roster-count">({rows.length})</span>
             </h3>
@@ -1088,41 +1183,70 @@ export default function DepartmentTeamPage() {
                 const totalDemand = demandWeeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0);
                 const totalAvailability = row.weeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0);
                 return (
-                  <button
-                    key={row.id}
-                    type="button"
-                    className={selectedRow === row.id ? 'active' : ''}
-                    onClick={() => setSelectedRow(row.id)}
-                  >
-                    <span className="department-detail-roster-name-line">
-                      <strong>{row.personName ?? 'Unassigned'}</strong>
-                      <span className="department-detail-roster-pills">
-                        <span
-                          className={totalDemand > totalAvailability ? 'department-detail-roster-pill demand-alert' : 'department-detail-roster-pill'}
-                          title="Total demand"
-                        >
-                          {totalDemand}
-                        </span>
-                        <span
-                          className={totalAvailability > alertThreshold * detailWeeks ? 'department-detail-roster-pill availability-alert' : 'department-detail-roster-pill'}
-                          title={`Total availability; cumulative alert level ${alertThreshold * detailWeeks} hours`}
-                        >
-                          {totalAvailability}
+                  <div key={row.id} className={selectedRow === row.id ? 'department-detail-roster-item active' : 'department-detail-roster-item'}>
+                    <button type="button" className="department-detail-roster-select" onClick={() => setSelectedRow(row.id)}>
+                      <span className="department-detail-roster-name-line">
+                        <strong>{row.personName ?? 'Unassigned'}</strong>
+                        <span className="department-detail-roster-pills">
+                          <span
+                            className={totalDemand > totalAvailability ? 'department-detail-roster-pill demand-alert' : 'department-detail-roster-pill'}
+                            title="Total demand"
+                          >
+                            {formatWholeNumber(totalDemand)}
+                          </span>
+                          <span
+                            className={totalAvailability > alertThreshold * detailWeeks ? 'department-detail-roster-pill availability-alert' : 'department-detail-roster-pill'}
+                            title={`Total availability; cumulative alert level ${alertThreshold * detailWeeks} hours`}
+                          >
+                            {formatWholeNumber(totalAvailability)}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                    <span className="department-detail-roster-metrics">
-                      <span className={weeksOver > 0 ? 'metric-warn' : undefined}>Weeks Over: {weeksOver}</span>
-                      {' · '}
-                      <span className={hoursOver > 0 ? 'metric-warn' : undefined}>Hours Over: {hoursOver}</span>
-                      {' · '}
-                      Assignments: {assignments}
-                    </span>
-                  </button>
+                      <span className="department-detail-roster-metrics">
+                        <span className={weeksOver > 0 ? 'metric-warn' : undefined}>Weeks Over: {weeksOver}</span>
+                        {' · '}
+                        <span className={hoursOver > 0 ? 'metric-warn' : undefined}>Hours Over: {hoursOver}</span>
+                        {' · '}
+                        Assignments: {assignments}
+                      </span>
+                    </button>
+                    {canManageRoster && (
+                      <div className="department-detail-roster-actions">
+                        <button
+                          type="button"
+                          className={['icon-button', 'icon-button-plain', row.isActive === false ? 'success' : 'danger'].join(' ')}
+                          aria-label={row.isActive === false ? `Reactivate ${row.personName ?? 'this person'}'s availability` : `Inactivate ${row.personName ?? 'this person'}'s availability`}
+                          title={row.isActive === false ? `Reactivate ${row.personName ?? 'this person'}'s availability` : `Inactivate ${row.personName ?? 'this person'}'s availability`}
+                          onClick={() => setRowActive.mutate({ capacityId: row.id, isActive: row.isActive === false })}
+                        >
+                          {row.isActive === false ? '↻' : '⊘'}
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-button icon-button-plain transfer-person-inline-action"
+                          aria-label={`Transfer ${row.personName ?? 'this person'}`}
+                          title={`Transfer ${row.personName ?? 'this person'}`}
+                          onClick={() => {
+                            setSelectedRow(row.id);
+                            setTransferDepartmentId('');
+                            setTransferring(true);
+                          }}
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M4 7h13l-3-3" />
+                            <path d="m17 7-3 3" />
+                            <path d="M20 17H7l3 3" />
+                            <path d="m7 17 3-3" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
           </aside>
+          <div className="department-detail-view-panel" hidden={departmentView !== 'details'}>
           {(nonProjectDemand.isError || nonProjectCategories.isError || nonProjectSubcategories.isError) && (
             <div className="alert error">
               Other demand is unavailable:{' '}
@@ -1140,7 +1264,7 @@ export default function DepartmentTeamPage() {
             thisColor="var(--asagi-blue)"
             otherColor="var(--sorairo-blue)"
             maxY={MAX_HOURS}
-            alertThreshold={alertThreshold}
+            alertThreshold={teamChartMode === 'person' ? alertThreshold : undefined}
           />
 
           <div className="demand-section-toolbar">
@@ -1521,6 +1645,7 @@ export default function DepartmentTeamPage() {
           </div>
 
           </div>
+          </div>
         </section>
         </div>
       )}
@@ -1528,7 +1653,21 @@ export default function DepartmentTeamPage() {
       {selected && (
         <div className="card department-analytics-card">
           <div className="toolbar department-analytics-header">
-            <h2 style={{ margin: 0, flex: 1 }}>Analytics</h2>
+            <h2 style={{ margin: 0, flex: 1 }}>Team Overview</h2>
+            <div className="department-header-kpis analytics-kpis" aria-label="Analytics summary">
+              <div className="department-header-kpi">
+                <span className="value">{formatWholeNumber(analyticsTotalDemand)}</span>
+                <span className="label">Total demand</span>
+              </div>
+              <div className="department-header-kpi">
+                <span className="value">{formatWholeNumber(analyticsTotalCapacity)}</span>
+                <span className="label">Total capacity</span>
+              </div>
+              <div className={`department-header-kpi analytics-gap-${analyticsCapacityGapClass}`}>
+                <span className="value">{formatWholeNumber(analyticsCapacityGap)}</span>
+                <span className="label">Capacity gap</span>
+              </div>
+            </div>
             <button
               type="button"
               className="workload-collapse-button department-section-collapse-button"
@@ -1565,11 +1704,20 @@ export default function DepartmentTeamPage() {
           </div>
           <TeamDemandChart
             weeks={detailWeeks}
-            series={teamChartMode === 'person' ? teamSeries : teamSeriesByProject}
-            availability={totals}
+            series={analyticsSeries}
+            availability={totals.slice(0, detailWeeks)}
             alertThreshold={alertThreshold}
-            selectedId={teamChartMode === 'person' ? selected.id : undefined}
-            onSelect={teamChartMode === 'person' ? setSelectedRow : undefined}
+            selectedId={teamChartMode === 'person' ? (showAllPersonSeries ? null : selected.id) : selectedAnalyticsSeriesId}
+            onSelect={(seriesId) => {
+              if (teamChartMode === 'person') {
+                if (seriesId === selected.id) setShowAllPersonSeries((current) => !current);
+                else {
+                  setShowAllPersonSeries(false);
+                  setSelectedRow(seriesId);
+                }
+              }
+              else setSelectedAnalyticsSeriesId((current) => (current === seriesId ? null : seriesId));
+            }}
             palette={[
               'var(--sorairo-blue)',
               'var(--matsuba-green)',
@@ -1580,6 +1728,86 @@ export default function DepartmentTeamPage() {
               'var(--takeda-red)',
             ]}
           />
+          <div className="analytics-table-section">
+            <h3>Demand by week</h3>
+            <div className="matrix-scroll">
+              <table className="weekly-matrix analytics-demand-table">
+                <thead>
+                  <tr>
+                    <th className="matrix-label">
+                      <button type="button" className="analytics-sort-header" onClick={() => toggleAnalyticsTableSort('name')}>
+                        {teamChartMode === 'person' ? 'Person' : 'Project'}
+                      </button>
+                    </th>
+                    <th>
+                      <button type="button" className="analytics-sort-header" onClick={() => toggleAnalyticsTableSort('total')}>Total</button>
+                    </th>
+                    {chartColumns.map((week) => (
+                      <th key={week} className={weekYear(week) % 2 === 1 ? 'year-shade-alt' : undefined}>
+                        {weekLabelShort(week)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedAnalyticsTableSeries.map((series, index) => (
+                    <tr key={series.id} className={index % 2 === 1 ? 'analytics-row-shade' : undefined}>
+                      <th scope="row" className="matrix-label">{series.label}</th>
+                      <td className="analytics-total-cell">{formatWholeNumber(series.weeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0)) || ''}</td>
+                      {chartColumns.map((week) => <td key={week}>{series.weeks[week] || ''}</td>)}
+                    </tr>
+                  ))}
+                  {analyticsSeries.length === 0 && (
+                    <tr>
+                      <td colSpan={chartColumns.length + 2} className="muted">No demand found for the selected roster.</td>
+                    </tr>
+                  )}
+                </tbody>
+                {analyticsSeries.length > 0 && (
+                  <tfoot>
+                    <tr className="analytics-total-row">
+                      <th scope="row" className="matrix-label">Total</th>
+                      <td className="analytics-total-cell">{formatWholeNumber(analyticsTotalDemand) || ''}</td>
+                      {chartColumns.map((week) => (
+                        <td key={week}>
+                          {Math.round(analyticsSeries.reduce((sum, series) => sum + (series.weeks[week] ?? 0), 0)) || ''}
+                        </td>
+                      ))}
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+          </div>
+        </div>
+      )}
+
+      {selected && (
+        <div className="card department-analytics-summary-card">
+          <div className="toolbar department-analytics-header">
+            <h2 style={{ margin: 0, flex: 1 }}>Analytics</h2>
+            <span className="muted">Next {detailWeeks} weeks</span>
+            <button
+              type="button"
+              className="workload-collapse-button department-section-collapse-button"
+              aria-label={analyticsSummaryCollapsed ? 'Expand Analytics' : 'Collapse Analytics'}
+              aria-expanded={!analyticsSummaryCollapsed}
+              aria-controls="department-analytics-summary-content"
+              title={analyticsSummaryCollapsed ? 'Expand Analytics' : 'Collapse Analytics'}
+              onClick={() => setAnalyticsSummaryCollapsed((value) => !value)}
+            >
+              <span className={analyticsSummaryCollapsed ? 'workload-collapse-chevron collapsed' : 'workload-collapse-chevron'} aria-hidden="true" />
+            </button>
+          </div>
+          <div id="department-analytics-summary-content" hidden={analyticsSummaryCollapsed} aria-label="Analytics summary">
+            <DepartmentAnalyticsInsights
+              weeks={detailWeeks}
+              totalDemand={analyticsWeeklyDemand}
+              availability={totals.slice(0, detailWeeks)}
+              workstreams={teamSeriesByProject}
+              people={peopleAnalytics}
+            />
           </div>
         </div>
       )}

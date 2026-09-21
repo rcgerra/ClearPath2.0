@@ -111,9 +111,10 @@ export default function DepartmentsPage() {
     return map;
   }, [capacityByPerson, demandByPerson, departments.data, peopleByDepartment]);
 
-  const rows = filterByScope(departments.data ?? [], scope, personId).filter(
-    (row) => (!hideInactive || row.isActive !== false) && (!functionId || row.functionId === functionId),
-  );
+  const rows = filterByScope(departments.data ?? [], scope, personId)
+    .filter((row) => (!hideInactive || row.isActive !== false) && (!functionId || row.functionId === functionId))
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
   return (
     <section className="accent-section accent-departments">

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { capacityApi, demandApi, nonProjectDemandApi, projectsApi } from '../api/client';
 import DataTable, { Column } from '../components/admin/DataTable';
@@ -40,6 +40,7 @@ const EMPTY_KPIS: ProjectKpis = {
 
 export default function ProjectsPage() {
   const user = useAuthStore((state) => state.user);
+  const navigate = useNavigate();
   const personId = user?.personId;
   const canCreate = Boolean(user?.roles.some((role) => role === 'admin' || role === 'demand_moderator'));
   const [search, setSearch] = useState('');
@@ -221,9 +222,14 @@ export default function ProjectsPage() {
   return (
     <section className="accent-section accent-projects">
       <div className="accent-section-header">
-        <div>
-          <h1 className="page-title">Projects</h1>
-          <p className="page-subtitle">Projects you manage, sponsor or support.</p>
+        <div className="department-title-row">
+          <button type="button" className="back-button department-inline-back" onClick={() => navigate(-1)} aria-label="Go back" title="Go back">
+            ←
+          </button>
+          <div>
+            <h1 className="page-title">Projects</h1>
+            <p className="page-subtitle">Projects you manage, sponsor or support.</p>
+          </div>
         </div>
         {canCreate && (
           <Link to="/projects/new">

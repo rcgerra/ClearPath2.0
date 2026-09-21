@@ -89,7 +89,7 @@ export default function RequestsListPage() {
           getRowKey={(row) => row.id}
           getRowClassName={(row) => rowClassName(row, personId)}
           search={search}
-          initialSortKey="phase"
+          initialSortKey="shortTitle"
           isLoading={requests.isLoading}
           emptyMessage="No requests match the current filters."
         />

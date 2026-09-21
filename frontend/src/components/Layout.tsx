@@ -32,21 +32,12 @@ const ADMIN_NAV = [
   { to: '/admin/access', label: 'Security Roles', end: false, accent: 'accent-access' },
 ] as const;
 
-/** Landing/dashboard pages reached directly from nav — these don't get a back button. */
-function isDashboardPath(pathname: string) {
-  if (['/', '/me', '/admin', '/department', '/admin/portfolio'].includes(pathname)) return true;
-  if (/^\/projects\/[^/]+\/team$/.test(pathname)) return true;
-  return false;
-}
-
-function hasInlineBackButton(pathname: string) {
-  return /^\/departments\/[^/]+$/.test(pathname) && pathname !== '/departments/new';
-}
-
 /** Accent to color the back button by, matching the section the current page belongs to. */
 function accentForPath(pathname: string): string {
   if (pathname.startsWith('/admin/requests') || pathname.startsWith('/requests')) return 'accent-requests';
+  if (pathname.startsWith('/capture') || pathname.startsWith('/prioritization')) return 'accent-requests';
   if (pathname.startsWith('/admin/projects') || pathname.startsWith('/projects')) return 'accent-projects';
+  if (pathname === '/me') return 'accent-projects';
   if (pathname.startsWith('/admin/departments') || pathname.startsWith('/departments') || pathname.startsWith('/department')) {
     return 'accent-departments';
   }
@@ -63,7 +54,6 @@ export default function Layout() {
   const isAdmin = Boolean(user?.roles.includes('admin'));
   const topRole = ROLE_LABELS.find(([value]) => user?.roles.includes(value as never));
   const inAdminPortal = isAdmin && location.pathname.startsWith('/admin');
-  const showBack = !isDashboardPath(location.pathname) && !hasInlineBackButton(location.pathname);
   const links = inAdminPortal
     ? ADMIN_NAV
     : isAdmin
@@ -105,14 +95,7 @@ export default function Layout() {
           </button>
         </div>
       )}
-      <main className="app-main">
-        {showBack && (
-          <div className={['back-button-row', accentForPath(location.pathname)].filter(Boolean).join(' ')}>
-            <button type="button" className="back-button" onClick={() => navigate(-1)} aria-label="Go back" title="Go back">
-              ←
-            </button>
-          </div>
-        )}
+      <main className={['app-main', accentForPath(location.pathname)].filter(Boolean).join(' ')}>
         <Outlet />
       </main>
       <footer className="app-footer">

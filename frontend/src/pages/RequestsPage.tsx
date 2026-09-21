@@ -49,7 +49,7 @@ export default function RequestsPage() {
           columns={columns}
           getRowKey={(row) => row.id}
           search={search}
-          initialSortKey="phase"
+          initialSortKey="shortTitle"
           isLoading={requests.isLoading}
           emptyMessage="You have not submitted any requests yet."
         />

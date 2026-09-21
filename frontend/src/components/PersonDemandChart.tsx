@@ -82,6 +82,7 @@ export default function PersonDemandChart({
           const x = PAD_LEFT + index * colWidth + 2;
           const barWidth = Math.max(1, colWidth - 4);
           const total = mine + others;
+          const warningStart = Math.min(available, alertThreshold ?? Number.POSITIVE_INFINITY);
 
           return (
             <g key={index}>
@@ -101,6 +102,28 @@ export default function PersonDemandChart({
                 className="bar-this-project"
                 style={thisColor ? { fill: thisColor } : undefined}
               />
+              {total > available && (
+                <rect
+                  x={x}
+                  y={y(total)}
+                  width={barWidth}
+                  height={scale(total - available)}
+                  fill="var(--takeda-red)"
+                >
+                  <title>{`Demand above availability: ${Math.round(total - available)} h`}</title>
+                </rect>
+              )}
+              {total > warningStart && warningStart > 0 && (
+                <rect
+                  x={x}
+                  y={y(Math.min(total, available))}
+                  width={barWidth}
+                  height={scale(Math.min(total, available) - warningStart)}
+                  fill="var(--yamabuki-yellow)"
+                >
+                  <title>{`Demand near alert level: ${Math.round(Math.min(total, available) - warningStart)} h`}</title>
+                </rect>
+              )}
               {total > 0 && (
                 <text
                   x={PAD_LEFT + index * colWidth + colWidth / 2}
