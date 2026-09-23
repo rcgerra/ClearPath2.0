@@ -107,7 +107,7 @@ router.post('/', asyncHandler(async (req, res) => {
   res.status(201).json({ id: toRequest(created).id });
 }));
 
-router.patch('/:id', requireRole('admin', 'demand_moderator', 'availability_moderator'), asyncHandler(async (req, res) => {
+router.patch('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
   const input = updateSchema.parse(req.body);
   const current = await requestRepository.findByIdentifier(req.params.id);
   if (!current) throw new HttpError(404, 'Request not found.');
@@ -115,7 +115,7 @@ router.patch('/:id', requireRole('admin', 'demand_moderator', 'availability_mode
   res.json({ id: req.params.id });
 }));
 
-router.post('/:id/promote', requireRole('admin', 'demand_moderator'), asyncHandler(async (req, res) => {
+router.post('/:id/promote', requireRole('admin'), asyncHandler(async (req, res) => {
   const current = await requestRepository.findByIdentifier(req.params.id);
   if (!current) throw new HttpError(404, 'Request not found.');
   const projectId = await projectRepository.create(await projectRepository.resolveInput({

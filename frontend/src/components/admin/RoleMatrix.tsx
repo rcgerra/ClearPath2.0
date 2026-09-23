@@ -3,8 +3,7 @@ import type { Role } from '../../types';
 
 export const ROLE_LABELS: Array<{ value: Role; label: string }> = [
   { value: 'admin', label: 'Admin' },
-  { value: 'demand_moderator', label: 'Demand Moderator' },
-  { value: 'availability_moderator', label: 'Availability Moderator' },
+  { value: 'portfolio_manager', label: 'Portfolio Manager' },
   { value: 'user', label: 'User' },
 ];
 
@@ -19,25 +18,16 @@ const AREAS: Array<{ value: Area; label: string; accent: string }> = [
 
 /** Mirrors the role guards and record-level rules enforced by the API. */
 const CAPABILITIES: Array<{ label: string; area: Area; roles: Role[]; note?: string }> = [
-  { label: 'New request', area: 'requests', roles: ['admin', 'demand_moderator', 'availability_moderator', 'user'] },
-  { label: 'Add project', area: 'projects', roles: ['admin', 'demand_moderator'] },
+  { label: 'New request', area: 'requests', roles: ['admin', 'portfolio_manager', 'user'] },
+  { label: 'Add project', area: 'projects', roles: ['admin'] },
   { label: 'Edit any project', area: 'projects', roles: ['admin'] },
-  { label: 'Edit own project', area: 'projects', roles: ['admin', 'demand_moderator', 'availability_moderator', 'user'] },
-  { label: 'Manage any demand', area: 'projects', roles: ['admin', 'demand_moderator'] },
+  { label: 'Edit assigned project', area: 'projects', roles: ['admin', 'portfolio_manager', 'user'] },
+  { label: 'View portfolio', area: 'projects', roles: ['admin', 'portfolio_manager'] },
   { label: 'Add department', area: 'departments', roles: ['admin'] },
   { label: 'Edit any department', area: 'departments', roles: ['admin'] },
-  {
-    label: 'Edit own department',
-    area: 'departments',
-    roles: ['admin', 'demand_moderator', 'availability_moderator', 'user'],
-  },
-  { label: 'Manage assignments', area: 'people', roles: ['admin', 'demand_moderator'] },
-  { label: 'Manage any availability', area: 'people', roles: ['admin', 'availability_moderator'] },
-  {
-    label: 'Manage own availability',
-    area: 'people',
-    roles: ['admin', 'demand_moderator', 'availability_moderator', 'user'],
-  },
+  { label: 'Edit assigned department', area: 'departments', roles: ['admin', 'portfolio_manager', 'user'] },
+  { label: 'Manage any person', area: 'people', roles: ['admin'] },
+  { label: 'Manage own profile', area: 'people', roles: ['admin', 'portfolio_manager', 'user'] },
 ];
 
 export default function RoleMatrix() {
@@ -49,8 +39,8 @@ export default function RoleMatrix() {
     <div className={`card role-matrix-card ${activeAccent}`.trim()}>
       <h2>What each role can do</h2>
       <p className="muted">
-        Everyone can view every record. Admins can edit everything; other roles edit records where they are the
-        project manager, department lead or a delegate.
+        Admin and Portfolio Manager are global roles. Project Manager, Department Lead, Project Demand Delegate,
+        and Department Delegate are assigned by administrators on each project or department record.
       </p>
 
       <div className="tabs" role="tablist" aria-label="Filter capabilities by area">
@@ -101,8 +91,8 @@ export default function RoleMatrix() {
       </div>
 
       <p className="muted" style={{ marginTop: '0.6rem' }}>
-        "Own" means you are the project manager, department lead, or a delegate on that record. Project managers and
-        department leads assign their own delegates.
+        "Assigned" means the person is the project manager, department lead, project demand delegate, or department
+        delegate on that record. These assignments control editing without granting organization-wide access.
       </p>
     </div>
   );

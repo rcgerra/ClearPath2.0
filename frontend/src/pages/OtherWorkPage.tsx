@@ -2,9 +2,10 @@ import { Fragment, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import AccentSection from '../components/admin/AccentSection';
 import SiteCapacityAnalytics from '../components/SiteCapacityAnalytics';
+import KpiRow from '../components/KpiRow';
 import NonProjectDemandCategoriesPage from './admin/NonProjectDemandCategoriesPage';
 import { demandApi, nonProjectDemandApi } from '../api/client';
-import { currentWeekStart, MAX_POSITIONS, weekLabelShort, weekYear } from '../utils/arrayParser';
+import { currentWeekStart, PLANNING_HORIZONS, weekLabelShort, weekValue, weekYear } from '../utils/arrayParser';
 import { formatCount } from '../utils/format';
 
 type DemandRow = {
@@ -98,9 +99,9 @@ export default function OtherWorkPage() {
         rows: [],
       };
 
-      subcategory.total = addWeeks(subcategory.total, columns.map((week) => row.weeks[week] ?? 0));
+      subcategory.total = addWeeks(subcategory.total, columns.map((week) => weekValue(row.weeks, week, row.pastWeeks)));
       if (!category.rows.some((item) => item.id === subcategoryKey)) category.rows.push(subcategory);
-      category.total = addWeeks(category.total, columns.map((week) => row.weeks[week] ?? 0));
+      category.total = addWeeks(category.total, columns.map((week) => weekValue(row.weeks, week, row.pastWeeks)));
       categories.set(categoryKey, category);
     }
 
@@ -128,7 +129,7 @@ export default function OtherWorkPage() {
   const totalByWeek = useMemo(() => {
     return Array.from({ length: weeks }, (_, index) =>
       [...(projectDemand.data ?? []), ...(nonProjectDemand.data ?? [])].reduce(
-        (sum, row) => sum + (row.weeks[columns[index]] ?? 0),
+        (sum, row) => sum + weekValue(row.weeks, columns[index], 'pastWeeks' in row ? row.pastWeeks : undefined),
         0,
       ),
     );
@@ -137,26 +138,26 @@ export default function OtherWorkPage() {
   const totalHours = totalByWeek.reduce((sum, value) => sum + value, 0);
   const activeActivities = new Set(
     (nonProjectDemand.data ?? [])
-      .filter((row) => columns.some((week) => (row.weeks[week] ?? 0) > 0))
+      .filter((row) => columns.some((week) => weekValue(row.weeks, week, row.pastWeeks) > 0))
       .map((row) => row.subcategoryId ?? row.id),
   );
 
   const accountingRows = useMemo<AccountingRow[]>(() => {
     const rows = new Map<string, AccountingRow>();
-    const add = (category: string, subcategory: string, weeksForRow: number[]) => {
+    const add = (category: string, subcategory: string, weeksForRow: number[], pastWeeksForRow?: number[]) => {
       const key = `${category}:${subcategory}`;
       const row = rows.get(key) ?? { category, subcategory, previousPrevious: 0, next: 0, recent: 0, previous: 0, total: 0 };
-      row.previousPrevious += sumPeriod(weeksForRow, -39, -27);
+      row.previousPrevious += sumPeriod(pastWeeksForRow ?? [], 26, 38);
       row.next += sumPeriod(weeksForRow, 0, 12);
-      row.recent += sumPeriod(weeksForRow, -13, -1);
-      row.previous += sumPeriod(weeksForRow, -26, -14);
+      row.recent += sumPeriod(pastWeeksForRow ?? [], 0, 12);
+      row.previous += sumPeriod(pastWeeksForRow ?? [], 13, 25);
       row.total = row.previousPrevious + row.previous + row.recent + row.next;
       rows.set(key, row);
     };
 
     for (const row of projectDemand.data ?? []) add('Projects', 'All project demand', row.weeks);
     for (const row of nonProjectDemand.data ?? []) {
-      add(row.categoryName ?? 'Other work', row.subcategoryName ?? 'General', row.weeks);
+      add(row.categoryName ?? 'Other work', row.subcategoryName ?? 'General', row.weeks, row.pastWeeks);
     }
 
     return Array.from(rows.values()).sort((first, second) =>
@@ -209,29 +210,18 @@ export default function OtherWorkPage() {
 
   const kpis = (
     <>
-      <div className="department-header-kpis" aria-label="Other work KPIs">
-        <div className="department-header-kpi">
-          <span className="value">{formatCount(activeActivities.size)}</span>
-          <span className="label">Active activities</span>
-        </div>
-        <div className="department-header-kpi">
-          <span className="value">{formatCount(totalHours)}</span>
-          <span className="label">Total hours</span>
-        </div>
-      </div>
-      <div className="weeks-lookahead-control">
-        <label htmlFor="other-work-weeks">Weeks to show</label>
-        <input
-          id="other-work-weeks"
-          type="number"
-          min={1}
-          max={MAX_POSITIONS}
-          value={weeks}
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            if (Number.isFinite(next)) setWeeks(Math.min(MAX_POSITIONS, Math.max(1, Math.round(next))));
-          }}
-        />
+      <KpiRow
+        ariaLabel="Other work KPIs"
+        variant="compact"
+        items={[
+          { key: 'active', value: formatCount(activeActivities.size), label: 'Active activities' },
+          { key: 'hours', value: formatCount(totalHours), label: 'Total hours' },
+        ]}
+      />
+      <div className="pill-toggle" role="group" aria-label="Planning horizon">
+        {PLANNING_HORIZONS.map((horizon) => (
+          <button key={horizon} type="button" className={weeks === horizon ? 'active' : ''} onClick={() => setWeeks(horizon)}>{horizon} weeks</button>
+        ))}
       </div>
     </>
   );

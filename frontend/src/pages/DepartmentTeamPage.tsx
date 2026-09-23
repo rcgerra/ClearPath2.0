@@ -5,15 +5,21 @@ import { capacityApi, demandApi, departmentsApi, errorMessage, nonProjectDemandA
 import PersonDemandChart from '../components/PersonDemandChart';
 import TeamDemandChart from '../components/TeamDemandChart';
 import DepartmentAnalyticsInsights from '../components/DepartmentAnalyticsInsights';
+import PlanningScenarioPanel, { type ScenarioWeekOverrides } from '../components/PlanningScenarioPanel';
+import ConflictResolutionPanel from '../components/ConflictResolutionPanel';
+import KpiRow from '../components/KpiRow';
+import SlideOverPanel from '../components/SlideOverPanel';
 import UserSelect from '../components/admin/UserSelect';
 import { useAuthStore } from '../store/authStore';
-import { weekLabel, weekLabelShort, weekYear } from '../utils/arrayParser';
+import { weekLabel, weekLabelShort, weekYear, PLANNING_HORIZONS } from '../utils/arrayParser';
 import { formatDate } from '../utils/dates';
 import { canEditAvailability, canEditDepartment } from '../utils/permissions';
+import { applyWeekOverrides, buildAllocationConflicts, type AllocationConflict } from '../utils/allocationRisk';
 import type { CapacityRow, DemandRow, NonProjectDemandRow, Person } from '../types';
 
 const WEEKS = 104;
 const MAX_HOURS = 60;
+type DepartmentWorkspaceTab = 'overview' | 'team' | 'availability' | 'assignments' | 'kpis' | 'risk';
 
 function formatWholeNumber(value: number) {
   return Math.round(value).toLocaleString('en-US');
@@ -43,24 +49,28 @@ export default function DepartmentTeamPage() {
   const [showInactive, setShowInactive] = useState(false);
   const [fteOnly, setFteOnly] = useState(false);
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
+  const [resolvingConflict, setResolvingConflict] = useState<AllocationConflict | null>(null);
+  const [activeTab, setActiveTab] = useState<DepartmentWorkspaceTab>('overview');
+  const [scenarioActive, setScenarioActive] = useState(false);
+  const [scenarioOverrides, setScenarioOverrides] = useState<ScenarioWeekOverrides>({});
   const [showAllPersonSeries, setShowAllPersonSeries] = useState(false);
   const [selectedAnalyticsSeriesId, setSelectedAnalyticsSeriesId] = useState<string | null>(null);
   const [teamChartMode, setTeamChartMode] = useState<'person' | 'project'>('person');
   const [analyticsTableSort, setAnalyticsTableSort] = useState<'name' | 'total'>('name');
   const [analyticsTableSortDirection, setAnalyticsTableSortDirection] = useState<'asc' | 'desc'>('asc');
   const [activeDetailDemandTab, setActiveDetailDemandTab] = useState<'project' | 'other'>('project');
-  const [detailWeeks, setDetailWeeks] = useState(52);
-  const [alertThreshold, setAlertThreshold] = useState(40);
+  const [detailWeeks, setDetailWeeks] = useState(13);
+  const alertThreshold = 40;
   const [bulkAvailability, setBulkAvailability] = useState('40');
   const [addingAssignment, setAddingAssignment] = useState(false);
   const [addingNonProjectDemand, setAddingNonProjectDemand] = useState(false);
   const [addingNewActivity, setAddingNewActivity] = useState(false);
-  const [hideZeroProjectRows, setHideZeroProjectRows] = useState(false);
-  const [hideZeroOtherRows, setHideZeroOtherRows] = useState(false);
+  const [hideZeroProjectRows, setHideZeroProjectRows] = useState(true);
+  const [hideZeroOtherRows, setHideZeroOtherRows] = useState(true);
   const [departmentView, setDepartmentView] = useState<'details' | 'heatmap'>('details');
   const [teamOverviewCollapsed, setTeamOverviewCollapsed] = useState(false);
-  const [analyticsCollapsed, setAnalyticsCollapsed] = useState(false);
-  const [analyticsSummaryCollapsed, setAnalyticsSummaryCollapsed] = useState(false);
+  const [analyticsCollapsed, setAnalyticsCollapsed] = useState(true);
+  const [analyticsSummaryCollapsed, setAnalyticsSummaryCollapsed] = useState(true);
   const gridRef = useRef<HTMLTableElement>(null);
 
   const department = useQuery({
@@ -97,7 +107,7 @@ export default function DepartmentTeamPage() {
 
   const editable = canEditAvailability(user, { department: department.data });
   /** Roster actions (normalize/inactivate) are admin, availability-moderator or department-lead territory — not self-service. */
-  const canManageRoster = canEditDepartment(user, department.data) || Boolean(user?.roles.includes('availability_moderator'));
+  const canManageRoster = canEditDepartment(user, department.data);
   const capacityKey = ['capacity', 'department', id];
 
   const peopleById = useMemo(() => {
@@ -121,14 +131,25 @@ export default function DepartmentTeamPage() {
     return map;
   }, [allDemand.data, nonProjectDemand.data]);
 
+  /** Roster and heatmap default to the riskiest people first, so overallocation is visible without sorting manually. */
   const rows = useMemo(() => {
-    return (capacity.data ?? []).filter((row) => {
+    const filtered = (capacity.data ?? []).filter((row) => {
       const person = row.personId ? peopleById.get(row.personId.toLowerCase()) : undefined;
       if (!showInactive && (row.isActive === false || person?.isActive === false)) return false;
       if (fteOnly && person?.employmentType && person.employmentType.toLowerCase() !== 'fte') return false;
       return true;
     });
-  }, [capacity.data, peopleById, showInactive, fteOnly]);
+    const hoursOverFor = (row: CapacityRow) => {
+      const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? [];
+      let over = 0;
+      for (let week = 0; week < detailWeeks; week += 1) {
+        const diff = (demandWeeks[week] ?? 0) - (row.weeks[week] ?? 0);
+        if (diff > 0) over += diff;
+      }
+      return over;
+    };
+    return [...filtered].sort((a, b) => hoursOverFor(b) - hoursOverFor(a));
+  }, [capacity.data, peopleById, showInactive, fteOnly, demandByPerson, detailWeeks]);
 
   const totals = useMemo(() => {
     const total = emptyWeeks();
@@ -142,7 +163,7 @@ export default function DepartmentTeamPage() {
     let hoursOverAllocated = 0;
     for (const row of rows) {
       const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks();
-      for (let week = 0; week < WEEKS; week += 1) {
+      for (let week = 0; week < detailWeeks; week += 1) {
         const over = (demandWeeks[week] ?? 0) - (row.weeks[week] ?? 0);
         if (over > 0) {
           overAllocatedWeeks.add(week);
@@ -155,16 +176,16 @@ export default function DepartmentTeamPage() {
     const projectIds = new Set<string>();
     for (const demandRow of allDemand.data ?? []) {
       if (!demandRow.personId || !personIds.has(demandRow.personId.toLowerCase())) continue;
-      if (demandRow.weeks.slice(0, WEEKS).some((value) => value > 0)) projectIds.add(demandRow.projectId);
+      if (demandRow.weeks.slice(0, detailWeeks).some((value) => value > 0)) projectIds.add(demandRow.projectId);
     }
 
     for (const demandRow of nonProjectDemand.data ?? []) {
       if (!personIds.has(demandRow.personId.toLowerCase())) continue;
-      if (demandRow.weeks.slice(0, WEEKS).some((value) => value > 0)) projectIds.add(`non-project:${demandRow.categoryId}`);
+      if (demandRow.weeks.slice(0, detailWeeks).some((value) => value > 0)) projectIds.add(`non-project:${demandRow.categoryId}`);
     }
 
     return { weeksOverAllocated: overAllocatedWeeks.size, hoursOverAllocated, activityCount: projectIds.size };
-  }, [rows, demandByPerson, allDemand.data, nonProjectDemand.data]);
+  }, [rows, demandByPerson, allDemand.data, nonProjectDemand.data, detailWeeks]);
 
   /** Distinct projects with demand > 0 in the table window, per person. */
   const assignmentCountByPerson = useMemo(() => {
@@ -373,6 +394,20 @@ export default function DepartmentTeamPage() {
         current?.map((row) => (row.id === variables.capacityId ? { ...row, weeks: variables.weeks } : row)),
       );
       setError(null);
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+
+  const applyScenario = useMutation({
+    mutationFn: async (updates: Array<{ id: string; weeks: number[] }>) => {
+      await Promise.all(updates.map((update) => capacityApi.update(update.id, { weeks: update.weeks })));
+    },
+    onSuccess: () => {
+      setScenarioActive(false);
+      setScenarioOverrides({});
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: capacityKey });
+      queryClient.invalidateQueries({ queryKey: ['capacity', 'all'] });
     },
     onError: (err) => setError(errorMessage(err)),
   });
@@ -670,6 +705,35 @@ export default function DepartmentTeamPage() {
       }),
       [rows, demandByPerson, detailWeeks, assignmentCountByPerson],
     );
+  const allocationConflicts = useMemo(
+    () => buildAllocationConflicts({
+      capacity: capacity.data ?? [],
+      demand: allDemand.data ?? [],
+      nonProjectDemand: nonProjectDemand.data ?? [],
+      people: people.data ?? [],
+      horizon: detailWeeks,
+      personIds: new Set(rows.map((row) => row.personId.toLowerCase())),
+    }),
+    [capacity.data, allDemand.data, nonProjectDemand.data, people.data, rows, detailWeeks],
+  );
+  const scenarioCapacity = useMemo(
+    () => (capacity.data ?? []).map((row) => {
+      const overrides = scenarioOverrides[row.personId.toLowerCase()];
+      return overrides ? { ...row, weeks: applyWeekOverrides(row.weeks, overrides, detailWeeks) } : row;
+    }),
+    [capacity.data, detailWeeks, scenarioOverrides],
+  );
+  const scenarioConflicts = useMemo(
+    () => buildAllocationConflicts({
+      capacity: scenarioCapacity,
+      demand: allDemand.data ?? [],
+      nonProjectDemand: nonProjectDemand.data ?? [],
+      people: people.data ?? [],
+      horizon: detailWeeks,
+      personIds: new Set(rows.map((row) => row.personId.toLowerCase())),
+    }),
+    [allDemand.data, nonProjectDemand.data, people.data, rows, scenarioCapacity, detailWeeks],
+  );
   const analyticsCapacityGap = analyticsTotalCapacity - analyticsTotalDemand;
   const analyticsCapacityGapClass =
     analyticsTotalCapacity > 0 && Math.abs(analyticsCapacityGap) <= analyticsTotalCapacity * 0.05
@@ -677,10 +741,17 @@ export default function DepartmentTeamPage() {
       : analyticsCapacityGap < 0
         ? 'danger'
         : 'positive';
+  const peopleAtRisk = allocationConflicts.length;
 
   if (department.isLoading) return <p className="muted">Loading…</p>;
 
   const details = department.data;
+
+  function selectWorkspaceTab(tab: DepartmentWorkspaceTab) {
+    setActiveTab(tab);
+    if (tab === 'availability') setDepartmentView('heatmap');
+    if (tab === 'assignments') setDepartmentView('details');
+  }
 
   return (
     <section className={`accent-section accent-departments department-layout department-view-${departmentView}`}>
@@ -698,28 +769,17 @@ export default function DepartmentTeamPage() {
                 </Link>
               )}
             </h1>
-            <p className="page-subtitle">Team availability, {WEEKS} weeks from this Monday.</p>
+            <p className="page-subtitle">
+              {activeTab === 'overview' && 'Team capacity, current commitments, and issues requiring attention.'}
+              {activeTab === 'team' && 'Department roster and team responsibilities.'}
+              {activeTab === 'availability' && `Weekly availability and utilization across ${detailWeeks} weeks.`}
+              {activeTab === 'assignments' && `Project and run-the-business assignments across ${detailWeeks} weeks.`}
+              {activeTab === 'kpis' && `Performance indicators across ${detailWeeks} weeks.`}
+              {activeTab === 'risk' && `Allocation risk and what-if scenario planning across ${detailWeeks} weeks.`}
+            </p>
           </div>
         </div>
         <div className="department-header-actions">
-          {!teamOverviewCollapsed && <div className="department-header-kpis" aria-label="Department KPIs">
-            <div className="department-header-kpi">
-              <span className="value" style={{ color: kpis.weeksOverAllocated > 0 ? 'var(--danger)' : undefined }}>
-                {formatWholeNumber(kpis.weeksOverAllocated)}
-              </span>
-              <span className="label">Weeks overallocated</span>
-            </div>
-            <div className="department-header-kpi">
-              <span className="value" style={{ color: kpis.hoursOverAllocated > 0 ? 'var(--danger)' : undefined }}>
-                {formatWholeNumber(kpis.hoursOverAllocated)}
-              </span>
-              <span className="label">Hours overallocated</span>
-            </div>
-            <div className="department-header-kpi">
-              <span className="value">{formatWholeNumber(kpis.activityCount)}</span>
-              <span className="label">Activities supported</span>
-            </div>
-          </div>}
           <button
             type="button"
             className={['icon-button', 'icon-button-add', 'icon-button-add-labeled', checkInClass].filter(Boolean).join(' ')}
@@ -741,33 +801,193 @@ export default function DepartmentTeamPage() {
         </div>
       </div>
 
+      <nav className="workspace-tabs" aria-label="Department workspace">
+        {([
+          ['overview', 'Overview'],
+          ['team', 'Team'],
+          ['availability', 'Heat Map'],
+          ['assignments', 'Assignments'],
+          ['kpis', 'KPIs'],
+          ['risk', 'Risk'],
+        ] as Array<[DepartmentWorkspaceTab, string]>).map(([tab, label]) => (
+          <button
+            key={tab}
+            type="button"
+            className={activeTab === tab ? 'active' : ''}
+            aria-current={activeTab === tab ? 'page' : undefined}
+            onClick={() => selectWorkspaceTab(tab)}
+          >
+            {label}
+            {tab === 'risk' && peopleAtRisk > 0 && (
+              <span className="tab-badge" aria-label={`${peopleAtRisk} people at risk`}>{peopleAtRisk}</span>
+            )}
+          </button>
+        ))}
+      </nav>
+
       {error && <div className="alert error">{error}</div>}
 
+      <div className="workspace-horizon-bar">
+        <span>Planning horizon</span>
+        <div className="pill-toggle" role="group" aria-label="Planning horizon">
+          {PLANNING_HORIZONS.map((weeks) => (
+            <button key={weeks} type="button" className={detailWeeks === weeks ? 'active' : ''} onClick={() => setDetailWeeks(weeks)}>{weeks} weeks</button>
+          ))}
+        </div>
+      </div>
+
+      {activeTab === 'overview' && (
+        <div className="department-overview-layout">
+          <section className="card department-overview-health">
+            <div className="project-overview-heading">
+              <div>
+                <h2>Department health</h2>
+                <p className="muted">Current staffing position across the next {detailWeeks} weeks.</p>
+              </div>
+              <span className={peopleAtRisk > 0 ? 'risk-status risk-status-danger' : 'risk-status risk-status-clear'}>
+                {peopleAtRisk > 0 ? 'Attention needed' : 'Capacity within plan'}
+              </span>
+            </div>
+            <KpiRow
+              ariaLabel="Department health indicators"
+              variant="inline"
+              items={[
+                { key: 'active', value: rows.length, label: 'Active people' },
+                { key: 'available', value: formatWholeNumber(analyticsTotalCapacity), label: 'Available hours' },
+                { key: 'at-risk', value: peopleAtRisk, label: 'People at risk', risk: peopleAtRisk > 0 },
+                { key: 'gap', value: formatWholeNumber(analyticsCapacityGap), label: 'Capacity gap', risk: analyticsCapacityGap < 0 },
+              ]}
+            />
+          </section>
+
+          <section className="card department-attention-panel">
+            <div className="project-overview-heading">
+              <div>
+                <h2>Needs attention</h2>
+                <p className="muted">Items most likely to affect delivery or team sustainability.</p>
+              </div>
+            </div>
+            <div className="attention-list">
+              <button type="button" onClick={() => selectWorkspaceTab('risk')}>
+                <span className={peopleAtRisk > 0 ? 'attention-indicator danger' : 'attention-indicator clear'} />
+                <span>
+                  <strong>{peopleAtRisk > 0 ? `${peopleAtRisk} team member${peopleAtRisk === 1 ? '' : 's'} overallocated` : 'No team members are overallocated'}</strong>
+                  <small>{peopleAtRisk > 0 ? `${kpis.weeksOverAllocated} weeks and ${formatWholeNumber(kpis.hoursOverAllocated)} hours require resolution.` : 'Demand remains within recorded availability.'}</small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </button>
+              <button type="button" onClick={() => selectWorkspaceTab('availability')}>
+                <span className={analyticsCapacityGap < 0 ? 'attention-indicator danger' : 'attention-indicator clear'} />
+                <span>
+                  <strong>{analyticsCapacityGap < 0 ? `${formatWholeNumber(Math.abs(analyticsCapacityGap))} hour capacity deficit` : `${formatWholeNumber(analyticsCapacityGap)} hours available`}</strong>
+                  <small>Compare weekly supply with project and run-the-business demand.</small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </button>
+              <button type="button" onClick={() => selectWorkspaceTab('team')}>
+                <span className={checkInClass ? 'attention-indicator warning' : 'attention-indicator clear'} />
+                <span>
+                  <strong>{Number.isFinite(daysSinceCheckIn) ? `Team plan reviewed ${daysSinceCheckIn} days ago` : 'Team plan has not been reviewed'}</strong>
+                  <small>{checkInClass ? 'Confirm roster, availability, and assignments are current.' : 'The department plan is within the review cadence.'}</small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </button>
+            </div>
+          </section>
+
+          <section className="card department-next-actions">
+            <h2>Plan the department</h2>
+            <p className="muted">Update availability or review assignments before capacity issues affect delivery.</p>
+            <div className="row-actions">
+              <button type="button" className="primary" onClick={() => selectWorkspaceTab('availability')}>Plan availability</button>
+              <button type="button" onClick={() => selectWorkspaceTab('assignments')}>Review assignments</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {activeTab === 'team' && (
+        <div className="card department-roster-card">
+          <div className="toolbar department-workspace-section-header">
+            <div>
+              <h2>Team roster</h2>
+              <p className="muted">Manage membership and open a person’s assignments or availability.</p>
+            </div>
+            <div className="row-actions">
+              <label className="switch">
+                <input type="checkbox" checked={showInactive} onChange={(event) => setShowInactive(event.target.checked)} />
+                <span className="switch-track" aria-hidden="true" />
+                <span className="switch-label">Show inactive</span>
+              </label>
+              {editable && <button type="button" onClick={() => setAdding((value) => !value)}>+ Add person</button>}
+            </div>
+          </div>
+          {adding && (
+            <form
+              className="toolbar"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const personId = String(new FormData(event.currentTarget).get('personId') || '');
+                if (personId) addPerson.mutate({ personId });
+              }}
+            >
+              <div style={{ flex: 2 }}><UserSelect id="teamPersonId" name="personId" label="Person" personValue required /></div>
+              <button className="primary" type="submit" disabled={addPerson.isPending}>Add to department</button>
+              <button type="button" onClick={() => setAdding(false)}>Cancel</button>
+            </form>
+          )}
+          <div className="department-roster-list">
+            {rows.map((row) => {
+              const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks();
+              const { weeksOver, hoursOver } = overallocationFor(row, demandWeeks, detailWeeks);
+              const assignments = assignmentCountByPerson.get(row.personId?.toLowerCase() ?? '') ?? 0;
+              return (
+                <div key={row.id} className="department-roster-row">
+                  <button
+                    type="button"
+                    className="department-roster-person"
+                    onClick={() => {
+                      setSelectedRow(row.id);
+                      selectWorkspaceTab('assignments');
+                    }}
+                  >
+                    <span><strong>{row.personName ?? 'Unassigned'}</strong><small>{peopleById.get(row.personId?.toLowerCase() ?? '')?.title || 'Team member'}</small></span>
+                    <span><strong>{assignments}</strong><small>Assignments</small></span>
+                    <span className={weeksOver > 0 ? 'is-risk' : undefined}><strong>{weeksOver}</strong><small>Weeks over</small></span>
+                    <span className={hoursOver > 0 ? 'is-risk' : undefined}><strong>{formatWholeNumber(hoursOver)}</strong><small>Hours over</small></span>
+                  </button>
+                  <div className="row-actions">
+                    <button type="button" onClick={() => { setSelectedRow(row.id); selectWorkspaceTab('availability'); }}>Availability</button>
+                    {canManageRoster && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedRow(row.id);
+                            setTransferDepartmentId('');
+                            setTransferring(true);
+                            selectWorkspaceTab('availability');
+                          }}
+                        >Transfer</button>
+                        <button
+                          type="button"
+                          className={row.isActive === false ? 'success' : 'danger'}
+                          onClick={() => setRowActive.mutate({ capacityId: row.id, isActive: row.isActive === false })}
+                        >{row.isActive === false ? 'Reactivate' : 'Inactivate'}</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'availability' && (
         <div className="card department-team-overview">
         <div className="toolbar department-team-overview-header">
-          <h2 style={{ margin: 0, flex: 1 }}>Team Members</h2>
-          {!teamOverviewCollapsed && <label className="weeks-lookahead-control" htmlFor="department-detail-weeks">
-            Weeks to show
-            <input
-              id="department-detail-weeks"
-              type="number"
-              min={1}
-              max={WEEKS}
-              value={detailWeeks}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                if (Number.isFinite(next)) setDetailWeeks(Math.min(WEEKS, Math.max(1, Math.round(next))));
-              }}
-            />
-          </label>}
-          {!teamOverviewCollapsed && <div className="pill-toggle department-view-toggle" role="group" aria-label="Department view">
-            <button type="button" className={departmentView === 'details' ? 'active' : ''} onClick={() => setDepartmentView('details')}>
-              Details
-            </button>
-            <button type="button" className={departmentView === 'heatmap' ? 'active' : ''} onClick={() => setDepartmentView('heatmap')}>
-              Heat Map
-            </button>
-          </div>}
+          <h2 style={{ margin: 0, flex: 1 }}>Availability planner</h2>
           {!teamOverviewCollapsed && editable && (
             <button
               type="button"
@@ -785,21 +1005,44 @@ export default function DepartmentTeamPage() {
               <span>Add person</span>
             </button>
           )}
+          {!teamOverviewCollapsed && selected && canManageRoster && (
+            <>
+              <button
+                type="button"
+                disabled={selectedEqualizeDisabled}
+                title="Set the selected person's availability to match total demand"
+                onClick={() => normalizeAvailability(selected)}
+              >
+                Match availability to demand
+              </button>
+              <div className="bulk-availability-control">
+                <button
+                  type="button"
+                  className="bulk-availability-submit"
+                  aria-label={`Set all visible weeks to ${bulkAvailability} hours for ${selected.personName ?? 'this person'}`}
+                  disabled={setAllAvailability.isPending || !/^(?:[0-9]|[1-3][0-9]|40)$/.test(bulkAvailability)}
+                  onClick={() => setAllAvailability.mutate({
+                    capacityId: selected.id,
+                    weeks: selected.weeks.map((value, week) => (week < detailWeeks ? Number(bulkAvailability) : value)),
+                  })}
+                >Apply</button>
+                <span>Set selected to</span>
+                <input type="number" min={0} max={40} step={1} value={bulkAvailability} onChange={(event) => setBulkAvailability(event.target.value)} onKeyDown={blockNonIntegerKeys} />
+                <span>hours</span>
+              </div>
+            </>
+          )}
           {teamOverviewCollapsed && (
-            <div className="department-header-kpis team-overview-collapsed-kpis" aria-label="Team Overview KPIs">
-              <div className="department-header-kpi">
-                <span className="value" style={{ color: kpis.weeksOverAllocated > 0 ? 'var(--danger)' : undefined }}>{formatWholeNumber(kpis.weeksOverAllocated)}</span>
-                <span className="label">Weeks overallocated</span>
-              </div>
-              <div className="department-header-kpi">
-                <span className="value" style={{ color: kpis.hoursOverAllocated > 0 ? 'var(--danger)' : undefined }}>{formatWholeNumber(kpis.hoursOverAllocated)}</span>
-                <span className="label">Hours overallocated</span>
-              </div>
-              <div className="department-header-kpi">
-                <span className="value">{formatWholeNumber(kpis.activityCount)}</span>
-                <span className="label">Activities supported</span>
-              </div>
-            </div>
+            <KpiRow
+              ariaLabel="Team Overview KPIs"
+              variant="compact"
+              className="team-overview-collapsed-kpis"
+              items={[
+                { key: 'weeks-over', value: formatWholeNumber(kpis.weeksOverAllocated), label: 'Weeks overallocated', risk: kpis.weeksOverAllocated > 0 },
+                { key: 'hours-over', value: formatWholeNumber(kpis.hoursOverAllocated), label: 'Hours overallocated', risk: kpis.hoursOverAllocated > 0 },
+                { key: 'activities', value: formatWholeNumber(kpis.activityCount), label: 'Activities supported' },
+              ]}
+            />
           )}
           <button
             type="button"
@@ -815,9 +1058,6 @@ export default function DepartmentTeamPage() {
         </div>
         <div id="department-team-overview-content" hidden={teamOverviewCollapsed}>
         <div className="team-overview-card" hidden={departmentView !== 'heatmap'}>
-        <div className="department-team-section-heading">
-          <h2 className="department-team-section-title">Heat Map</h2>
-        </div>
         <section id="department-team-roster-section" className="team-roster-section">
         {transferring && selected && (
           <form
@@ -1069,96 +1309,15 @@ export default function DepartmentTeamPage() {
         </div>
         </div>
       </div>
+      )}
 
-      {selected && (
+      {activeTab === 'assignments' && selected && (
         <div className="card department-individual-details-card" hidden={teamOverviewCollapsed || departmentView !== 'details'}>
         <section id="department-individual-detail-section" className="department-person-detail individual-detail-section">
           <div className="toolbar department-person-detail-header">
             <h2 style={{ margin: 0, flex: 1 }}>
               {selected.personName ?? 'Person'}
             </h2>
-            {canManageRoster && (
-              <label className="weeks-lookahead-control" htmlFor="department-alert-threshold">
-                <svg className="alert-threshold-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <path d="M12 3 22 21H2Z" />
-                  <line x1="12" y1="9" x2="12" y2="14" />
-                  <circle cx="12" cy="17" r="1" />
-                </svg>
-                <span>Alert above (hours)</span>
-                <input
-                  id="department-alert-threshold"
-                  type="number"
-                  min={0}
-                  max={MAX_HOURS}
-                  step={1}
-                  value={alertThreshold}
-                  onChange={(event) => {
-                    const next = Number(event.target.value);
-                    if (Number.isFinite(next)) setAlertThreshold(Math.min(MAX_HOURS, Math.max(0, Math.round(next))));
-                  }}
-                />
-              </label>
-            )}
-            {canManageRoster && (
-              <>
-              <button
-                type="button"
-                className="icon-button icon-button-add icon-button-add-labeled person-detail-action"
-                aria-label={`Normalize ${selected.personName ?? 'this person'}'s availability`}
-                title={
-                  selectedEqualizeDisabled
-                    ? `${selected.personName ?? 'This person'}'s availability already matches demand`
-                    : `Set ${selected.personName ?? "this person's"} availability to equal its demand`
-                }
-                disabled={selectedEqualizeDisabled}
-                onClick={() => normalizeAvailability(selected)}
-              >
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="17 2 21 6 17 10" />
-                  <path d="M3 12v-2a4 4 0 0 1 4-4h14" />
-                  <polyline points="7 22 3 18 7 14" />
-                  <path d="M21 12v2a4 4 0 0 1-4 4H3" />
-                </svg>
-                <span>Equalize</span>
-              </button>
-              <div className="bulk-availability-control">
-                <button
-                  type="button"
-                  className="bulk-availability-submit"
-                  aria-label={`Set all weeks to ${bulkAvailability} hours for ${selected.personName ?? 'this person'}`}
-                  title={`Set all weeks to ${bulkAvailability} hours`}
-                  disabled={setAllAvailability.isPending || !/^(?:[0-9]|[1-3][0-9]|40)$/.test(bulkAvailability)}
-                  onClick={() =>
-                    setAllAvailability.mutate({
-                      capacityId: selected.id,
-                      weeks: selected.weeks.map((value, week) => (week < detailWeeks ? Number(bulkAvailability) : value)),
-                    })
-                  }
-                >
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 12h16" />
-                    <path d="M4 6h16" />
-                    <path d="M4 18h16" />
-                    <circle cx="9" cy="6" r="2" fill="currentColor" stroke="none" />
-                    <circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" />
-                    <circle cx="10" cy="18" r="2" fill="currentColor" stroke="none" />
-                  </svg>
-                </button>
-                <span>Set all weeks to</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={40}
-                  step={1}
-                  value={bulkAvailability}
-                  onChange={(event) => setBulkAvailability(event.target.value)}
-                  onKeyDown={blockNonIntegerKeys}
-                  aria-label={`Set all availability for ${selected.personName ?? 'this person'}`}
-                />
-                <span>hours</span>
-              </div>
-              </>
-            )}
           </div>
           <div id="department-person-detail-content" className="department-person-detail-content">
           <aside className="department-detail-roster-picker" aria-label="Department roster" hidden={departmentView === 'heatmap'}>
@@ -1633,24 +1792,80 @@ export default function DepartmentTeamPage() {
         </div>
       )}
 
-      {selected && (
+      {activeTab === 'risk' && editable && (
+        <PlanningScenarioPanel
+          active={scenarioActive}
+          title="Department capacity scenario"
+          description={`Test weekly availability changes across the next ${detailWeeks} weeks without changing the live plan.`}
+          valueLabel="Availability"
+          horizon={detailWeeks}
+          rows={rows.map((row) => ({
+            id: row.personId.toLowerCase(),
+            label: row.personName ?? 'Unassigned',
+            subtitle: peopleById.get(row.personId.toLowerCase())?.title || 'Team member',
+            weeks: row.weeks,
+          }))}
+          overrides={scenarioOverrides}
+          baselineConflicts={allocationConflicts}
+          scenarioConflicts={scenarioConflicts}
+          isApplying={applyScenario.isPending}
+          onStart={() => setScenarioActive(true)}
+          onWeekValue={(personId, week, value) => setScenarioOverrides((current) => {
+            const baseline = rows.find((row) => row.personId.toLowerCase() === personId)?.weeks[week] ?? 0;
+            const personOverrides = { ...(current[personId] ?? {}) };
+            if (value === baseline) delete personOverrides[week];
+            else personOverrides[week] = value;
+            const next = { ...current };
+            if (Object.keys(personOverrides).length) next[personId] = personOverrides;
+            else delete next[personId];
+            return next;
+          })}
+          onDiscard={() => { setScenarioActive(false); setScenarioOverrides({}); }}
+          onApply={() => {
+            const updates = rows.flatMap((row) => {
+              const overrides = scenarioOverrides[row.personId.toLowerCase()];
+              return overrides && Object.keys(overrides).length ? [{ id: row.id, weeks: applyWeekOverrides(row.weeks, overrides, detailWeeks) }] : [];
+            });
+            applyScenario.mutate(updates);
+          }}
+        />
+      )}
+
+      <SlideOverPanel open={Boolean(resolvingConflict)} onClose={() => setResolvingConflict(null)} hideHeader>
+        {resolvingConflict && (
+          <ConflictResolutionPanel
+            conflict={resolvingConflict}
+            context="department"
+            onClose={() => setResolvingConflict(null)}
+            onStartWhatIf={() => {
+              setResolvingConflict(null);
+              setActiveTab('risk');
+              setScenarioActive(true);
+            }}
+            onOpenTeam={() => {
+              const row = rows.find((candidate) => candidate.personId.toLowerCase() === resolvingConflict.personId);
+              if (row) setSelectedRow(row.id);
+              setResolvingConflict(null);
+              selectWorkspaceTab('assignments');
+            }}
+          />
+        )}
+      </SlideOverPanel>
+
+      {activeTab === 'kpis' && selected && (
         <div className="card department-analytics-card">
           <div className="toolbar department-analytics-header">
             <h2 style={{ margin: 0, flex: 1 }}>Team Overview</h2>
-            <div className="department-header-kpis analytics-kpis" aria-label="Analytics summary">
-              <div className="department-header-kpi">
-                <span className="value">{formatWholeNumber(analyticsTotalDemand)}</span>
-                <span className="label">Total demand</span>
-              </div>
-              <div className="department-header-kpi">
-                <span className="value">{formatWholeNumber(analyticsTotalCapacity)}</span>
-                <span className="label">Total capacity</span>
-              </div>
-              <div className={`department-header-kpi analytics-gap-${analyticsCapacityGapClass}`}>
-                <span className="value">{formatWholeNumber(analyticsCapacityGap)}</span>
-                <span className="label">Capacity gap</span>
-              </div>
-            </div>
+            <KpiRow
+              ariaLabel="Analytics summary"
+              variant="compact"
+              className="analytics-kpis"
+              items={[
+                { key: 'total-demand', value: formatWholeNumber(analyticsTotalDemand), label: 'Total demand' },
+                { key: 'total-capacity', value: formatWholeNumber(analyticsTotalCapacity), label: 'Total capacity' },
+                { key: 'capacity-gap', value: formatWholeNumber(analyticsCapacityGap), label: 'Capacity gap', className: `analytics-gap-${analyticsCapacityGapClass}` },
+              ]}
+            />
             <button
               type="button"
               className="workload-collapse-button department-section-collapse-button"
@@ -1766,7 +1981,7 @@ export default function DepartmentTeamPage() {
         </div>
       )}
 
-      {selected && (
+      {activeTab === 'risk' && selected && (
         <div className="card department-analytics-summary-card">
           <div className="toolbar department-analytics-header">
             <h2 style={{ margin: 0, flex: 1 }}>Analytics</h2>
@@ -1790,12 +2005,14 @@ export default function DepartmentTeamPage() {
               availability={totals.slice(0, detailWeeks)}
               workstreams={teamSeriesByProject}
               people={peopleAnalytics}
+              conflicts={allocationConflicts}
+              onResolveConflict={(conflict) => setResolvingConflict(conflict)}
             />
           </div>
         </div>
       )}
 
-      <div className="card project-header">
+      {activeTab === 'overview' && <div className="card project-header">
         <h2>Department summary</h2>
         <div className="detail-grid">
           <div>
@@ -1807,7 +2024,7 @@ export default function DepartmentTeamPage() {
             {details?.leadName ?? '—'}
           </div>
           <div>
-            <span className="detail-label">Delegate</span>
+            <span className="detail-label">Department delegate</span>
             {details?.delegateName ?? '—'}
           </div>
           <div>
@@ -1827,7 +2044,7 @@ export default function DepartmentTeamPage() {
             </span>
           </div>
         </div>
-      </div>
+      </div>}
     </section>
   );
 }

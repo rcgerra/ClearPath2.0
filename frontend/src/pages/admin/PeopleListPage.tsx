@@ -5,6 +5,8 @@ import { capacityApi, demandApi, nonProjectDemandApi, peopleApi } from '../../ap
 import AccentSection from '../../components/admin/AccentSection';
 import DataTable, { Column } from '../../components/admin/DataTable';
 import ListToolbar from '../../components/admin/ListToolbar';
+import { useAuthStore } from '../../store/authStore';
+import { isAdmin } from '../../utils/permissions';
 import { formatCount } from '../../utils/format';
 import type { Person } from '../../types';
 
@@ -32,6 +34,7 @@ interface PersonKpis {
 const EMPTY_KPIS: PersonKpis = { assignments: 0, totalDemand: 0, totalAvailability: 0, hoursOver: 0, weeksOver: 0 };
 
 export default function PeopleListPage() {
+  const canManagePeople = isAdmin(useAuthStore((state) => state.user));
   const [search, setSearch] = useState('');
   const [hideInactive, setHideInactive] = useState(true);
   const people = useQuery({ queryKey: ['people'], queryFn: () => peopleApi.list() });
@@ -109,9 +112,7 @@ export default function PeopleListPage() {
       value: (row) => row.name,
       render: (row) => (
         <span className="name-cell">
-          <Link to={`/admin/people/${row.id}`} className="record-link">
-            {row.name}
-          </Link>
+          {canManagePeople ? <Link to={`/admin/people/${row.id}`} className="record-link">{row.name}</Link> : <span>{row.name}</span>}
           {row.employmentType?.toLowerCase() === 'contractor' && <span className="pill pill-contractor">Ext</span>}
         </span>
       ),
@@ -173,11 +174,11 @@ export default function PeopleListPage() {
       sortable: false,
       width: '64px',
       value: () => '',
-      render: (row) => (
+      render: (row) => canManagePeople ? (
         <Link to={`/admin/people/${row.id}`} className="icon-button" title={`Edit ${row.name}`}>
           ✎
         </Link>
-      ),
+      ) : null,
     },
   ];
 
@@ -186,11 +187,11 @@ export default function PeopleListPage() {
       accent="people"
       title="People"
       subtitle="Everyone available to staff projects."
-      actions={
+      actions={canManagePeople ? (
         <Link to="/admin/people/new">
           <button className="accent-button">+ New person</button>
         </Link>
-      }
+      ) : undefined}
     >
       <ListToolbar
         search={search}

@@ -91,7 +91,7 @@ export default function DepartmentEditPage() {
         </div>
 
         <div style={{ maxWidth: 320 }}>
-          <UserSelect id="delegatePersonId" name="delegatePersonId" label="Delegate" personValue defaultValue={current?.delegatePersonId} />
+          <UserSelect id="delegatePersonId" name="delegatePersonId" label="Department delegate" personValue defaultValue={current?.delegatePersonId} />
         </div>
 
         <label className="switch" style={{ marginBottom: '1rem' }}>

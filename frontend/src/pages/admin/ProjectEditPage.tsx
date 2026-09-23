@@ -150,7 +150,7 @@ export default function ProjectEditPage() {
           </div>
 
           <div style={{ maxWidth: 320 }}>
-            <UserSelect id="delegatePersonId" name="delegatePersonId" label="Delegate" personValue defaultValue={current?.delegatePersonId} />
+            <UserSelect id="delegatePersonId" name="delegatePersonId" label="Project demand delegate" personValue defaultValue={current?.delegatePersonId} />
           </div>
 
           <label className="switch" style={{ marginBottom: '1rem' }}>

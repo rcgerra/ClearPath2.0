@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'availability_moderator' | 'demand_moderator' | 'user';
+export type Role = 'admin' | 'portfolio_manager' | 'user';
 
 export interface AuthUser {
   userId: string;
@@ -170,6 +170,7 @@ export interface NonProjectDemandRow {
   departmentId?: string;
   description?: string;
   weeks: number[];
+  pastWeeks?: number[];
   isActive?: boolean;
 }
 

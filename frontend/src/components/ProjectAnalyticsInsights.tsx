@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import AllocationConflictQueue from './AllocationConflictQueue';
 import { weekLabelShort } from '../utils/arrayParser';
+import type { AllocationConflict } from '../utils/allocationRisk';
 
 export interface ProjectFunctionWeeklyDemand {
   id: string;
@@ -13,22 +15,16 @@ export interface ProjectFunctionTotalDemand {
   total: number;
 }
 
-export interface ProjectPersonRisk {
-  id: string;
-  label: string;
-  departmentName?: string;
-  overAllocated: number;
-  overWeeks: number;
-  assignments: number;
-}
-
 interface Props {
   weeklyDemandByFunction: ProjectFunctionWeeklyDemand[];
   weeksToShow: number;
   demandByFunctionTotals: ProjectFunctionTotalDemand[];
   /** Fraction (0-1) of the project's timeline that has elapsed, or null if unknown. */
   timelineElapsedFraction: number | null;
-  peopleRisk: ProjectPersonRisk[];
+  /** Set to false to omit the allocation conflicts panel when it's shown elsewhere (e.g. a separate Risk tab). */
+  showConflicts?: boolean;
+  conflicts?: AllocationConflict[];
+  onResolveConflict?: (conflict: AllocationConflict) => void;
 }
 
 const PAD_TOP = 16;
@@ -55,11 +51,12 @@ export default function ProjectAnalyticsInsights({
   weeksToShow,
   demandByFunctionTotals,
   timelineElapsedFraction,
-  peopleRisk,
+  showConflicts = true,
+  conflicts = [],
+  onResolveConflict,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
-  const overAllocatedPeople = peopleRisk.filter((person) => person.overAllocated > 0).sort((a, b) => b.overAllocated - a.overAllocated);
 
   const sortedFunctionTotals = [...demandByFunctionTotals].filter((entry) => entry.total > 0).sort((a, b) => b.total - a.total);
   const maxFunctionTotal = Math.max(1, ...sortedFunctionTotals.map((entry) => entry.total));
@@ -152,7 +149,7 @@ export default function ProjectAnalyticsInsights({
         )}
       </section>
 
-      <div className="analytics-project-half-grid">
+      <div className={showConflicts ? 'analytics-project-half-grid' : 'analytics-project-half-grid compact-two'}>
         <section className="analytics-chart-panel analytics-project-function-totals-panel">
           <h3>Total demand by function</h3>
           {sortedFunctionTotals.length === 0 ? (
@@ -239,35 +236,13 @@ export default function ProjectAnalyticsInsights({
           })()}
         </section>
 
-        <section className="analytics-chart-panel analytics-project-risk-panel">
-          <h3>Team allocation risk</h3>
-          {overAllocatedPeople.length === 0 ? (
-            <p className="muted">No team members are currently over-allocated across their assignments.</p>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Person</th>
-                  <th>Department</th>
-                  <th>Hours over</th>
-                  <th>Weeks over</th>
-                  <th>Assignments</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overAllocatedPeople.map((person) => (
-                  <tr key={person.id}>
-                    <td>{person.label}</td>
-                    <td>{person.departmentName ?? '—'}</td>
-                    <td style={{ color: 'var(--danger)' }}>{formatWholeNumber(person.overAllocated)}</td>
-                    <td>{person.overWeeks}</td>
-                    <td>{person.assignments}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
+        {showConflicts && (
+          <section className="analytics-chart-panel analytics-project-risk-panel">
+            <h3>Allocation conflicts</h3>
+            <p className="muted">Severity reflects peak weekly excess and how long the conflict persists.</p>
+            <AllocationConflictQueue conflicts={conflicts} onOpen={onResolveConflict} />
+          </section>
+        )}
       </div>
     </div>
   );

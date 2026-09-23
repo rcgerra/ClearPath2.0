@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import AllocationConflictQueue from './AllocationConflictQueue';
 import { weekLabelShort } from '../utils/arrayParser';
+import type { AllocationConflict } from '../utils/allocationRisk';
 
 interface Workstream {
   id: string;
@@ -23,6 +25,8 @@ interface Props {
   availability: number[];
   workstreams: Workstream[];
   people: PersonInsight[];
+  conflicts: AllocationConflict[];
+  onResolveConflict: (conflict: AllocationConflict) => void;
 }
 
 const PAD_TOP = 22;
@@ -33,7 +37,7 @@ function scale(value: number, max: number, height: number) {
   return max > 0 ? (value / max) * height : 0;
 }
 
-export default function DepartmentAnalyticsInsights({ weeks, totalDemand, availability, workstreams, people }: Props) {
+export default function DepartmentAnalyticsInsights({ weeks, totalDemand, availability, workstreams, people, conflicts, onResolveConflict }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [workstreamSort, setWorkstreamSort] = useState<'name' | 'total'>('total');
@@ -61,9 +65,7 @@ export default function DepartmentAnalyticsInsights({ weeks, totalDemand, availa
   });
   const sortedTopWorkstreams = sortWorkstreams(topWorkstreams);
   const sortedLowestWorkstreams = sortWorkstreams(lowestWorkstreams, true);
-  const mostOverallocated = people.filter((person) => person.overAllocated > 0).sort((a, b) => b.overAllocated - a.overAllocated).slice(0, 10);
   const mostAvailable = people.filter((person) => person.available > 0).sort((a, b) => b.available - a.available).slice(0, 5);
-  const maxOverallocated = Math.max(1, ...mostOverallocated.map((person) => person.overAllocated));
   const maxAvailable = Math.max(1, ...mostAvailable.map((person) => person.available));
   const gapWeeks = gapValues.map((gap, index) => ({ index, gap })).filter((entry) => entry.gap !== 0);
   const highestDeficits = gapWeeks.filter((entry) => entry.gap < 0).sort((a, b) => a.gap - b.gap).slice(0, 5);
@@ -150,22 +152,10 @@ export default function DepartmentAnalyticsInsights({ weeks, totalDemand, availa
         </div>
       </section>
 
-      <section className="analytics-chart-panel analytics-people-panel">
-        <h3>Most overallocated</h3>
-        <div className="analytics-workstream-list">
-          <div className="analytics-workstream-row analytics-workstream-header" aria-hidden="true">
-            <span>Person</span><span>Relative over-allocation</span><strong>Hours</strong><strong>Weeks</strong>
-          </div>
-          {mostOverallocated.map((person) => (
-            <div className="analytics-workstream-row" key={person.id}>
-              <span>{person.label}</span>
-              <div className="analytics-workstream-bar-track"><div className="analytics-workstream-bar analytics-overallocated-bar" style={{ width: `${(person.overAllocated / maxOverallocated) * 100}%` }} /></div>
-              <strong>{Math.round(person.overAllocated).toLocaleString('en-US')}</strong>
-              <strong>{person.overWeeks}</strong>
-            </div>
-          ))}
-          {mostOverallocated.length === 0 && <p className="muted">No over-allocation in the selected horizon.</p>}
-        </div>
+      <section className="analytics-chart-panel analytics-people-panel allocation-conflict-panel">
+        <h3>Allocation conflicts</h3>
+        <p className="muted">Review severity, timing, and the assignments contributing to each conflict.</p>
+        <AllocationConflictQueue conflicts={conflicts} onOpen={onResolveConflict} />
       </section>
 
       <section className="analytics-chart-panel analytics-people-panel">

@@ -47,7 +47,7 @@ router.get('/auth/session', (req, res) => {
     personId: person.id,
     email: selectedUser.Email,
     name: selectedUser.DisplayName,
-    roles: ['admin', 'availability_moderator', 'demand_moderator', 'user'] as const,
+    roles: ['admin', 'portfolio_manager', 'user'] as const,
     departmentId: person.departmentId,
   };
   res.json({ token: signToken({ ...user, roles: [...user.roles] }), user });
@@ -347,10 +347,11 @@ router.post('/non-project-demand/categories', (req, res) => {
 });
 
 router.patch('/non-project-demand/categories/:id', (req, res) => {
-  const category = dataService.findNonProjectDemandCategory(req.params.id);
+  const category = dataService.updateNonProjectDemandCategory(req.params.id, {
+    name: req.body?.name === undefined ? undefined : String(req.body.name).trim(),
+    isActive: req.body?.isActive === undefined ? undefined : Boolean(req.body.isActive),
+  });
   if (!category) throw new HttpError(404, 'Non-project demand category not found.');
-  if (req.body?.name !== undefined) category.name = String(req.body.name).trim();
-  if (req.body?.isActive !== undefined) category.isActive = Boolean(req.body.isActive);
   res.json({ id: category.id });
 });
 
@@ -373,10 +374,11 @@ router.post('/non-project-demand/subcategories', (req, res) => {
 });
 
 router.patch('/non-project-demand/subcategories/:id', (req, res) => {
-  const subcategory = dataService.findNonProjectDemandSubcategory(req.params.id);
+  const subcategory = dataService.updateNonProjectDemandSubcategory(req.params.id, {
+    name: req.body?.name === undefined ? undefined : String(req.body.name).trim(),
+    isActive: req.body?.isActive === undefined ? undefined : Boolean(req.body.isActive),
+  });
   if (!subcategory) throw new HttpError(404, 'Non-project demand subcategory not found.');
-  if (req.body?.name !== undefined) subcategory.name = String(req.body.name).trim();
-  if (req.body?.isActive !== undefined) subcategory.isActive = Boolean(req.body.isActive);
   res.json({ id: subcategory.id });
 });
 
@@ -411,13 +413,8 @@ router.post('/non-project-demand', (req, res) => {
 });
 
 router.patch('/non-project-demand/:id/weeks', (req, res) => {
-  const row = dataService.findNonProjectDemand(req.params.id);
+  const row = dataService.updateNonProjectDemandWeeks(req.params.id, req.body ?? {});
   if (!row) throw new HttpError(404, 'Non-project demand row not found.');
-  const { week, startWeek, endWeek, hours } = req.body ?? {};
-  if (Number.isFinite(week)) row.weeks[week] = hours;
-  else if (Number.isFinite(startWeek) && Number.isFinite(endWeek)) {
-    for (let index = startWeek; index <= endWeek && index < row.weeks.length; index += 1) row.weeks[index] = hours;
-  } else throw new HttpError(400, 'Provide either week or startWeek/endWeek.');
   res.json({ id: row.id, weeks: row.weeks });
 });
 

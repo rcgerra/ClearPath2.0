@@ -4,6 +4,7 @@ import { formatDate, formatDayMonth } from './dates';
 export const DIGITS_PER_POSITION = 2;
 export const MAX_POSITIONS = 1333;
 export const MAX_VALUE = 99;
+export const PLANNING_HORIZONS = [13, 26, 52, 104] as const;
 
 export function encodeArray(values: number[], positions: number = MAX_POSITIONS): string {
   if (values.length > positions) throw new Error(`Array exceeds ${positions} weekly positions.`);
@@ -41,6 +42,10 @@ export function setWeekValue(encoded: string | null | undefined, week: number, v
 
 export function sumWeeks(values: number[], startWeek: number, endWeek: number): number {
   return values.slice(startWeek, endWeek + 1).reduce((total, value) => total + value, 0);
+}
+
+export function weekValue(values: number[], weekIndex: number, pastValues?: number[]): number {
+  return weekIndex < 0 ? pastValues?.[-weekIndex - 1] ?? 0 : values[weekIndex] ?? 0;
 }
 
 /** Monday of the current ISO week, used as week index 0 for display. */

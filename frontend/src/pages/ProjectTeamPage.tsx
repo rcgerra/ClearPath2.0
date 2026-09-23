@@ -3,17 +3,25 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { capacityApi, demandApi, errorMessage, lookupsApi, nonProjectDemandApi, peopleApi, projectsApi } from '../api/client';
 import ProjectAnalyticsInsights from '../components/ProjectAnalyticsInsights';
+import AllocationConflictQueue from '../components/AllocationConflictQueue';
 import PersonDemandChart from '../components/PersonDemandChart';
+import ConflictResolutionPanel from '../components/ConflictResolutionPanel';
+import ScheduleHealthBadge from '../components/ScheduleHealthBadge';
+import KpiRow from '../components/KpiRow';
+import SlideOverPanel from '../components/SlideOverPanel';
 import UserSelect from '../components/admin/UserSelect';
 import { useAuthStore } from '../store/authStore';
-import { weekLabelShort, weekLabel, currentWeekStart } from '../utils/arrayParser';
+import { weekLabelShort, weekLabel, currentWeekStart, PLANNING_HORIZONS } from '../utils/arrayParser';
 import { formatDate } from '../utils/dates';
 import { canEditDemand, canEditProject } from '../utils/permissions';
+import { buildAllocationConflicts, type AllocationConflict } from '../utils/allocationRisk';
+import { calculateProjectScheduleHealth } from '../utils/projectSchedule';
 import type { DemandRow, Person } from '../types';
 
 const WEEKS = 104;
-const DEFAULT_WEEKS_TO_SHOW = 52;
+const DEFAULT_WEEKS_TO_SHOW = 13;
 const MAX_HOURS = 60;
+type ProjectWorkspaceTab = 'overview' | 'team' | 'kpis' | 'risk' | 'details';
 
 function emptyWeeks() {
   return new Array(WEEKS).fill(0);
@@ -49,10 +57,13 @@ export default function ProjectTeamPage() {
   const [showInactive, setShowInactive] = useState(false);
   const [fteOnly, setFteOnly] = useState(false);
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [resolvingConflict, setResolvingConflict] = useState<AllocationConflict | null>(null);
+  const [activeTab, setActiveTab] = useState<ProjectWorkspaceTab>('overview');
   const [weeksToShow, setWeeksToShow] = useState(DEFAULT_WEEKS_TO_SHOW);
   const [lookDirection, setLookDirection] = useState<'ahead' | 'back'>('ahead');
-  const [teamSortColumn, setTeamSortColumn] = useState<'person' | 'totalProject' | 'totalFuture' | number>('person');
-  const [teamSortDirection, setTeamSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [teamSortColumn, setTeamSortColumn] = useState<'person' | 'totalProject' | 'totalFuture' | 'risk' | number>('risk');
+  const [teamSortDirection, setTeamSortDirection] = useState<'asc' | 'desc'>('desc');
   const [teamDemandCollapsed, setTeamDemandCollapsed] = useState(false);
   const [analyticsCollapsed, setAnalyticsCollapsed] = useState(false);
   const gridRef = useRef<HTMLTableElement>(null);
@@ -181,7 +192,7 @@ export default function ProjectTeamPage() {
     return row.weeks.slice(0, weeksToShow).reduce((sum, value) => sum + value, 0);
   };
 
-  function toggleTeamSort(column: 'person' | 'totalProject' | 'totalFuture' | number) {
+  function toggleTeamSort(column: 'person' | 'totalProject' | 'totalFuture' | 'risk' | number) {
     if (column === teamSortColumn) setTeamSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
     else {
       setTeamSortColumn(column);
@@ -189,18 +200,39 @@ export default function ProjectTeamPage() {
     }
   }
 
-  /** Team rows sorted by whichever column the user last clicked: name, either total, or a week. */
+  /** Total over-allocated hours per person across the visible horizon, used to sort the riskiest people to the top by default. */
+  const riskByPerson = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [key, demandWeeks] of totals.demandByPerson) {
+      const availabilityWeeks = totals.availabilityByPerson.get(key) ?? [];
+      let over = 0;
+      for (let week = 0; week < weeksToShow; week += 1) {
+        const demandHours = demandWeeks[week] ?? 0;
+        const availableHours = availabilityWeeks[week] ?? 0;
+        if (demandHours > availableHours) over += demandHours - availableHours;
+      }
+      map.set(key, over);
+    }
+    return map;
+  }, [totals, weeksToShow]);
+
+  /** Team rows sorted by whichever column the user last clicked: risk, name, either total, or a week. */
   const sortedRows = useMemo(() => {
     const direction = teamSortDirection === 'asc' ? 1 : -1;
     return [...rows].sort((a, b) => {
       if (teamSortColumn === 'person') {
         return direction * (a.personName ?? '').localeCompare(b.personName ?? '', undefined, { numeric: true, sensitivity: 'base' });
       }
+      if (teamSortColumn === 'risk') {
+        const riskA = riskByPerson.get(a.personId?.toLowerCase() ?? '') ?? 0;
+        const riskB = riskByPerson.get(b.personId?.toLowerCase() ?? '') ?? 0;
+        return direction * (riskA - riskB);
+      }
       if (teamSortColumn === 'totalProject') return direction * (totalProjectDemandFor(a) - totalProjectDemandFor(b));
       if (teamSortColumn === 'totalFuture') return direction * (totalWindowDemandFor(a) - totalWindowDemandFor(b));
       return direction * ((a.weeks[teamSortColumn] ?? 0) - (b.weeks[teamSortColumn] ?? 0));
     });
-  }, [rows, teamSortColumn, teamSortDirection, weeksToShow, lookDirection]);
+  }, [rows, teamSortColumn, teamSortDirection, weeksToShow, lookDirection, riskByPerson]);
 
   // Default to the first visible member, and follow along if filtering removes the selection.
   useEffect(() => {
@@ -278,42 +310,6 @@ export default function ProjectTeamPage() {
     Math.max(0, value - (selected?.weeks[index] ?? 0)),
   );
 
-  /** Number of active projects and non-project activities each person is currently assigned to, for the analytics panel. */
-  const assignmentCountByPerson = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const row of allDemand.data ?? []) {
-      if (!row.personId) continue;
-      if (!row.weeks.slice(0, weeksToShow).some((value) => value > 0)) continue;
-      const key = row.personId.toLowerCase();
-      map.set(key, (map.get(key) ?? 0) + 1);
-    }
-    for (const row of allNonProjectDemand.data ?? []) {
-      if (!row.personId) continue;
-      if (!row.weeks.slice(0, weeksToShow).some((value) => value > 0)) continue;
-      const key = row.personId.toLowerCase();
-      map.set(key, (map.get(key) ?? 0) + 1);
-    }
-    return map;
-  }, [allDemand.data, allNonProjectDemand.data, weeksToShow]);
-
-  /** Total demand modeled across the entire planning horizon, not just the visible weeks. */
-  const totalPlannedDemand = useMemo(() => projectTotals.reduce((sum, value) => sum + value, 0), [projectTotals]);
-
-  /** Fraction of the project's startDate\u2013endDate timeline that has elapsed, or null if dates aren't set. */
-  const timelineElapsedFraction = useMemo(() => {
-    const start = project.data?.startDate ? new Date(project.data.startDate).getTime() : NaN;
-    if (Number.isNaN(start)) return null;
-    const end = project.data?.endDate ? new Date(project.data.endDate).getTime() : NaN;
-    const now = Date.now();
-    if (Number.isNaN(end)) {
-      // No end date: approximate remaining scope using the modeled planning horizon.
-      const weeksElapsed = Math.max(0, (now - start) / (7 * 86_400_000));
-      return weeksElapsed / (weeksElapsed + WEEKS);
-    }
-    if (end <= start) return null;
-    return Math.max(0, Math.min(1, (now - start) / (end - start)));
-  }, [project.data?.startDate, project.data?.endDate]);
-
   /** Weekly demand per function, for the stacked "demand by function" chart. */
   const weeklyDemandByFunction = useMemo(() => {
     const map = new Map<string, { id: string; label: string; weeks: number[] }>();
@@ -340,33 +336,34 @@ export default function ProjectTeamPage() {
     return Array.from(map.values());
   }, [rows]);
 
-  const peopleRisk = useMemo(
-    () =>
-      rows.map((row) => {
-        const key = row.personId?.toLowerCase() ?? '';
-        const demandWeeks = totals.demandByPerson.get(key) ?? emptyWeeks();
-        const availabilityWeeks = totals.availabilityByPerson.get(key) ?? emptyWeeks();
-        const demand = demandWeeks.slice(0, weeksToShow).reduce((sum, value) => sum + value, 0);
-        const capacity = availabilityWeeks.slice(0, weeksToShow).reduce((sum, value) => sum + value, 0);
-        const overWeeks = demandWeeks
-          .slice(0, weeksToShow)
-          .reduce((count, value, week) => count + (value > (availabilityWeeks[week] ?? 0) ? 1 : 0), 0);
-        return {
-          id: row.id,
-          label: row.personName ?? 'Unassigned',
-          departmentName: (key ? peopleById.get(key)?.departmentName : undefined) ?? row.functionName ?? '—',
-          overAllocated: Math.max(0, demand - capacity),
-          overWeeks,
-          assignments: assignmentCountByPerson.get(key) ?? 0,
-        };
-      }),
-    [rows, totals, assignmentCountByPerson, weeksToShow, peopleById],
+  const allocationConflicts = useMemo(
+    () => buildAllocationConflicts({
+      capacity: allCapacity.data ?? [],
+      demand: allDemand.data ?? [],
+      nonProjectDemand: allNonProjectDemand.data ?? [],
+      people: people.data ?? [],
+      horizon: weeksToShow,
+      personIds: new Set(rows.flatMap((row) => row.personId ? [row.personId.toLowerCase()] : [])),
+    }),
+    [allCapacity.data, allDemand.data, allNonProjectDemand.data, people.data, rows, weeksToShow],
   );
-
-  const overAllocatedCount = useMemo(
-    () => peopleRisk.filter((person) => person.overAllocated > 0).length,
-    [peopleRisk],
+  const overAllocatedCount = allocationConflicts.length;
+  const scheduleHealth = useMemo(
+    () => project.data
+      ? calculateProjectScheduleHealth(
+          project.data,
+          (allDemand.data ?? []).filter((row) => row.projectId === id),
+          {
+            people: allocationConflicts.length,
+            hours: allocationConflicts.reduce((sum, conflict) => sum + conflict.totalOver, 0),
+          },
+        )
+      : null,
+    [project.data, allDemand.data, id, allocationConflicts],
   );
+  const totalPlannedDemand = scheduleHealth?.totalPlannedDemand ?? projectTotals.reduce((sum, value) => sum + value, 0);
+  const timelineElapsedFraction = scheduleHealth?.timelineElapsedFraction ?? null;
+  const schedulePrimaryReason = scheduleHealth?.reasons.find((reason) => !reason.includes('allocation conflict')) ?? scheduleHealth?.reasons[0];
 
   /** This person's assignments across every project and non-project activity, for the individual details table. */
   const selectedAssignments = useMemo(() => {
@@ -413,34 +410,16 @@ export default function ProjectTeamPage() {
                 </Link>
               )}
             </h1>
-            <p className="page-subtitle">Team demand, {weeksToShow} weeks from this Monday.</p>
+            <p className="page-subtitle">
+              {activeTab === 'overview' && 'Staffing health, delivery exposure, and actions requiring attention.'}
+              {activeTab === 'team' && `Team demand, ${weeksToShow} weeks from this Monday.`}
+              {activeTab === 'kpis' && `Performance indicators across ${weeksToShow} weeks.`}
+              {activeTab === 'risk' && `Allocation risk across ${weeksToShow} weeks.`}
+              {activeTab === 'details' && 'Project ownership, status, timing, and review information.'}
+            </p>
           </div>
         </div>
         <div className="row-actions">
-          <label className="weeks-lookahead-control" htmlFor="project-weeks-to-show">
-            Weeks to show
-            <input
-              id="project-weeks-to-show"
-              type="number"
-              min={1}
-              max={WEEKS}
-              value={weeksToShow}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                if (Number.isFinite(next)) setWeeksToShow(Math.min(WEEKS, Math.max(1, Math.round(next))));
-              }}
-            />
-          </label>
-          {editable && (
-            <button
-              onClick={() => {
-                setDuplicating(null);
-                setAdding((value) => !value);
-              }}
-            >
-              + Add new person
-            </button>
-          )}
           <button
             className={checkInClass}
             onClick={() => checkIn.mutate()}
@@ -456,8 +435,140 @@ export default function ProjectTeamPage() {
         </div>
       </div>
 
+      <nav className="workspace-tabs" aria-label="Project workspace">
+        {([
+          ['overview', 'Overview'],
+          ['team', 'Team plan'],
+          ['kpis', 'KPIs'],
+          ['risk', 'Risk'],
+          ['details', 'Project details'],
+        ] as Array<[ProjectWorkspaceTab, string]>).map(([tab, label]) => (
+          <button
+            key={tab}
+            type="button"
+            className={activeTab === tab ? 'active' : ''}
+            aria-current={activeTab === tab ? 'page' : undefined}
+            onClick={() => setActiveTab(tab)}
+          >
+            {label}
+            {tab === 'risk' && overAllocatedCount > 0 && (
+              <span className="tab-badge" aria-label={`${overAllocatedCount} people at risk`}>{overAllocatedCount}</span>
+            )}
+          </button>
+        ))}
+      </nav>
+
       {error && <div className="alert error">{error}</div>}
 
+      <div className="workspace-horizon-bar">
+        <span>Planning horizon</span>
+        <div className="pill-toggle" role="group" aria-label="Planning horizon">
+          {PLANNING_HORIZONS.map((weeks) => (
+            <button key={weeks} type="button" className={weeksToShow === weeks ? 'active' : ''} onClick={() => setWeeksToShow(weeks)}>{weeks} weeks</button>
+          ))}
+        </div>
+      </div>
+
+      {activeTab === 'overview' && (
+        <div className="project-overview-layout">
+          <section className="card project-overview-summary">
+            <div className="project-overview-heading">
+              <div>
+                <h2>Project health</h2>
+                <p className="muted">Current staffing position across the next {weeksToShow} weeks.</p>
+              </div>
+              {scheduleHealth && <ScheduleHealthBadge health={scheduleHealth} />}
+            </div>
+            <KpiRow
+              ariaLabel="Project health indicators"
+              variant="inline"
+              items={[
+                { key: 'members', value: rows.length, label: 'Team members' },
+                { key: 'planned', value: Math.round(totalPlannedDemand).toLocaleString(), label: 'Planned hours' },
+                { key: 'at-risk', value: overAllocatedCount, label: 'People at risk', risk: overAllocatedCount > 0 },
+                {
+                  key: 'timeline',
+                  value: timelineElapsedFraction === null ? '—' : `${Math.round(timelineElapsedFraction * 100)}%`,
+                  label: 'Timeline elapsed',
+                },
+                {
+                  key: 'days',
+                  value: scheduleHealth?.daysToEnd === null || scheduleHealth?.daysToEnd === undefined
+                    ? '—'
+                    : scheduleHealth.daysToEnd >= 0 ? scheduleHealth.daysToEnd : scheduleHealth.daysOverdue,
+                  label: scheduleHealth?.daysOverdue ? 'Days overdue' : 'Days to end',
+                  risk: Boolean(scheduleHealth?.daysOverdue),
+                },
+              ]}
+            />
+            {scheduleHealth && (
+              <div className="schedule-progress-summary">
+                <div><span>Expected demand remaining</span><strong>{Math.round(scheduleHealth.expectedRemainingDemand).toLocaleString('en-US')} h</strong></div>
+                <div><span>Demand still scheduled</span><strong>{Math.round(scheduleHealth.remainingDemand).toLocaleString('en-US')} h</strong></div>
+                <div className={scheduleHealth.backLoadedDemand > 0 ? 'is-risk' : undefined}><span>Back-loaded demand gap</span><strong>{Math.round(scheduleHealth.backLoadedDemand).toLocaleString('en-US')} h</strong></div>
+                <div className={scheduleHealth.demandAfterEnd > 0 ? 'is-risk' : undefined}><span>Demand beyond end date</span><strong>{Math.round(scheduleHealth.demandAfterEnd).toLocaleString('en-US')} h</strong></div>
+              </div>
+            )}
+          </section>
+
+          <section className="card project-attention-panel">
+            <div className="project-overview-heading">
+              <div>
+                <h2>Needs attention</h2>
+                <p className="muted">Issues most likely to affect delivery or confidence in the plan.</p>
+              </div>
+            </div>
+            <div className="attention-list">
+              <button type="button" onClick={() => setActiveTab('risk')}>
+                <span className={overAllocatedCount > 0 ? 'attention-indicator danger' : 'attention-indicator clear'} />
+                <span>
+                  <strong>{overAllocatedCount > 0 ? `${overAllocatedCount} team member${overAllocatedCount === 1 ? '' : 's'} overallocated` : 'Team allocation is within availability'}</strong>
+                  <small>{overAllocatedCount > 0 ? 'Review conflicts and competing assignments.' : 'No people exceed their available hours in this horizon.'}</small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('details')}>
+                <span className={checkInClass ? 'attention-indicator warning' : 'attention-indicator clear'} />
+                <span>
+                  <strong>{Number.isFinite(daysSinceCheckIn) ? `Plan reviewed ${daysSinceCheckIn} days ago` : 'Plan has not been reviewed'}</strong>
+                  <small>{checkInClass ? 'Confirm that team demand and timing are still current.' : 'The project plan is within the review cadence.'}</small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </button>
+              <button type="button" onClick={() => setActiveTab('details')}>
+                <span className={scheduleHealth?.status === 'on-track' || scheduleHealth?.status === 'not-started' ? 'attention-indicator clear' : scheduleHealth?.status === 'watch' || scheduleHealth?.status === 'needs-dates' ? 'attention-indicator warning' : 'attention-indicator danger'} />
+                <span>
+                  <strong>{scheduleHealth?.label ?? 'Schedule needs review'}</strong>
+                  <small>{schedulePrimaryReason ?? 'Confirm project dates and staffing assumptions.'}</small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </button>
+            </div>
+          </section>
+
+          <section className="card project-next-actions">
+            <h2>Plan the team</h2>
+            <p className="muted">Review weekly demand or adjust the team before conflicts affect delivery.</p>
+            <div className="row-actions">
+              <button type="button" className="primary" onClick={() => setActiveTab('team')}>Open team plan</button>
+              {editable && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDuplicating(null);
+                    setAdding(true);
+                    setActiveTab('team');
+                  }}
+                >
+                  Add team member
+                </button>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {activeTab === 'team' && (
       <div className="card">
         <div className="toolbar project-section-header" style={{ marginBottom: teamDemandCollapsed ? 0 : '0.75rem' }}>
           <h2 style={{ margin: 0, flex: 1 }}>Team &amp; individual details</h2>
@@ -481,6 +592,17 @@ export default function ProjectTeamPage() {
                 <span className="switch-track" aria-hidden="true" />
                 <span className="switch-label">FTE only</span>
               </label>
+              {editable && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDuplicating(null);
+                    setAdding((value) => !value);
+                  }}
+                >
+                  + Add person
+                </button>
+              )}
             </>
           )}
           <button
@@ -569,6 +691,19 @@ export default function ProjectTeamPage() {
                 <th className="matrix-total-cell">
                   <button
                     type="button"
+                    className={`sort-header${teamSortColumn === 'risk' ? ' sorted' : ''}`}
+                    onClick={() => toggleTeamSort('risk')}
+                    aria-sort={teamSortColumn === 'risk' ? (teamSortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  >
+                    Over-allocated
+                    <span className="sort-arrow" aria-hidden="true">
+                      {teamSortColumn === 'risk' ? (teamSortDirection === 'asc' ? '▲' : '▼') : '⇅'}
+                    </span>
+                  </button>
+                </th>
+                <th className="matrix-total-cell">
+                  <button
+                    type="button"
                     className={`sort-header${teamSortColumn === 'totalProject' ? ' sorted' : ''}`}
                     onClick={() => toggleTeamSort('totalProject')}
                     aria-sort={teamSortColumn === 'totalProject' ? (teamSortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
@@ -621,7 +756,10 @@ export default function ProjectTeamPage() {
                   <tr
                     key={row.id}
                     className={selectedRow === row.id ? 'row-selected' : undefined}
-                    onClick={() => setSelectedRow(row.id)}
+                    onClick={() => {
+                      setSelectedRow(row.id);
+                      setDetailsOpen(true);
+                    }}
                   >
                     <th scope="row" className="matrix-label">
                       <span className="person-row">
@@ -670,6 +808,9 @@ export default function ProjectTeamPage() {
                         )}
                       </span>
                     </th>
+                    <td className={`matrix-total-cell${(riskByPerson.get(row.personId?.toLowerCase() ?? '') ?? 0) > 0 ? ' is-risk' : ''}`}>
+                      {Math.round(riskByPerson.get(row.personId?.toLowerCase() ?? '') ?? 0) || '—'}
+                    </td>
                     <td className="matrix-total-cell">{totalProjectDemandFor(row) ?? 0}</td>
                     <td className="matrix-total-cell">{totalWindowDemandFor(row) ?? 0}</td>
                     {columns.map((week) => {
@@ -722,7 +863,7 @@ export default function ProjectTeamPage() {
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={weeksToShow + 3} className="muted">
+                  <td colSpan={weeksToShow + 4} className="muted">
                     No one is assigned to this project yet.
                   </td>
                 </tr>
@@ -733,6 +874,7 @@ export default function ProjectTeamPage() {
                 <th scope="row" className="matrix-label">
                   Total demand
                 </th>
+                <td className="matrix-total-cell">{Math.round(rows.reduce((sum, row) => sum + (riskByPerson.get(row.personId?.toLowerCase() ?? '') ?? 0), 0)) || ''}</td>
                 <td className="matrix-total-cell">{rows.reduce((sum, row) => sum + totalProjectDemandFor(row), 0) ?? 0}</td>
                 <td className="matrix-total-cell">{rows.reduce((sum, row) => sum + totalWindowDemandFor(row), 0) ?? 0}</td>
                 {columns.map((week) => (
@@ -743,14 +885,20 @@ export default function ProjectTeamPage() {
           </table>
         </div>
         <p className="muted table-count">
-          {rows.length} team {rows.length === 1 ? 'member' : 'members'} · hours per week, maximum {MAX_HOURS} · shaded
-          cells are weeks where that person is over-allocated across all projects
+          {rows.length} team {rows.length === 1 ? 'member' : 'members'} · hours per week, maximum {MAX_HOURS} · sorted by
+          over-allocated hours by default · select a row to see individual details
         </p>
+        </div>
+      </div>
+      )}
 
-        <h3 className="project-individual-details-heading">
-          Individual details{selected?.personName ? <span className="muted"> · {selected.personName}</span> : null}
-        </h3>
-        {selected ? (
+      <SlideOverPanel
+        open={detailsOpen && Boolean(selected)}
+        onClose={() => setDetailsOpen(false)}
+        title={<>Individual details{selected?.personName ? ` \u00b7 ${selected.personName}` : ''}</>}
+        subtitle="This project's demand compared with the person's full workload."
+      >
+        {selected && (
           <>
             <PersonDemandChart
               weeks={weeksToShow}
@@ -799,35 +947,44 @@ export default function ProjectTeamPage() {
               </table>
             </div>
           </>
-        ) : (
-          <p className="muted">Select a team member above to see their individual demand.</p>
         )}
-        </div>
-      </div>
+      </SlideOverPanel>
 
+      <SlideOverPanel open={Boolean(resolvingConflict)} onClose={() => setResolvingConflict(null)} hideHeader>
+        {resolvingConflict && (
+          <ConflictResolutionPanel
+            conflict={resolvingConflict}
+            context="project"
+            onClose={() => setResolvingConflict(null)}
+            onOpenTeam={() => {
+              const row = rows.find((candidate) => candidate.personId?.toLowerCase() === resolvingConflict.personId);
+              if (row) setSelectedRow(row.id);
+              setResolvingConflict(null);
+              setActiveTab('team');
+            }}
+          />
+        )}
+      </SlideOverPanel>
+
+      {activeTab === 'kpis' && (
       <div className="card">
         <div className="toolbar project-section-header" style={{ marginBottom: analyticsCollapsed ? 0 : '0.75rem' }}>
-          <h2 style={{ margin: 0, flex: 1 }}>Analytics</h2>
-          <div className="department-header-kpis analytics-kpis" aria-label="Project analytics summary">
-            <div className="department-header-kpi">
-              <span className="value">{rows.length}</span>
-              <span className="label">Team members</span>
-            </div>
-            <div className="department-header-kpi">
-              <span className="value">{Math.round(totalPlannedDemand).toLocaleString()}</span>
-              <span className="label">Total planned demand</span>
-            </div>
-            <div className="department-header-kpi">
-              <span className="value">{timelineElapsedFraction === null ? '—' : `${Math.round(timelineElapsedFraction * 100)}%`}</span>
-              <span className="label">Timeline elapsed</span>
-            </div>
-            <div className="department-header-kpi">
-              <span className="value" style={{ color: overAllocatedCount > 0 ? 'var(--danger)' : undefined }}>
-                {overAllocatedCount}
-              </span>
-              <span className="label">Over-allocated members</span>
-            </div>
-          </div>
+          <h2 style={{ margin: 0, flex: 1 }}>Performance KPIs</h2>
+          <KpiRow
+            ariaLabel="Project analytics summary"
+            variant="compact"
+            className="analytics-kpis"
+            items={[
+              { key: 'members', value: rows.length, label: 'Team members' },
+              { key: 'planned', value: Math.round(totalPlannedDemand).toLocaleString(), label: 'Total planned demand' },
+              {
+                key: 'timeline',
+                value: timelineElapsedFraction === null ? '—' : `${Math.round(timelineElapsedFraction * 100)}%`,
+                label: 'Timeline elapsed',
+              },
+              { key: 'over-allocated', value: overAllocatedCount, label: 'Over-allocated members', risk: overAllocatedCount > 0 },
+            ]}
+          />
           <button
             type="button"
             className="workload-collapse-button"
@@ -846,11 +1003,29 @@ export default function ProjectTeamPage() {
             weeksToShow={weeksToShow}
             demandByFunctionTotals={demandByFunctionTotals}
             timelineElapsedFraction={timelineElapsedFraction}
-            peopleRisk={peopleRisk}
+            showConflicts={false}
           />
         </div>
       </div>
+      )}
 
+      {activeTab === 'risk' && (
+      <div className="card">
+        <div className="toolbar project-section-header">
+          <h2 style={{ margin: 0, flex: 1 }}>Risk</h2>
+          <span className={overAllocatedCount > 0 ? 'risk-status risk-status-danger' : 'risk-status risk-status-clear'}>
+            {overAllocatedCount > 0 ? `${overAllocatedCount} at risk` : 'No conflicts'}
+          </span>
+        </div>
+        <section className="analytics-chart-panel">
+          <h3>Allocation conflicts</h3>
+          <p className="muted">Severity reflects peak weekly excess and how long the conflict persists. Department leads own resolution — flag conflicts to them here.</p>
+          <AllocationConflictQueue conflicts={allocationConflicts} onOpen={(conflict) => setResolvingConflict(conflict)} />
+        </section>
+      </div>
+      )}
+
+      {activeTab === 'details' && (
       <div className="card project-header">
         <h2>Project summary</h2>
         <div className="detail-grid">
@@ -863,7 +1038,7 @@ export default function ProjectTeamPage() {
             {details?.managerName ?? '—'}
           </div>
           <div>
-            <span className="detail-label">Delegate</span>
+            <span className="detail-label">Project demand delegate</span>
             {details?.delegateName ?? '—'}
           </div>
           <div>
@@ -875,8 +1050,18 @@ export default function ProjectTeamPage() {
             {details?.departmentName ?? '—'}
           </div>
           <div>
-            <span className="detail-label">Status</span>
-            <span className="badge">{details?.status ?? '—'}</span>
+            <span className="detail-label">Project state</span>
+            <span className={`badge ${details?.isActive === false ? 'danger' : 'success'}`}>
+              {details?.isActive === false ? 'Inactive' : details?.started === false ? 'Not started' : 'Active'}
+            </span>
+          </div>
+          <div>
+            <span className="detail-label">Start date</span>
+            {formatDate(details?.startDate)}
+          </div>
+          <div>
+            <span className="detail-label">End date</span>
+            {formatDate(details?.endDate)}
           </div>
           <div>
             <span className="detail-label">Last check-in</span>
@@ -886,6 +1071,7 @@ export default function ProjectTeamPage() {
           </div>
         </div>
       </div>
+      )}
     </section>
   );
 }

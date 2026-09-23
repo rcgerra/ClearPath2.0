@@ -85,10 +85,14 @@ Roles come from the `role` column on the person's _People record (semicolon sepa
 
 | Role | Area |
 | --- | --- |
-| `admin` | projects, departments, reference data, security roles, user sync |
-| `availability_moderator` | team roster, availability baselines |
-| `demand_moderator` | project team building, demand allocation |
-| `user` | own assignments, own availability, request intake |
+| `admin` | configuration, record assignments, reference data, security roles, user sync |
+| `portfolio_manager` | read-only portfolio supply, demand and planning context |
+| `user` | own profile and workload; edits assigned records when named below |
+
+Operational planning responsibilities are record assignments managed by administrators, not organization-wide roles:
+
+- Project manager and project demand delegate manage demand for their assigned project.
+- Department lead and department delegate manage roster and availability for their assigned department.
 
 ## Jobs
 

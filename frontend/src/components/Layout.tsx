@@ -4,19 +4,16 @@ import { useAuthStore } from '../store/authStore';
 /** Highest-privilege role first; shown as a pill beside the logo. */
 const ROLE_LABELS: Array<[string, string]> = [
   ['admin', 'Admin'],
-  ['demand_moderator', 'Demand Moderator'],
-  ['availability_moderator', 'Availability Moderator'],
+  ['portfolio_manager', 'Portfolio Manager'],
   ['user', 'User'],
 ];
 
 /** Front-end areas. */
 const USER_NAV = [
+  { to: '/', label: 'Home', end: true, accent: '' },
   { to: '/me', label: 'My Work', end: true, accent: '' },
-  { to: '/projects', label: 'Projects', end: false, accent: 'accent-projects' },
-  { to: '/departments', label: 'Departments', end: false, accent: 'accent-departments' },
-  { to: '/requests', label: 'Requests', end: false, accent: 'accent-requests' },
-  { to: '/people', label: 'People', end: false, accent: 'accent-people' },
-  { to: '/skills', label: 'Skills', end: false, accent: 'accent-people' },
+  { to: '/projects', label: 'Project Planning', end: false, accent: 'accent-projects' },
+  { to: '/departments', label: 'Department Planning', end: false, accent: 'accent-departments' },
 ] as const;
 
 /** Areas shown while inside the admin portal (/admin/*). */
@@ -33,6 +30,7 @@ const ADMIN_NAV = [
 
 /** Accent to color the back button by, matching the section the current page belongs to. */
 function accentForPath(pathname: string): string {
+  if (pathname === '/') return 'accent-access';
   if (pathname.startsWith('/admin/requests') || pathname.startsWith('/requests')) return 'accent-requests';
   if (pathname.startsWith('/capture') || pathname.startsWith('/prioritization')) return 'accent-requests';
   if (pathname.startsWith('/admin/projects') || pathname.startsWith('/projects')) return 'accent-projects';
@@ -41,6 +39,8 @@ function accentForPath(pathname: string): string {
     return 'accent-departments';
   }
   if (pathname.startsWith('/admin/people') || pathname.startsWith('/people')) return 'accent-people';
+  if (pathname.startsWith('/my-skills')) return 'accent-people';
+  if (pathname.startsWith('/portfolio')) return 'accent-access';
   if (pathname.startsWith('/admin/skills') || pathname.startsWith('/skills') || pathname.startsWith('/admin/other-work')) return 'accent-people';
   if (pathname.startsWith('/admin')) return 'accent-access';
   return '';
@@ -53,11 +53,14 @@ export default function Layout() {
   const isAdmin = Boolean(user?.roles.includes('admin'));
   const topRole = ROLE_LABELS.find(([value]) => user?.roles.includes(value as never));
   const inAdminPortal = isAdmin && location.pathname.startsWith('/admin');
+  const isPortfolioManager = Boolean(user?.roles.includes('portfolio_manager'));
   const links = inAdminPortal
     ? ADMIN_NAV
     : isAdmin
       ? [...USER_NAV, { to: '/admin', label: 'Admin', end: false, accent: 'accent-access' }]
-      : USER_NAV;
+      : isPortfolioManager
+        ? [...USER_NAV, { to: '/portfolio', label: 'Portfolio', end: true, accent: 'accent-access' }]
+        : USER_NAV;
 
   return (
     <div className="app-shell">
@@ -86,7 +89,7 @@ export default function Layout() {
           <button
             type="button"
             className="admin-portal-exit"
-            onClick={() => navigate('/me')}
+            onClick={() => navigate('/')}
             aria-label="Exit admin portal"
             title="Exit admin portal"
           >

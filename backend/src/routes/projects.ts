@@ -118,7 +118,7 @@ router.get(
 
 router.post(
   '/',
-  requireRole('admin', 'demand_moderator'),
+  requireRole('admin'),
   asyncHandler(async (req, res) => {
     const input = schema.parse(req.body);
     const name = input.name;

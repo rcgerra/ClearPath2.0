@@ -2,7 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 
-export const ROLES = ['admin', 'availability_moderator', 'demand_moderator', 'user'] as const;
+export const ROLES = ['admin', 'portfolio_manager', 'user'] as const;
 export type Role = (typeof ROLES)[number];
 
 export interface AuthUser {

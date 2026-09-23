@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { DemandRow, NonProjectDemandRow } from '../types';
+import { weekValue } from '../utils/arrayParser';
 import { formatCount } from '../utils/format';
 
 interface Props {
@@ -33,9 +34,9 @@ const CHANGE_COLOR = 'var(--sorairo-blue)';
 const RUN_COLOR = 'var(--asagi-blue)';
 const CATEGORY_COLORS = ['var(--matsuba-green)', 'var(--azuki-maroon)', 'var(--sakura-pink)', 'var(--sorairo-blue)', 'var(--asagi-blue)'];
 
-function accountingWindowTotal(row: { weeks: number[] }): number {
+function accountingWindowTotal(row: { weeks: number[]; pastWeeks?: number[] }): number {
   let total = 0;
-  for (let week = -39; week <= 12; week += 1) total += row.weeks[week] ?? 0;
+  for (let week = -39; week <= 12; week += 1) total += weekValue(row.weeks, week, row.pastWeeks);
   return total;
 }
 

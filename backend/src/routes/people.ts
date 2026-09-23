@@ -2,8 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import * as dv from '../dataverse/client';
 import { COLUMNS, formatted } from '../dataverse/fields';
-import { authenticate, requireRole, requireSelfOrRole } from '../middleware/auth';
-import { asyncHandler } from '../middleware/errorHandler';
+import { authenticate, requireRole } from '../middleware/auth';
+import { assertDepartmentEditable } from '../middleware/recordAccess';
+import { asyncHandler, HttpError } from '../middleware/errorHandler';
 
 const router = Router();
 const P = COLUMNS.people;
@@ -118,7 +119,7 @@ router.get(
 
 router.post(
   '/',
-  requireRole('admin', 'availability_moderator'),
+  requireRole('admin'),
   asyncHandler(async (req, res) => {
     const input = upsertSchema.parse(req.body);
     const id = await dv.create('people', await toRecord(input));
@@ -128,9 +129,18 @@ router.post(
 
 router.patch(
   '/:id',
-  requireSelfOrRole('id', 'admin', 'availability_moderator'),
   asyncHandler(async (req, res) => {
     const input = upsertSchema.parse(req.body);
+    const isAdmin = Boolean(req.user?.roles.includes('admin'));
+    const isSelf = Boolean(req.user?.personId && req.user.personId.toLowerCase() === req.params.id.toLowerCase());
+    if (!isAdmin && !isSelf) {
+      const current = await dv.retrieve('people', req.params.id, { select: [P.id, P.departmentId] }) as Record<string, unknown>;
+      const currentDepartmentId = current[P.departmentId] ? String(current[P.departmentId]) : undefined;
+      if (!currentDepartmentId) throw new HttpError(403, 'The person is not assigned to a department you manage.');
+      await assertDepartmentEditable(req.user, currentDepartmentId);
+      const disallowed = Object.entries(input).some(([key, value]) => key !== 'departmentId' && value !== undefined);
+      if (disallowed) throw new HttpError(403, 'Department leads and delegates may only transfer team members.');
+    }
     await dv.update('people', req.params.id, await toRecord(input));
     res.json({ id: req.params.id });
   }),

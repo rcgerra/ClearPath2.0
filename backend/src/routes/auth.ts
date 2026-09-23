@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { userService } from '../services/userService';
 import { AuthUser, Role, signToken, authenticate } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
+import { env } from '../config/env';
 
 const router = Router();
 
@@ -20,9 +21,10 @@ router.get('/users', asyncHandler(async (req, res) => {
 
 function parseRoles(email: string): Role[] {
   // TODO(Entra): derive roles from Microsoft Entra ID groups/app roles after identity migration.
-  return process.env.ADMIN_EMAILS?.toLowerCase().split(',').map((value) => value.trim()).includes(email.toLowerCase())
-    ? ['admin', 'user']
-    : ['user'];
+  const normalized = email.toLowerCase();
+  if (env.adminEmails.includes(normalized)) return ['admin', 'user'];
+  if (env.portfolioManagerEmails.includes(normalized)) return ['portfolio_manager', 'user'];
+  return ['user'];
 }
 
 /** Temporary passwordless session. TODO(Entra): validate an Entra access token instead. */

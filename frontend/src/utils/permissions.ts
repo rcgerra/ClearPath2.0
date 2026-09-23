@@ -33,17 +33,17 @@ export function canEditDepartment(user: AuthUser | null | undefined, department?
   return isAdmin(user) || leadsDepartment(user, department);
 }
 
-/** Demand: admins and demand moderators everywhere, otherwise the project's manager or delegate. */
+/** Demand: admins everywhere, otherwise the project's assigned manager or demand delegate. */
 export function canEditDemand(user: AuthUser | null | undefined, project?: Project) {
-  return isAdmin(user) || Boolean(user?.roles.includes('demand_moderator')) || ownsProject(user, project);
+  return isAdmin(user) || ownsProject(user, project);
 }
 
-/** Availability: admins and availability moderators everywhere, otherwise your own or your department's. */
+/** Availability: admins everywhere, otherwise your own or an assigned lead/delegate's department. */
 export function canEditAvailability(
   user: AuthUser | null | undefined,
   target?: { personId?: string; department?: Pick<Department, 'leadPersonId' | 'delegatePersonId'> },
 ) {
-  if (isAdmin(user) || user?.roles.includes('availability_moderator')) return true;
+  if (isAdmin(user)) return true;
   if (target?.personId && same(target.personId, user?.personId)) return true;
   return leadsDepartment(user, target?.department);
 }

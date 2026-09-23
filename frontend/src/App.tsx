@@ -19,6 +19,7 @@ import SkillsPage from './pages/admin/SkillsPage';
 import DeptLeadDashboard from './pages/DeptLeadDashboard';
 import DepartmentsPage from './pages/DepartmentsPage';
 import DepartmentTeamPage from './pages/DepartmentTeamPage';
+import HomePage from './pages/HomePage';
 import IndividualDashboard from './pages/IndividualDashboard';
 import OtherWorkPage from './pages/OtherWorkPage';
 import PrioritizationPage from './pages/PrioritizationPage';
@@ -28,17 +29,13 @@ import ProjectsPage from './pages/ProjectsPage';
 import ProjectTeamPage from './pages/ProjectTeamPage';
 import RequestsPage from './pages/RequestsPage';
 
-function HomeRedirect() {
-  return <Navigate to="/me" replace />;
-}
-
 export default function App() {
   return (
     <AuthProvider>
       <SessionGate>
         <Routes>
         <Route element={<Layout />}>
-          <Route path="/" element={<HomeRedirect />} />
+          <Route path="/" element={<HomePage />} />
           <Route
             path="/admin"
             element={
@@ -87,7 +84,7 @@ export default function App() {
           <Route
             path="/department"
             element={
-              <ProtectedRoute roles={['admin', 'availability_moderator']}>
+              <ProtectedRoute roles={['admin']}>
                 <DeptLeadDashboard />
               </ProtectedRoute>
             }
@@ -96,7 +93,7 @@ export default function App() {
           <Route
             path="/projects/new"
             element={
-              <ProtectedRoute roles={['admin', 'demand_moderator']}>
+              <ProtectedRoute roles={['admin']}>
                 <ProjectEditPage />
               </ProtectedRoute>
             }
@@ -105,7 +102,7 @@ export default function App() {
           <Route
             path="/projects/:id/edit"
             element={
-              <ProtectedRoute roles={['admin', 'demand_moderator', 'availability_moderator', 'user']}>
+              <ProtectedRoute roles={['admin', 'portfolio_manager', 'user']}>
                 <ProjectEditPage />
               </ProtectedRoute>
             }
@@ -113,12 +110,14 @@ export default function App() {
           <Route
             path="/projects/:id/team"
             element={
-              <ProtectedRoute roles={['admin', 'demand_moderator']}>
+              <ProtectedRoute roles={['admin']}>
                 <ProjectManagerDashboard />
               </ProtectedRoute>
             }
           />
           <Route path="/me" element={<IndividualDashboard />} />
+          <Route path="/my-skills" element={<IndividualDashboard initialTab="skills" />} />
+          <Route path="/portfolio" element={<ProtectedRoute roles={['admin', 'portfolio_manager']}><AdminDashboard /></ProtectedRoute>} />
           <Route path="/people" element={<PeopleListPage />} />
           <Route path="/skills" element={<SkillsPage />} />
           <Route path="/requests" element={<RequestsPage />} />

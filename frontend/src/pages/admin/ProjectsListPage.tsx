@@ -13,13 +13,15 @@ import AccentSection from '../../components/admin/AccentSection';
 import DataTable, { Column } from '../../components/admin/DataTable';
 import ListToolbar from '../../components/admin/ListToolbar';
 import RowLegend from '../../components/admin/RowLegend';
+import ScheduleHealthBadge from '../../components/ScheduleHealthBadge';
 import { useAuthStore } from '../../store/authStore';
 import { rowClassName } from '../../utils/ownership';
 import { formatDate } from '../../utils/dates';
+import { calculateProjectScheduleHealth } from '../../utils/projectSchedule';
 import type { Project } from '../../types';
 
 /** KPI horizon requested for project roll-ups. */
-const KPI_WEEKS = 26;
+const KPI_WEEKS = 13;
 
 function emptyWeeks(): number[] {
   return new Array(KPI_WEEKS).fill(0);
@@ -31,13 +33,27 @@ function addInto(target: number[], source: number[] | undefined): number[] {
   return target;
 }
 
+function demandTotal(weeks: number[]): number {
+  return Object.keys(weeks).reduce((total, key) => total + (Number(weeks[Number(key)]) || 0), 0);
+}
+
+function demandToDate(weeks: number[]): number {
+  return Object.keys(weeks).reduce((total, key) => {
+    const week = Number(key);
+    return total + (week < 0 ? Number(weeks[week]) || 0 : 0);
+  }, 0);
+}
+
 interface ProjectKpis {
   teamMembers: number;
+  demandToDate: number;
+  totalDemand: number;
+  peopleOverAllocated: number;
   weeksOverAllocated: number;
   hoursOverAllocated: number;
 }
 
-const EMPTY_KPIS: ProjectKpis = { teamMembers: 0, weeksOverAllocated: 0, hoursOverAllocated: 0 };
+const EMPTY_KPIS: ProjectKpis = { teamMembers: 0, demandToDate: 0, totalDemand: 0, peopleOverAllocated: 0, weeksOverAllocated: 0, hoursOverAllocated: 0 };
 
 export default function ProjectsListPage() {
   const personId = useAuthStore((state) => state.user?.personId);
@@ -101,24 +117,45 @@ export default function ProjectsListPage() {
     const map = new Map<string, ProjectKpis>();
     for (const project of projects.data ?? []) {
       const memberIds = personIdsByProject.get(project.id) ?? new Set<string>();
-      const kpis: ProjectKpis = { ...EMPTY_KPIS, teamMembers: memberIds.size };
+      const projectRows = (allDemand.data ?? []).filter((row) => row.projectId === project.id);
+      const kpis: ProjectKpis = {
+        ...EMPTY_KPIS,
+        teamMembers: memberIds.size,
+        demandToDate: projectRows.reduce((sum, row) => sum + demandToDate(row.weeks), 0),
+        totalDemand: projectRows.reduce((sum, row) => sum + demandTotal(row.weeks), 0),
+      };
       const overAllocatedWeeks = new Set<number>();
       for (const key of memberIds) {
         const availability = capacityByPerson.get(key) ?? emptyWeeks();
         const demand = demandByPerson.get(key) ?? emptyWeeks();
+        let personIsOverAllocated = false;
         for (let week = 0; week < KPI_WEEKS; week += 1) {
           const over = (demand[week] ?? 0) - (availability[week] ?? 0);
           if (over > 0) {
             overAllocatedWeeks.add(week);
             kpis.hoursOverAllocated += over;
+            personIsOverAllocated = true;
           }
         }
+        if (personIsOverAllocated) kpis.peopleOverAllocated += 1;
       }
       kpis.weeksOverAllocated = overAllocatedWeeks.size;
       map.set(project.id, kpis);
     }
     return map;
-  }, [projects.data, personIdsByProject, capacityByPerson, demandByPerson]);
+  }, [allDemand.data, projects.data, personIdsByProject, capacityByPerson, demandByPerson]);
+  const scheduleHealthByProject = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof calculateProjectScheduleHealth>>();
+    for (const project of projects.data ?? []) {
+      const kpis = kpisByProject.get(project.id) ?? EMPTY_KPIS;
+      map.set(project.id, calculateProjectScheduleHealth(
+        project,
+        (allDemand.data ?? []).filter((row) => row.projectId === project.id),
+        { people: kpis.peopleOverAllocated, hours: kpis.hoursOverAllocated },
+      ));
+    }
+    return map;
+  }, [allDemand.data, kpisByProject, projects.data]);
 
   const rows = (projects.data ?? []).filter((row) => !hideInactive || row.isActive !== false);
 
@@ -192,6 +229,12 @@ export default function ProjectsListPage() {
       value: (row) => kpisByProject.get(row.id)?.teamMembers ?? 0,
     },
     {
+      key: 'totalDemand',
+      label: 'Total demand',
+      width: '104px',
+      value: (row) => kpisByProject.get(row.id)?.totalDemand ?? 0,
+    },
+    {
       key: 'weeksOver',
       label: 'Wks over',
       width: '84px',
@@ -209,6 +252,16 @@ export default function ProjectsListPage() {
       render: (row) => {
         const value = kpisByProject.get(row.id)?.hoursOverAllocated ?? 0;
         return <span style={{ color: value > 0 ? 'var(--danger)' : undefined }}>{value}</span>;
+      },
+    },
+    {
+      key: 'scheduleHealth',
+      label: 'Schedule',
+      width: '108px',
+      value: (row) => scheduleHealthByProject.get(row.id)?.label ?? '',
+      render: (row) => {
+        const health = scheduleHealthByProject.get(row.id);
+        return health ? <ScheduleHealthBadge health={health} /> : '—';
       },
     },
     {

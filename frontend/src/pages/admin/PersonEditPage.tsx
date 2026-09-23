@@ -164,7 +164,7 @@ export default function PersonEditPage() {
                 id="role"
                 name="role"
                 maxLength={100}
-                placeholder="user;availability_moderator"
+                placeholder="user;portfolio_manager"
                 defaultValue={current?.role ?? ''}
               />
             </div>

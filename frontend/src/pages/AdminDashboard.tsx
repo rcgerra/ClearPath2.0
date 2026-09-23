@@ -1,12 +1,17 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi, departmentsApi, errorMessage, lookupsApi, projectsApi, requestsApi } from '../api/client';
-import { sumWeeks } from '../utils/arrayParser';
+import { PLANNING_HORIZONS, sumWeeks } from '../utils/arrayParser';
+import { useAuthStore } from '../store/authStore';
+import { isAdmin } from '../utils/permissions';
 
 export default function AdminDashboard() {
+  const user = useAuthStore((state) => state.user);
+  const canConfigure = isAdmin(user);
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [horizon, setHorizon] = useState(26);
 
   const portfolio = useQuery({ queryKey: ['portfolio'], queryFn: adminApi.portfolio });
   const departments = useQuery({ queryKey: ['departments'], queryFn: departmentsApi.list });
@@ -69,14 +74,20 @@ export default function AdminDashboard() {
     event.currentTarget.reset();
   }
 
-  const horizon = 26;
   const supply = portfolio.data ? sumWeeks(portfolio.data.availability, 0, horizon - 1) : 0;
   const demand = portfolio.data ? sumWeeks(portfolio.data.demand, 0, horizon - 1) : 0;
 
   return (
     <>
-      <h1 className="page-title">Administration</h1>
-      <p className="page-subtitle">Portfolio configuration, reference data and Dataverse synchronization.</p>
+      <h1 className="page-title">{canConfigure ? 'Administration' : 'Portfolio Overview'}</h1>
+      <p className="page-subtitle">{canConfigure ? 'Portfolio configuration, reference data and Dataverse synchronization.' : 'Read-only supply, demand, project, and department context.'}</p>
+
+      <div className="workspace-horizon-bar">
+        <span>Planning horizon</span>
+        <div className="pill-toggle" role="group" aria-label="Planning horizon">
+          {PLANNING_HORIZONS.map((weeks) => <button key={weeks} type="button" className={horizon === weeks ? 'active' : ''} onClick={() => setHorizon(weeks)}>{weeks} weeks</button>)}
+        </div>
+      </div>
 
       {message && <div className="alert success">{message}</div>}
       {error && <div className="alert error">{error}</div>}
@@ -91,17 +102,18 @@ export default function AdminDashboard() {
           <div className="value">{portfolio.data?.requestCount ?? '—'}</div>
         </div>
         <div className="stat">
-          <div className="label">Supply (26 wks)</div>
+          <div className="label">Supply ({horizon} wks)</div>
           <div className="value">{supply.toLocaleString()} h</div>
         </div>
         <div className="stat">
-          <div className="label">Demand (26 wks)</div>
+          <div className="label">Demand ({horizon} wks)</div>
           <div className="value" style={{ color: demand > supply ? 'var(--danger)' : 'var(--success)' }}>
             {demand.toLocaleString()} h
           </div>
         </div>
       </div>
 
+      {canConfigure && <>
       <div className="card">
         <h2>Dataverse</h2>
         <p className="muted">
@@ -243,6 +255,7 @@ export default function AdminDashboard() {
         <h2>Functions</h2>
         <p className="muted">{functions.data?.map((fn) => fn.name).join(' · ') || 'No functions defined yet.'}</p>
       </div>
+      </>}
     </>
   );
 }

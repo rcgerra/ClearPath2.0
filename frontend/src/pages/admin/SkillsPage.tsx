@@ -99,7 +99,7 @@ export default function SkillsPage() {
                 </span>
               ))}
             </div>
-            <div className="subcategory-add-row">
+            {canManageCategories && <div className="subcategory-add-row">
               <input
                 value={draft}
                 maxLength={200}
@@ -119,7 +119,7 @@ export default function SkillsPage() {
               >
                 Add
               </button>
-            </div>
+            </div>}
           </div>
         );
       },

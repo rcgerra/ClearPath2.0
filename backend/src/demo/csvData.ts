@@ -18,6 +18,12 @@ export const sourceFiles = [
   'questions.csv',
   'answers.csv',
   'skillsets.csv',
+  'demo_skill_categories.csv',
+  'demo_skills.csv',
+  'demo_person_skills.csv',
+  'demo_non_project_categories.csv',
+  'demo_non_project_subcategories.csv',
+  'demo_non_project_demand.csv',
 ] as const;
 
 const generatedId = (index: number, prefix: string) =>
@@ -106,6 +112,24 @@ function weeksValue(row: CsvRow, ...keys: string[]): number[] {
   return Array.from({ length: 1333 }, (_, index) => weeks[index] ?? 0);
 }
 
+function nonProjectSchedule(row: CsvRow): { weeks: number[]; pastWeeks: number[] } {
+  const startWeek = numberValue(row, 'startWeek');
+  const durationWeeks = numberValue(row, 'durationWeeks');
+  const hoursPerWeek = numberValue(row, 'hoursPerWeek');
+  if (startWeek === undefined || durationWeeks === undefined || hoursPerWeek === undefined) {
+    return { weeks: weeksValue(row, 'weeks'), pastWeeks: weeksValue(row, 'pastWeeks') };
+  }
+
+  const weeks = new Array(1333).fill(0);
+  const pastWeeks = new Array(1333).fill(0);
+  for (let offset = 0; offset < durationWeeks; offset += 1) {
+    const week = startWeek + offset;
+    if (week >= 0 && week < weeks.length) weeks[week] = hoursPerWeek;
+    else if (week < 0 && -week <= pastWeeks.length) pastWeeks[-week - 1] = hoursPerWeek;
+  }
+  return { weeks, pastWeeks };
+}
+
 function isGuid(candidate: string | undefined): candidate is string {
   // Dataverse GUIDs are not always RFC 4122 v1-v5 compliant; the real exports frequently use
   // variant/version nibble combinations outside the strict pattern. Treat any well-formed GUID
@@ -172,7 +196,10 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
   for (const record of skillsetRecords) skillsetsIndex.add(value(record.row, 'new_skillsetsid'), record.name, record.id);
   for (const record of categoryRecords) categoriesIndex.add(value(record.row, 'cr714__categoriesid'), record.name, record.id);
   for (const record of departmentRecords) departmentsIndex.add(value(record.row, 'new_departmentid'), record.name, record.id);
-  for (const record of personRecords) peopleIndex.add(value(record.row, 'new_peopleid'), record.name, record.id);
+  for (const record of personRecords) {
+    peopleIndex.add(value(record.row, 'new_peopleid'), record.name, record.id);
+    peopleIndex.add(value(record.row, 'new_userid.azureactivedirectoryobjectid'), record.name, record.id);
+  }
   for (const record of projectRecords) projectsIndex.add(value(record.row, 'new_projectsid'), record.name, record.id);
   for (const record of requestRecords) requestsIndex.add(value(record.row, 'cr714__requestsid'), record.name, record.id);
 
@@ -398,6 +425,7 @@ export interface DemoNonProjectDemand {
   departmentId: string;
   description: string;
   weeks: number[];
+  pastWeeks?: number[];
   isActive: boolean;
 }
 
@@ -576,6 +604,80 @@ export class CsvDataService {
         isActive: true,
       },
     ];
+    this.loadGeneratedCsvData();
+  }
+
+  private loadGeneratedCsvData(): void {
+    const rows = (file: string) => this.sourceRows.get(file) ?? [];
+    const boolean = (raw: string | undefined) => ['true', '1', 'yes', 'active'].includes((raw ?? '').toLowerCase());
+
+    if (rows('demo_skill_categories.csv').length) {
+      this.skillCategories.splice(0, this.skillCategories.length, ...rows('demo_skill_categories.csv').map((row) => ({
+        id: row.id,
+        name: row.name,
+        isActive: boolean(row.isActive),
+      })));
+    }
+    if (rows('demo_skills.csv').length) {
+      this.skills.splice(0, this.skills.length, ...rows('demo_skills.csv').map((row) => ({
+        id: row.id,
+        categoryId: row.categoryId,
+        categoryName: row.categoryName,
+        name: row.name,
+        isActive: boolean(row.isActive),
+      })));
+    }
+    if (rows('demo_person_skills.csv').length) {
+      this.personSkills.splice(0, this.personSkills.length, ...rows('demo_person_skills.csv').map((row) => ({
+        id: row.id,
+        personId: row.personId,
+        skillId: row.skillId,
+        skillName: row.skillName,
+        categoryId: row.categoryId,
+        categoryName: row.categoryName,
+      })));
+    }
+    if (rows('demo_non_project_categories.csv').length) {
+      this.nonProjectDemandCategories.splice(0, this.nonProjectDemandCategories.length, ...rows('demo_non_project_categories.csv').map((row) => ({
+        id: row.id,
+        name: row.name,
+        isActive: boolean(row.isActive),
+      })));
+    }
+    if (rows('demo_non_project_subcategories.csv').length) {
+      this.nonProjectDemandSubcategories.splice(0, this.nonProjectDemandSubcategories.length, ...rows('demo_non_project_subcategories.csv').map((row) => ({
+        id: row.id,
+        categoryId: row.categoryId,
+        name: row.name,
+        isActive: boolean(row.isActive),
+      })));
+    }
+    if (rows('demo_non_project_demand.csv').length) {
+      this.nonProjectDemand.splice(0, this.nonProjectDemand.length, ...rows('demo_non_project_demand.csv').map((row) => {
+        const schedule = nonProjectSchedule(row);
+        return {
+          id: row.id,
+          categoryId: row.categoryId,
+          categoryName: row.categoryName,
+          subcategoryId: row.subcategoryId,
+          subcategoryName: row.subcategoryName,
+          personId: row.personId,
+          departmentId: row.departmentId,
+          description: row.description,
+          ...schedule,
+          isActive: boolean(row.isActive),
+        };
+      }));
+    }
+  }
+
+  private persistGenerated(file: string, records: object[]): void {
+    if (!this.directory) return;
+    const rows = records.map((record) => Object.fromEntries(
+      Object.entries(record).map(([key, value]) => [key, Array.isArray(value) ? value.join(';') : String(value ?? '')]),
+    ));
+    this.sourceRows.set(file, rows);
+    this.writeRows(file, rows);
   }
 
   public static empty(): CsvDataService {
@@ -817,6 +919,7 @@ export class CsvDataService {
   public createSkillCategory(name: string): DemoSkillCategory {
     const category = { id: seededSkillId(3, this.skillCategories.length + 100), name, isActive: true };
     this.skillCategories.push(category);
+    this.persistGenerated('demo_skill_categories.csv', this.skillCategories);
     return category;
   }
 
@@ -825,6 +928,7 @@ export class CsvDataService {
     if (!category) return undefined;
     if (changes.name !== undefined) category.name = changes.name;
     if (changes.isActive !== undefined) category.isActive = changes.isActive;
+    this.persistGenerated('demo_skill_categories.csv', this.skillCategories);
     return category;
   }
 
@@ -846,6 +950,7 @@ export class CsvDataService {
       isActive: true,
     };
     this.skills.push(skill);
+    this.persistGenerated('demo_skills.csv', this.skills);
     return skill;
   }
 
@@ -854,6 +959,7 @@ export class CsvDataService {
     if (!skill) return undefined;
     if (changes.name !== undefined) skill.name = changes.name;
     if (changes.isActive !== undefined) skill.isActive = changes.isActive;
+    this.persistGenerated('demo_skills.csv', this.skills);
     return skill;
   }
 
@@ -875,6 +981,7 @@ export class CsvDataService {
       categoryName: skill.categoryName,
     };
     this.personSkills.push(record);
+    this.persistGenerated('demo_person_skills.csv', this.personSkills);
     return record;
   }
 
@@ -882,6 +989,7 @@ export class CsvDataService {
     const index = this.personSkills.findIndex((row) => row.personId === personId && row.skillId === skillId);
     if (index < 0) return false;
     this.personSkills.splice(index, 1);
+    this.persistGenerated('demo_person_skills.csv', this.personSkills);
     return true;
   }
 
@@ -893,9 +1001,19 @@ export class CsvDataService {
     return this.nonProjectDemandCategories.find((category) => category.id === categoryId);
   }
 
+  public updateNonProjectDemandCategory(categoryId: string, changes: Partial<Pick<DemoDemandCategory, 'name' | 'isActive'>>): DemoDemandCategory | undefined {
+    const category = this.findNonProjectDemandCategory(categoryId);
+    if (!category) return undefined;
+    if (changes.name !== undefined) category.name = changes.name;
+    if (changes.isActive !== undefined) category.isActive = changes.isActive;
+    this.persistGenerated('demo_non_project_categories.csv', this.nonProjectDemandCategories);
+    return category;
+  }
+
   public createNonProjectDemandCategory(name: string): DemoDemandCategory {
     const category = { id: seededDemandId(1, this.nonProjectDemandCategories.length + 20), name, isActive: true };
     this.nonProjectDemandCategories.push(category);
+    this.persistGenerated('demo_non_project_categories.csv', this.nonProjectDemandCategories);
     return category;
   }
 
@@ -907,9 +1025,19 @@ export class CsvDataService {
     return this.nonProjectDemandSubcategories.find((subcategory) => subcategory.id === subcategoryId);
   }
 
+  public updateNonProjectDemandSubcategory(subcategoryId: string, changes: Partial<Pick<DemoDemandSubcategory, 'name' | 'isActive'>>): DemoDemandSubcategory | undefined {
+    const subcategory = this.findNonProjectDemandSubcategory(subcategoryId);
+    if (!subcategory) return undefined;
+    if (changes.name !== undefined) subcategory.name = changes.name;
+    if (changes.isActive !== undefined) subcategory.isActive = changes.isActive;
+    this.persistGenerated('demo_non_project_subcategories.csv', this.nonProjectDemandSubcategories);
+    return subcategory;
+  }
+
   public createNonProjectDemandSubcategory(categoryId: string, name: string): DemoDemandSubcategory {
     const subcategory = { id: seededDemandId(2, this.nonProjectDemandSubcategories.length + 40), categoryId, name, isActive: true };
     this.nonProjectDemandSubcategories.push(subcategory);
+    this.persistGenerated('demo_non_project_subcategories.csv', this.nonProjectDemandSubcategories);
     return subcategory;
   }
 
@@ -921,8 +1049,21 @@ export class CsvDataService {
     return this.nonProjectDemand.find((row) => row.id === recordId);
   }
 
+  public updateNonProjectDemandWeeks(recordId: string, changes: Record<string, unknown>): DemoNonProjectDemand | undefined {
+    const record = this.findNonProjectDemand(recordId);
+    if (!record) return undefined;
+    const { week, startWeek, endWeek, hours } = changes;
+    if (Number.isFinite(week)) record.weeks[Number(week)] = Number(hours);
+    else if (Number.isFinite(startWeek) && Number.isFinite(endWeek)) {
+      for (let index = Number(startWeek); index <= Number(endWeek) && index < record.weeks.length; index += 1) record.weeks[index] = Number(hours);
+    }
+    this.persistGenerated('demo_non_project_demand.csv', this.nonProjectDemand);
+    return record;
+  }
+
   public createNonProjectDemand(record: DemoNonProjectDemand): DemoNonProjectDemand {
     this.nonProjectDemand.push(record);
+    this.persistGenerated('demo_non_project_demand.csv', this.nonProjectDemand);
     return record;
   }
 
@@ -931,6 +1072,7 @@ export class CsvDataService {
     if (!record) return undefined;
     if (changes.isActive !== undefined) record.isActive = changes.isActive;
     if (changes.description !== undefined) record.description = changes.description;
+    this.persistGenerated('demo_non_project_demand.csv', this.nonProjectDemand);
     return record;
   }
 
@@ -938,6 +1080,7 @@ export class CsvDataService {
     const index = this.nonProjectDemand.findIndex((row) => row.id === recordId);
     if (index < 0) return false;
     this.nonProjectDemand.splice(index, 1);
+    this.persistGenerated('demo_non_project_demand.csv', this.nonProjectDemand);
     return true;
   }
 }

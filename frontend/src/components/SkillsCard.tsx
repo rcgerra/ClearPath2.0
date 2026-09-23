@@ -2,6 +2,8 @@ import { FormEvent, useId, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { errorMessage, skillsApi } from '../api/client';
+import { useAuthStore } from '../store/authStore';
+import { isAdmin } from '../utils/permissions';
 
 interface Props {
   personId: string;
@@ -17,6 +19,7 @@ export default function SkillsCard({ personId, canEdit, title = 'Skills', subtit
   const [collapsed, setCollapsed] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canManageRepository = isAdmin(useAuthStore((state) => state.user));
 
   const personSkills = useQuery({
     queryKey: ['skills', 'person', personId],
@@ -80,9 +83,7 @@ export default function SkillsCard({ personId, canEdit, title = 'Skills', subtit
     <div className="card skills-card">
       <div className="toolbar skills-header">
         <h2 style={{ margin: 0, flex: 1 }}>{title}</h2>
-        <Link to="/skills" className="skills-repository-link">
-          Manage skill repository
-        </Link>
+        {canManageRepository && <Link to="/skills" className="skills-repository-link">Manage skill repository</Link>}
         {canEdit && (
           <button
             type="button"

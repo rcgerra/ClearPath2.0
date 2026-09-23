@@ -1,14 +1,17 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { capacityApi, demandApi, errorMessage, nonProjectDemandApi, projectsApi } from '../api/client';
 import PersonDemandChart from '../components/PersonDemandChart';
 import SkillsCard from '../components/SkillsCard';
+import KpiRow from '../components/KpiRow';
 import { useAuthStore } from '../store/authStore';
-import { weekLabel, weekLabelShort, weekYear, MAX_POSITIONS } from '../utils/arrayParser';
+import { weekLabel, weekLabelShort, weekYear, PLANNING_HORIZONS } from '../utils/arrayParser';
 import { DemandRow, NonProjectDemandRow } from '../types';
 
-const DEFAULT_WEEKS = 52;
+const DEFAULT_WEEKS = 13;
 const MAX_HOURS = 60;
+type MyWorkTab = 'summary' | 'assignments' | 'skills';
 
 function sumArrays(rows: number[][], weeks: number): number[] {
   const total = new Array(weeks).fill(0);
@@ -23,7 +26,7 @@ function blockNonIntegerKeys(event: React.KeyboardEvent<HTMLInputElement>) {
   if (['-', '+', '.', 'e', 'E'].includes(event.key)) event.preventDefault();
 }
 
-export default function IndividualDashboard() {
+export default function IndividualDashboard({ initialTab = 'summary' }: { initialTab?: MyWorkTab }) {
   const user = useAuthStore((state) => state.user);
   const personId = user?.personId;
   const queryClient = useQueryClient();
@@ -36,6 +39,7 @@ export default function IndividualDashboard() {
   const [hideInactiveOtherRows, setHideInactiveOtherRows] = useState(true);
   const [workloadCollapsed, setWorkloadCollapsed] = useState(false);
   const [activeDemandTab, setActiveDemandTab] = useState<'project' | 'other'>('project');
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<MyWorkTab>(initialTab);
   const [error, setError] = useState<string | null>(null);
 
   const capacity = useQuery({
@@ -256,6 +260,34 @@ export default function IndividualDashboard() {
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name));
   const chartColumns = useMemo(() => Array.from({ length: weeks }, (_, index) => index), [weeks]);
+  const riskWeeks = useMemo(
+    () => Array.from({ length: weeks }, (_, week) => ({
+      week,
+      demand: totalDemand[week] ?? 0,
+      availability: availability[week] ?? 0,
+      over: Math.max(0, (totalDemand[week] ?? 0) - (availability[week] ?? 0)),
+    })).filter((entry) => entry.over > 0).sort((first, second) => second.over - first.over),
+    [availability, totalDemand, weeks],
+  );
+  const upcomingCommitments = useMemo(
+    () => [
+      ...selectedProjectDemand.filter((row) => row.isActive).map((row) => ({
+        id: row.demandId,
+        label: row.projectName,
+        type: 'Project',
+        hours: row.weeks.slice(0, weeks).reduce((sum, value) => sum + value, 0),
+        projectId: row.projectId,
+      })),
+      ...selectedNonProjectDemand.filter((row) => row.isActive !== false).map((row) => ({
+        id: row.id,
+        label: row.subcategoryName ?? row.description ?? 'Other work',
+        type: row.categoryName ?? 'Other work',
+        hours: row.weeks.slice(0, weeks).reduce((sum, value) => sum + value, 0),
+        projectId: undefined,
+      })),
+    ].filter((row) => row.hours > 0).sort((first, second) => second.hours - first.hours),
+    [selectedNonProjectDemand, selectedProjectDemand, weeks],
+  );
 
   if (!personId) {
     return (
@@ -269,24 +301,16 @@ export default function IndividualDashboard() {
   }
 
   const workloadKpis = (
-    <div className="department-header-kpis" aria-label="My work KPIs">
-      <div className="department-header-kpi">
-        <span className="value">{metrics.assignedProjects}</span>
-        <span className="label">Current assignments</span>
-      </div>
-      <div className="department-header-kpi">
-        <span className="value" style={{ color: metrics.overWeeks ? 'var(--danger)' : undefined }}>{metrics.overWeeks}</span>
-        <span className="label">Weeks overallocated</span>
-      </div>
-      <div className="department-header-kpi">
-        <span className="value" style={{ color: metrics.overHours ? 'var(--danger)' : undefined }}>{metrics.overHours}</span>
-        <span className="label">Hours overallocated</span>
-      </div>
-      <div className="department-header-kpi">
-        <span className="value">{metrics.utilization}%</span>
-        <span className="label">Utilization</span>
-      </div>
-    </div>
+    <KpiRow
+      ariaLabel="My work KPIs"
+      variant="compact"
+      items={[
+        { key: 'assignments', value: metrics.assignedProjects, label: 'Project assignments' },
+        { key: 'over-weeks', value: metrics.overWeeks, label: 'Weeks overallocated', risk: metrics.overWeeks > 0 },
+        { key: 'over-hours', value: metrics.overHours, label: 'Hours overallocated', risk: metrics.overHours > 0 },
+        { key: 'utilization', value: `${metrics.utilization}%`, label: 'Utilization' },
+      ]}
+    />
   );
 
   return (
@@ -294,29 +318,99 @@ export default function IndividualDashboard() {
       <div className="my-work-header-row">
         <div>
           <h1 className="page-title">{user?.name ?? 'My work'}</h1>
-          <p className="page-subtitle">Weekly demand against your availability.</p>
+          <p className="page-subtitle">
+            {activeWorkspaceTab === 'summary' && 'Your upcoming commitments and allocation risk.'}
+            {activeWorkspaceTab === 'assignments' && 'Review and update project and run-the-business demand.'}
+            {activeWorkspaceTab === 'skills' && 'Keep your capabilities current for project and department planning.'}
+          </p>
         </div>
-        {!workloadCollapsed && workloadKpis}
       </div>
 
+      <nav className="workspace-tabs" aria-label="My Work workspace">
+        {([
+          ['summary', 'Summary'],
+          ['assignments', 'Assignments'],
+          ['skills', 'Skills'],
+        ] as Array<[MyWorkTab, string]>).map(([tab, label]) => (
+          <button
+            key={tab}
+            type="button"
+            className={activeWorkspaceTab === tab ? 'active' : ''}
+            aria-current={activeWorkspaceTab === tab ? 'page' : undefined}
+            onClick={() => setActiveWorkspaceTab(tab)}
+          >
+            {label}
+            {tab === 'summary' && metrics.overWeeks > 0 && (
+              <span className="tab-badge" aria-label={`${metrics.overWeeks} weeks overallocated`}>{metrics.overWeeks}</span>
+            )}
+          </button>
+        ))}
+      </nav>
+
+      <div className="workspace-horizon-bar">
+        <span>Planning horizon</span>
+        <div className="pill-toggle" role="group" aria-label="Planning horizon">
+          {PLANNING_HORIZONS.map((horizon) => (
+            <button key={horizon} type="button" className={weeks === horizon ? 'active' : ''} onClick={() => setWeeks(horizon)}>{horizon} weeks</button>
+          ))}
+        </div>
+      </div>
+
+      {activeWorkspaceTab === 'summary' && (
+        <>
+        <div className="my-work-summary-kpis">{workloadKpis}</div>
+        <div className="my-work-summary-layout">
+          <section className="card my-work-attention">
+            <div className="project-overview-heading">
+              <div>
+                <h2>Allocation outlook</h2>
+                <p className="muted">Demand compared with your recorded availability over the next {weeks} weeks.</p>
+              </div>
+              <span className={riskWeeks.length ? 'risk-status risk-status-danger' : 'risk-status risk-status-clear'}>
+                {riskWeeks.length ? 'Attention needed' : 'Within availability'}
+              </span>
+            </div>
+            {riskWeeks.length ? (
+              <div className="personal-risk-list">
+                {riskWeeks.slice(0, 5).map((entry) => (
+                  <div key={entry.week}>
+                    <span><strong>{weekLabelShort(entry.week)}</strong><small>{entry.demand} h demand / {entry.availability} h available</small></span>
+                    <strong>{entry.over} h over</strong>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="my-work-clear-state">No weeks exceed your recorded availability in this horizon.</p>
+            )}
+            <button type="button" onClick={() => setActiveWorkspaceTab('assignments')}>Review assignment plan</button>
+          </section>
+
+          <section className="card my-work-commitments">
+            <div className="project-overview-heading">
+              <div><h2>Upcoming commitments</h2><p className="muted">Largest planned commitments in the next {weeks} weeks.</p></div>
+            </div>
+            <div className="personal-commitment-list">
+              {upcomingCommitments.slice(0, 8).map((commitment) => (
+                <div key={commitment.id}>
+                  <span>
+                    {commitment.projectId ? <Link to={`/projects/${commitment.projectId}`}>{commitment.label}</Link> : <strong>{commitment.label}</strong>}
+                    <small>{commitment.type}</small>
+                  </span>
+                  <strong>{Math.round(commitment.hours).toLocaleString('en-US')} h</strong>
+                </div>
+              ))}
+              {!upcomingCommitments.length && <p className="muted">No planned commitments in this horizon.</p>}
+            </div>
+          </section>
+        </div>
+        </>
+      )}
+
+      {activeWorkspaceTab === 'assignments' && (
       <div className="card my-workload-card">
         <div className="toolbar my-workload-header">
           <h2 style={{ margin: 0, flex: 1 }}>My Workload</h2>
           {workloadCollapsed && workloadKpis}
-          <div className="weeks-lookahead-control">
-            <label htmlFor="weeks">Weeks to look ahead</label>
-            <input
-              id="weeks"
-              type="number"
-              min={1}
-              max={MAX_POSITIONS}
-              value={weeks}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                if (Number.isFinite(next)) setWeeks(Math.min(MAX_POSITIONS, Math.max(1, Math.round(next))));
-              }}
-            />
-          </div>
           <button
             type="button"
             className="workload-collapse-button"
@@ -772,8 +866,11 @@ export default function IndividualDashboard() {
         </div>
 
       </div>
+      )}
 
-      <SkillsCard personId={personId} canEdit title="My Skills" subtitle="Skills you've added to your profile." />
+      {activeWorkspaceTab === 'skills' && <div id="my-skills" className="my-skills-anchor">
+        <SkillsCard personId={personId} canEdit title="My Skills" subtitle="Skills you've added to your profile." />
+      </div>}
     </>
   );
 }

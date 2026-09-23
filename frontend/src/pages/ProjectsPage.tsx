@@ -6,13 +6,15 @@ import DataTable, { Column } from '../components/admin/DataTable';
 import ListToolbar from '../components/admin/ListToolbar';
 import PersonCell from '../components/admin/PersonCell';
 import RowLegend from '../components/admin/RowLegend';
+import ScheduleHealthBadge from '../components/ScheduleHealthBadge';
 import { useAuthStore } from '../store/authStore';
 import { filterByScope, OwnershipScope, rowClassName } from '../utils/ownership';
 import { canEditProject } from '../utils/permissions';
 import { formatDate } from '../utils/dates';
+import { calculateProjectScheduleHealth } from '../utils/projectSchedule';
 import type { Project } from '../types';
 
-const KPI_WEEKS = 26;
+const KPI_WEEKS = 13;
 
 function emptyWeeks(): number[] {
   return new Array(KPI_WEEKS).fill(0);
@@ -24,16 +26,31 @@ function addInto(target: number[], source: number[] | undefined): number[] {
   return target;
 }
 
+function demandTotal(weeks: number[]): number {
+  return Object.keys(weeks).reduce((total, key) => total + (Number(weeks[Number(key)]) || 0), 0);
+}
+
+function demandToDate(weeks: number[]): number {
+  return Object.keys(weeks).reduce((total, key) => {
+    const week = Number(key);
+    return total + (week < 0 ? Number(weeks[week]) || 0 : 0);
+  }, 0);
+}
+
 interface ProjectKpis {
   teamMembers: number;
+  demandToDate: number;
   totalDemand: number;
+  peopleOverAllocated: number;
   weeksOverAllocated: number;
   hoursOverAllocated: number;
 }
 
 const EMPTY_KPIS: ProjectKpis = {
   teamMembers: 0,
+  demandToDate: 0,
   totalDemand: 0,
+  peopleOverAllocated: 0,
   weeksOverAllocated: 0,
   hoursOverAllocated: 0,
 };
@@ -42,7 +59,7 @@ export default function ProjectsPage() {
   const user = useAuthStore((state) => state.user);
   const navigate = useNavigate();
   const personId = user?.personId;
-  const canCreate = Boolean(user?.roles.some((role) => role === 'admin' || role === 'demand_moderator'));
+  const canCreate = Boolean(user?.roles.includes('admin'));
   const [search, setSearch] = useState('');
   const [scope, setScope] = useState<OwnershipScope>(personId ? 'mine' : 'all');
   const [hideInactive, setHideInactive] = useState(true);
@@ -76,10 +93,13 @@ export default function ProjectsPage() {
   }, [allDemand.data, allNonProjectDemand.data]);
 
   const projectDemandByProject = useMemo(() => {
-    const map = new Map<string, number[]>();
+    const map = new Map<string, { demandToDate: number; totalDemand: number }>();
     for (const row of allDemand.data ?? []) {
       if (!row.projectId) continue;
-      map.set(row.projectId, addInto(map.get(row.projectId) ?? emptyWeeks(), row.weeks));
+      const current = map.get(row.projectId) ?? { demandToDate: 0, totalDemand: 0 };
+      current.demandToDate += demandToDate(row.weeks);
+      current.totalDemand += demandTotal(row.weeks);
+      map.set(row.projectId, current);
     }
     return map;
   }, [allDemand.data]);
@@ -103,20 +123,24 @@ export default function ProjectsPage() {
       const kpis: ProjectKpis = {
         ...EMPTY_KPIS,
         teamMembers: memberIds.size,
-        totalDemand: (projectDemandByProject.get(project.id) ?? emptyWeeks()).reduce((sum, value) => sum + value, 0),
+        demandToDate: projectDemandByProject.get(project.id)?.demandToDate ?? 0,
+        totalDemand: projectDemandByProject.get(project.id)?.totalDemand ?? 0,
       };
 
       const overAllocatedWeeks = new Set<number>();
       for (const key of memberIds) {
         const availability = capacityByPerson.get(key) ?? emptyWeeks();
         const demand = demandByPerson.get(key) ?? emptyWeeks();
+        let personIsOverAllocated = false;
         for (let week = 0; week < KPI_WEEKS; week += 1) {
           const over = (demand[week] ?? 0) - (availability[week] ?? 0);
           if (over > 0) {
             overAllocatedWeeks.add(week);
             kpis.hoursOverAllocated += over;
+            personIsOverAllocated = true;
           }
         }
+        if (personIsOverAllocated) kpis.peopleOverAllocated += 1;
       }
 
       kpis.weeksOverAllocated = overAllocatedWeeks.size;
@@ -125,6 +149,18 @@ export default function ProjectsPage() {
 
     return map;
   }, [capacityByPerson, demandByPerson, personIdsByProject, projectDemandByProject, projects.data]);
+  const scheduleHealthByProject = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof calculateProjectScheduleHealth>>();
+    for (const project of projects.data ?? []) {
+      const kpis = kpisByProject.get(project.id) ?? EMPTY_KPIS;
+      map.set(project.id, calculateProjectScheduleHealth(
+        project,
+        (allDemand.data ?? []).filter((row) => row.projectId === project.id),
+        { people: kpis.peopleOverAllocated, hours: kpis.hoursOverAllocated },
+      ));
+    }
+    return map;
+  }, [allDemand.data, kpisByProject, projects.data]);
 
   const rows = filterByScope(projects.data ?? [], scope, personId).filter(
     (row) => !hideInactive || row.isActive !== false,
@@ -193,6 +229,16 @@ export default function ProjectsPage() {
       render: (row) => {
         const value = kpisByProject.get(row.id)?.hoursOverAllocated ?? 0;
         return <span style={{ color: value > 0 ? 'var(--danger)' : undefined }}>{value}</span>;
+      },
+    },
+    {
+      key: 'scheduleHealth',
+      label: 'Schedule',
+      width: '108px',
+      value: (row) => scheduleHealthByProject.get(row.id)?.label ?? '',
+      render: (row) => {
+        const health = scheduleHealthByProject.get(row.id);
+        return health ? <ScheduleHealthBadge health={health} /> : '—';
       },
     },
     {
