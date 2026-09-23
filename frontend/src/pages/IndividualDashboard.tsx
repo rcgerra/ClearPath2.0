@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { capacityApi, demandApi, errorMessage, nonProjectDemandApi, projectsApi } from '../api/client';
 import PersonDemandChart from '../components/PersonDemandChart';
@@ -209,18 +209,11 @@ export default function IndividualDashboard() {
     [nonProjectSubcategories.data],
   );
 
-  const nonProjectDemandGroups = useMemo(() => {
-    return availableNonProjectCategories
-      .map((category) => {
-        const assignedRows = selectedNonProjectDemand.filter((row) => row.categoryId === category.id);
-        const rows = assignedRows
-          .map((row) => ({ id: row.id, name: row.subcategoryName ?? 'General', description: row.description ?? '', demand: row }))
-          .sort((a, b) => a.name.localeCompare(b.name) || a.description.localeCompare(b.description));
-        const total = sumArrays(assignedRows.filter((row) => row.isActive !== false).map((row) => row.weeks), weeks);
-        return { ...category, rows, total };
-      })
-      .filter((category) => category.rows.length > 0);
-  }, [availableNonProjectCategories, selectedNonProjectDemand, weeks]);
+  const nonProjectDemandRows = useMemo(() => {
+    return selectedNonProjectDemand
+      .map((row) => ({ id: row.id, name: row.subcategoryName ?? 'General', description: row.description ?? '', demand: row }))
+      .sort((a, b) => a.name.localeCompare(b.name) || a.description.localeCompare(b.description));
+  }, [selectedNonProjectDemand]);
 
   /** Assignment rows to render, honoring the "hide inactive" toggle. */
   const visibleProjectDemand = useMemo(() => {
@@ -228,16 +221,11 @@ export default function IndividualDashboard() {
     return selectedProjectDemand.filter((project) => project.isActive);
   }, [selectedProjectDemand, hideInactiveProjectRows]);
 
-  /** Other-demand categories/rows to render, honoring the "hide inactive" toggle. */
-  const visibleNonProjectGroups = useMemo(() => {
-    if (!hideInactiveOtherRows) return nonProjectDemandGroups;
-    return nonProjectDemandGroups
-      .map((category) => ({
-        ...category,
-        rows: category.rows.filter((row) => row.demand.isActive !== false),
-      }))
-      .filter((category) => category.rows.length > 0);
-  }, [nonProjectDemandGroups, hideInactiveOtherRows]);
+  /** Other-demand rows to render, honoring the "hide inactive" toggle. */
+  const visibleNonProjectRows = useMemo(() => {
+    if (!hideInactiveOtherRows) return nonProjectDemandRows;
+    return nonProjectDemandRows.filter((row) => row.demand.isActive !== false);
+  }, [nonProjectDemandRows, hideInactiveOtherRows]);
 
   const metrics = useMemo(() => {
     const assignedProjects = selectedProjectDemand.filter(
@@ -510,6 +498,14 @@ export default function IndividualDashboard() {
               <tfoot>
                 <tr className="project-demand-section-row project-demand-total-row">
                   <th scope="row" className="matrix-label">
+                    Column total
+                  </th>
+                  {chartColumns.map((week) => (
+                    <td key={week}>{visibleProjectDemand.reduce((sum, project) => sum + (project.weeks[week] ?? 0), 0) || ''}</td>
+                  ))}
+                </tr>
+                <tr className="project-demand-section-row project-demand-total-row">
+                  <th scope="row" className="matrix-label">
                     Subtotal
                   </th>
                   {chartColumns.map((week) => <td key={week}>{selectedProjectTotal[week] || ''}</td>)}
@@ -641,99 +637,100 @@ export default function IndividualDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {visibleNonProjectGroups.length === 0 && (
+                {visibleNonProjectRows.length === 0 && (
                   <tr className="no-demand-notice-row">
                     <td colSpan={chartColumns.length + 1}>
                       You have no other demand assigned over the selected period.
                     </td>
                   </tr>
                 )}
-                {visibleNonProjectGroups.map((category, categoryIndex) => (
-                  <Fragment key={category.id}>
-                    <tr className={`non-project-category-row ${categoryIndex % 2 === 0 ? 'category-band-70' : 'category-band-60'}`}>
-                      <th scope="row" className="matrix-label">{category.name}</th>
-                      {chartColumns.map((week) => <td key={week}>{category.total[week] || ''}</td>)}
-                    </tr>
-                    {category.rows.map((subcategory, rowIndex) => (
-                      <tr
-                        key={subcategory.id}
-                        className={`assignment-row non-project-demand-row ${rowIndex % 2 === 0 ? 'band-strong' : 'band-light'}${
-                          subcategory.demand.isActive === false ? ' inactive-row' : ''
-                        }`}
-                      >
-                        <th scope="row" className="matrix-label">
-                          <span className="non-project-demand-label">
-                            <span>{subcategory.name}</span>
-                            {subcategory.description && <span className="non-project-demand-description">{subcategory.description}</span>}
-                          </span>
-                          <span className="person-actions non-project-demand-actions">
-                            <button
-                              type="button"
-                              className={`icon-button non-project-demand-toggle ${subcategory.demand.isActive === false ? 'success' : 'danger'}`}
-                              title={
-                                subcategory.demand.isActive === false
-                                  ? `Reopen ${subcategory.name}`
-                                  : `Mark ${subcategory.name} as finished and stop tracking`
-                              }
-                              aria-label={
-                                subcategory.demand.isActive === false
-                                  ? `Reopen ${subcategory.name}`
-                                  : `Mark ${subcategory.name} as finished and stop tracking`
-                              }
-                              onClick={() =>
-                                setNonProjectDemandActive.mutate({
-                                  demandId: subcategory.demand.id,
-                                  isActive: subcategory.demand.isActive === false,
-                                })
-                              }
-                            >
-                              {subcategory.demand.isActive === false ? (
-                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                  <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
-                                  <circle cx="12" cy="12" r="2.5" />
-                                  <line x1="3" y1="3" x2="21" y2="21" />
-                                </svg>
-                              ) : (
-                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                  <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
-                                  <circle cx="12" cy="12" r="2.5" />
-                                </svg>
-                              )}
-                            </button>
-                          </span>
-                        </th>
-                        {chartColumns.map((week) => {
-                          const demandRow = subcategory.demand;
-                          const key = `${demandRow?.id ?? subcategory.id}:${week}`;
-                          const currentHours = demandRow?.weeks[week] ?? 0;
-                          const value = demandRow ? draftDemand[key] ?? (currentHours ? String(currentHours) : '') : '';
-                          return (
-                            <td key={week} className="assignment-demand-cell">
-                              <input
-                                type="number"
-                                min={0}
-                                max={MAX_HOURS}
-                                step={1}
-                                value={value}
-                                placeholder="0"
-                                readOnly={!demandRow}
-                                onChange={(event) => setDraftDemand((prev) => ({ ...prev, [key]: event.target.value }))}
-                                onFocus={(event) => event.target.select()}
-                                onBlur={(event) => {
-                                  if (demandRow) commitNonProjectDemand(demandRow.id, currentHours, week, event.target.value);
-                                }}
-                                onKeyDown={blockNonIntegerKeys}
-                                aria-label={`${category.name}, ${subcategory.name}, week of ${weekLabel(week)}`}
-                              />
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </Fragment>
+                {visibleNonProjectRows.map((subcategory, rowIndex) => (
+                  <tr
+                    key={subcategory.id}
+                    className={`assignment-row non-project-demand-row ${rowIndex % 2 === 0 ? 'band-strong' : 'band-light'}${
+                      subcategory.demand.isActive === false ? ' inactive-row' : ''
+                    }`}
+                  >
+                    <th scope="row" className="matrix-label">
+                      <span className="non-project-demand-label">
+                        <span>{subcategory.name}</span>
+                        {subcategory.description && <span className="non-project-demand-description">{subcategory.description}</span>}
+                      </span>
+                      <span className="person-actions non-project-demand-actions">
+                        <button
+                          type="button"
+                          className={`icon-button non-project-demand-toggle ${subcategory.demand.isActive === false ? 'success' : 'danger'}`}
+                          title={
+                            subcategory.demand.isActive === false
+                              ? `Reopen ${subcategory.name}`
+                              : `Mark ${subcategory.name} as finished and stop tracking`
+                          }
+                          aria-label={
+                            subcategory.demand.isActive === false
+                              ? `Reopen ${subcategory.name}`
+                              : `Mark ${subcategory.name} as finished and stop tracking`
+                          }
+                          onClick={() =>
+                            setNonProjectDemandActive.mutate({
+                              demandId: subcategory.demand.id,
+                              isActive: subcategory.demand.isActive === false,
+                            })
+                          }
+                        >
+                          {subcategory.demand.isActive === false ? (
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                              <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+                              <circle cx="12" cy="12" r="2.5" />
+                              <line x1="3" y1="3" x2="21" y2="21" />
+                            </svg>
+                          ) : (
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                              <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+                              <circle cx="12" cy="12" r="2.5" />
+                            </svg>
+                          )}
+                        </button>
+                      </span>
+                    </th>
+                    {chartColumns.map((week) => {
+                      const demandRow = subcategory.demand;
+                      const key = `${demandRow?.id ?? subcategory.id}:${week}`;
+                      const currentHours = demandRow?.weeks[week] ?? 0;
+                      const value = demandRow ? draftDemand[key] ?? (currentHours ? String(currentHours) : '') : '';
+                      return (
+                        <td key={week} className="assignment-demand-cell">
+                          <input
+                            type="number"
+                            min={0}
+                            max={MAX_HOURS}
+                            step={1}
+                            value={value}
+                            placeholder="0"
+                            readOnly={!demandRow}
+                            onChange={(event) => setDraftDemand((prev) => ({ ...prev, [key]: event.target.value }))}
+                            onFocus={(event) => event.target.select()}
+                            onBlur={(event) => {
+                              if (demandRow) commitNonProjectDemand(demandRow.id, currentHours, week, event.target.value);
+                            }}
+                            onKeyDown={blockNonIntegerKeys}
+                            aria-label={`${subcategory.name}, week of ${weekLabel(week)}`}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
                 ))}
               </tbody>
+
               <tfoot>
+                <tr className="non-project-demand-section-row non-project-demand-total-row">
+                  <th scope="row" className="matrix-label">
+                    Column total
+                  </th>
+                  {chartColumns.map((week) => (
+                    <td key={week}>{visibleNonProjectRows.reduce((sum, row) => sum + (row.demand.weeks[week] ?? 0), 0) || ''}</td>
+                  ))}
+                </tr>
                 <tr className="non-project-demand-section-row non-project-demand-total-row">
                   <th scope="row" className="matrix-label">
                     Subtotal

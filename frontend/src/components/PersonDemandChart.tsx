@@ -35,8 +35,8 @@ export default function PersonDemandChart({
   height = 240,
   thisLabel = 'This project',
   otherLabel = 'All other projects',
-  thisColor,
-  otherColor,
+  thisColor = 'var(--asagi-blue)',
+  otherColor = 'var(--sorairo-blue)',
   showThis = true,
   maxY,
   alertThreshold,
@@ -82,7 +82,10 @@ export default function PersonDemandChart({
           const x = PAD_LEFT + index * colWidth + 2;
           const barWidth = Math.max(1, colWidth - 4);
           const total = mine + others;
-          const warningStart = Math.min(available, alertThreshold ?? Number.POSITIVE_INFINITY);
+          const yellowStart = alertThreshold ?? Number.POSITIVE_INFINITY;
+          const yellowEnd = Math.min(total, available);
+          const yellowHeight = yellowEnd > yellowStart ? y(yellowStart) - y(yellowEnd) : 0;
+          const redHeight = total > available ? Math.max(0, y(available) - y(total)) : 0;
 
           return (
             <g key={index}>
@@ -102,26 +105,26 @@ export default function PersonDemandChart({
                 className="bar-this-project"
                 style={thisColor ? { fill: thisColor } : undefined}
               />
-              {total > available && (
+              {yellowHeight > 0 && (
+                <rect
+                  x={x}
+                  y={y(yellowEnd)}
+                  width={barWidth}
+                  height={yellowHeight}
+                  fill="var(--yamabuki-yellow)"
+                >
+                  <title>{`Demand above alert threshold: ${Math.round(yellowEnd - yellowStart)} h`}</title>
+                </rect>
+              )}
+              {redHeight > 0 && (
                 <rect
                   x={x}
                   y={y(total)}
                   width={barWidth}
-                  height={scale(total - available)}
+                  height={redHeight}
                   fill="var(--takeda-red)"
                 >
                   <title>{`Demand above availability: ${Math.round(total - available)} h`}</title>
-                </rect>
-              )}
-              {total > warningStart && warningStart > 0 && (
-                <rect
-                  x={x}
-                  y={y(Math.min(total, available))}
-                  width={barWidth}
-                  height={scale(Math.min(total, available) - warningStart)}
-                  fill="var(--yamabuki-yellow)"
-                >
-                  <title>{`Demand near alert level: ${Math.round(Math.min(total, available) - warningStart)} h`}</title>
                 </rect>
               )}
               {total > 0 && (

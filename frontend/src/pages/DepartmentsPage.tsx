@@ -9,13 +9,15 @@ import {
   nonProjectDemandApi,
   peopleApi,
 } from '../api/client';
+import DataTable, { Column } from '../components/admin/DataTable';
 import ListToolbar from '../components/admin/ListToolbar';
 import PersonCell from '../components/admin/PersonCell';
 import RowLegend from '../components/admin/RowLegend';
 import { useAuthStore } from '../store/authStore';
 import { filterByScope, OwnershipScope, rowClassName } from '../utils/ownership';
 import { canEditDepartment, isAdmin } from '../utils/permissions';
-import type { Person } from '../types';
+import { formatDate } from '../utils/dates';
+import type { Department, Person } from '../types';
 
 const KPI_WEEKS = 26;
 
@@ -111,10 +113,83 @@ export default function DepartmentsPage() {
     return map;
   }, [capacityByPerson, demandByPerson, departments.data, peopleByDepartment]);
 
-  const rows = filterByScope(departments.data ?? [], scope, personId)
-    .filter((row) => (!hideInactive || row.isActive !== false) && (!functionId || row.functionId === functionId))
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  const rows = filterByScope(departments.data ?? [], scope, personId).filter(
+    (row) => (!hideInactive || row.isActive !== false) && (!functionId || row.functionId === functionId),
+  );
+
+  const columns: Column<Department>[] = [
+    {
+      key: 'name',
+      label: 'Department name',
+      value: (row) => row.name,
+      render: (row) => (
+        <span className="name-cell">
+          <Link to={`/departments/${row.id}`} className="record-link">
+            {row.name}
+          </Link>
+        </span>
+      ),
+    },
+    {
+      key: 'function',
+      label: 'Function',
+      value: (row) => row.functionName,
+    },
+    {
+      key: 'lead',
+      label: 'Department lead',
+      value: (row) => row.leadName,
+      render: (row) => <PersonCell name={row.leadName} personId={row.leadPersonId} me={personId} />,
+    },
+    {
+      key: 'people',
+      label: 'People',
+      width: '68px',
+      value: (row) => kpisByDepartment.get(row.id)?.peopleCount ?? 0,
+    },
+    {
+      key: 'weeksOver',
+      label: 'Wks over',
+      width: '72px',
+      value: (row) => kpisByDepartment.get(row.id)?.weeksOver ?? 0,
+      render: (row) => {
+        const value = kpisByDepartment.get(row.id)?.weeksOver ?? 0;
+        return <span style={{ color: value > 0 ? 'var(--danger)' : undefined }}>{value}</span>;
+      },
+    },
+    {
+      key: 'hoursOver',
+      label: 'Hrs over',
+      width: '72px',
+      value: (row) => kpisByDepartment.get(row.id)?.hoursOver ?? 0,
+      render: (row) => {
+        const value = kpisByDepartment.get(row.id)?.hoursOver ?? 0;
+        return <span style={{ color: value > 0 ? 'var(--danger)' : undefined }}>{value}</span>;
+      },
+    },
+    {
+      key: 'lastCheckIn',
+      label: 'Last check-in',
+      value: (row) => row.lastCheckIn ?? '',
+      render: (row) => formatDate(row.lastCheckIn),
+    },
+    {
+      key: 'edit',
+      label: '',
+      sortable: false,
+      width: '64px',
+      value: () => '',
+      render: (row) => (
+        <Link
+          to={`/departments/${row.id}`}
+          className="icon-button"
+          title={canEditDepartment(user, row) ? `Edit ${row.name}` : `View ${row.name}`}
+        >
+          {canEditDepartment(user, row) ? '✎' : '›'}
+        </Link>
+      ),
+    },
+  ];
 
   return (
     <section className="accent-section accent-departments">
@@ -151,51 +226,20 @@ export default function DepartmentsPage() {
         ]}
         toggles={[{ label: 'Hide inactive', checked: hideInactive, onChange: setHideInactive }]}
       />
-      <div className="card department-summary-list">
-        {rows.filter((row) => row.name.toLowerCase().includes(search.toLowerCase()) || row.leadName?.toLowerCase().includes(search.toLowerCase()) || row.functionName?.toLowerCase().includes(search.toLowerCase())).length === 0 && (
-          <p className="muted">No departments match the current filters.</p>
-        )}
-        {rows
-          .filter(
-            (row) =>
-              row.name.toLowerCase().includes(search.toLowerCase()) ||
-              row.leadName?.toLowerCase().includes(search.toLowerCase()) ||
-              row.functionName?.toLowerCase().includes(search.toLowerCase()),
-          )
-          .map((row) => {
-            const kpis = kpisByDepartment.get(row.id) ?? { peopleCount: 0, hoursOver: 0, weeksOver: 0 };
-            return (
-              <div key={row.id} className={['department-summary-row', rowClassName(row, personId)].filter(Boolean).join(' ')}>
-                <div className="department-summary-main">
-                  <Link to={`/departments/${row.id}`} className="record-link department-summary-name">
-                    {row.name}
-                  </Link>
-                  {row.functionName && <span className="department-summary-function">{row.functionName}</span>}
-                </div>
-                <div className="department-summary-meta">
-                  <span>
-                    <span className="meta-label">Lead:</span> <PersonCell name={row.leadName} personId={row.leadPersonId} me={personId} />
-                  </span>
-                  <span>
-                    <span className="meta-label">People:</span> <strong>{kpis.peopleCount}</strong>
-                  </span>
-                  <span>
-                    <span className="meta-label">Hours over:</span> <strong className={kpis.hoursOver > 0 ? 'stat-over' : undefined}>{kpis.hoursOver}</strong>
-                  </span>
-                  <span>
-                    <span className="meta-label">Weeks over:</span> <strong className={kpis.weeksOver > 0 ? 'stat-over' : undefined}>{kpis.weeksOver}</strong>
-                  </span>
-                </div>
-                {canEditDepartment(user, row) && (
-                  <Link to={`/departments/${row.id}`} className="icon-button department-summary-action" title={`View ${row.name}`}>
-                    ›
-                  </Link>
-                )}
-              </div>
-            );
-          })}
+      <div className="card table-card departments-table-card">
+        <DataTable
+          rows={rows}
+          columns={columns}
+          getRowKey={(row) => row.id}
+          getRowClassName={(row) => rowClassName(row, personId)}
+          search={search}
+          initialSortKey="name"
+          isLoading={departments.isLoading}
+          emptyMessage="No departments match the current filters."
+        />
       </div>
       <RowLegend />
     </section>
   );
 }
+

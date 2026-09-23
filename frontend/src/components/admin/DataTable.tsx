@@ -1,4 +1,5 @@
 import { ReactNode, useMemo, useState } from 'react';
+import { formatCount } from '../../utils/format';
 
 export interface Column<T> {
   key: string;
@@ -122,9 +123,16 @@ export default function DataTable<T>({
           {!isLoading &&
             visible.map((row) => (
               <tr key={getRowKey(row)} className={getRowClassName?.(row)}>
-                {columns.map((column) => (
-                  <td key={column.key}>{column.render ? column.render(row) : (column.value(row) ?? '—')}</td>
-                ))}
+                {columns.map((column) => {
+                  const rawValue = column.value(row);
+                  const display = column.render
+                    ? column.render(row)
+                    : typeof rawValue === 'number'
+                      ? formatCount(rawValue)
+                      : rawValue ?? '—';
+
+                  return <td key={column.key}>{display}</td>;
+                })}
               </tr>
             ))}
         </tbody>

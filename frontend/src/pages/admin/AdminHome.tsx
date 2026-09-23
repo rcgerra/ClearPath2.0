@@ -38,10 +38,10 @@ const AREAS = [
     description: 'Assign who can administer, moderate demand or availability.',
   },
   {
-    to: '/admin/non-project-demand-categories',
+    to: '/admin/other-work',
     accent: 'projects',
-    title: 'Non-project Demand',
-    description: 'Manage categories used for work that is not assigned to a project.',
+    title: 'Run the Business',
+    description: 'Review non-project demand and manage its categories.',
   },
 ] as const;
 

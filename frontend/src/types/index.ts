@@ -122,6 +122,7 @@ export interface DemandRow {
   endWeek?: number;
   status?: string;
   isActive?: boolean;
+  createdOn?: string;
 }
 
 export interface NonProjectDemandCategory {

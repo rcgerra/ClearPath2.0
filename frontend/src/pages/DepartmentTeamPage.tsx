@@ -547,17 +547,11 @@ export default function DepartmentTeamPage() {
     [nonProjectSubcategories.data],
   );
 
-  const nonProjectDemandGroups = useMemo(() => {
-    return availableNonProjectCategories.map((category) => {
-      const assignedRows = selectedNonProjectDemand.filter((row) => row.categoryId === category.id);
-      const rows = assignedRows
-        .map((row) => ({ id: row.id, name: row.subcategoryName ?? 'General', description: row.description ?? '', demand: row }))
-        .sort((a, b) => a.name.localeCompare(b.name) || a.description.localeCompare(b.description));
-      const total = emptyWeeks();
-      for (const row of assignedRows) addInto(total, row.weeks);
-      return { ...category, rows, total };
-    }).filter((category) => category.rows.length > 0);
-  }, [availableNonProjectCategories, selectedNonProjectDemand]);
+  const nonProjectDemandRows = useMemo(() => {
+    return selectedNonProjectDemand
+      .map((row) => ({ id: row.id, name: row.subcategoryName ?? 'General', description: row.description ?? '', demand: row }))
+      .sort((a, b) => a.name.localeCompare(b.name) || a.description.localeCompare(b.description));
+  }, [selectedNonProjectDemand]);
 
   /** Assignment rows to render, honoring the "hide zero rows" toggle. */
   const visibleProjectDemand = useMemo(() => {
@@ -565,16 +559,12 @@ export default function DepartmentTeamPage() {
     return selectedProjectDemand.filter((project) => project.weeks.slice(0, detailWeeks).some((hours) => hours > 0));
   }, [selectedProjectDemand, hideZeroProjectRows, detailWeeks]);
 
-  /** Other-demand categories/rows to render, honoring the "hide zero rows" toggle. */
-  const visibleNonProjectGroups = useMemo(() => {
-    if (!hideZeroOtherRows) return nonProjectDemandGroups;
-    return nonProjectDemandGroups
-      .map((category) => ({
-        ...category,
-        rows: category.rows.filter((row) => row.demand.weeks.slice(0, detailWeeks).some((hours) => hours > 0)),
-      }))
-      .filter((category) => category.rows.length > 0);
-  }, [nonProjectDemandGroups, hideZeroOtherRows, detailWeeks]);
+  /** Other-demand rows to render, honoring the "hide zero rows" toggle. */
+  const visibleNonProjectRows = useMemo(() => {
+    if (!hideZeroOtherRows) return nonProjectDemandRows;
+    return nonProjectDemandRows.filter((row) => row.demand.weeks.slice(0, detailWeeks).some((hours) => hours > 0));
+  }, [nonProjectDemandRows, hideZeroOtherRows, detailWeeks]);
+
 
   /** Projects the selected person isn't already staffed on, for the "add assignment" picker. */
   const availableProjectsForAssignment = useMemo(() => {
@@ -1556,56 +1546,49 @@ export default function DepartmentTeamPage() {
                 </tr>
               </thead>
               <tbody>
-                {visibleNonProjectGroups.length === 0 && (
+                {visibleNonProjectRows.length === 0 && (
                   <tr className="no-demand-notice-row">
                     <td colSpan={chartColumns.length + 1}>
                       There is no other demand assigned for this person over the selected period.
                     </td>
                   </tr>
                 )}
-                {visibleNonProjectGroups.map((category, categoryIndex) => (
-                  <Fragment key={category.id}>
-                    <tr className={`non-project-category-row ${categoryIndex % 2 === 0 ? 'category-band-70' : 'category-band-60'}`}>
-                      <th scope="row" className="matrix-label">{category.name}</th>
-                      {chartColumns.map((week) => <td key={week}>{category.total[week] || ''}</td>)}
-                    </tr>
-                    {category.rows.map((subcategory, rowIndex) => (
-                      <tr key={subcategory.id} className={`assignment-row non-project-demand-row ${rowIndex % 2 === 0 ? 'band-strong' : 'band-light'}`}>
-                        <th scope="row" className="matrix-label">
-                          {subcategory.name}
-                          {subcategory.description && <span className="non-project-demand-description"> — {subcategory.description}</span>}
-                        </th>
-                        {chartColumns.map((week) => {
-                          const demandRow = subcategory.demand;
-                          const key = `${demandRow?.id ?? subcategory.id}:${week}`;
-                          const currentHours = demandRow?.weeks[week] ?? 0;
-                          const value = demandRow ? draftDemand[key] ?? (currentHours ? String(currentHours) : '') : '';
-                          return (
-                            <td key={week} className="assignment-demand-cell">
-                              <input
-                                type="number"
-                                min={0}
-                                max={MAX_HOURS}
-                                step={1}
-                                value={value}
-                                placeholder="0"
-                                readOnly={!canManageRoster || !demandRow}
-                                onChange={(event) => setDraftDemand((prev) => ({ ...prev, [key]: event.target.value }))}
-                                onFocus={(event) => event.target.select()}
-                                onBlur={(event) => {
-                                  if (demandRow) commitNonProjectDemand(demandRow.id, currentHours, week, event.target.value);
-                                }}
-                                onKeyDown={blockNonIntegerKeys}
-                                aria-label={`${category.name}, ${subcategory.name}, week of ${weekLabel(week)}`}
-                              />
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </Fragment>
+                {visibleNonProjectRows.map((subcategory, rowIndex) => (
+                  <tr key={subcategory.id} className={`assignment-row non-project-demand-row ${rowIndex % 2 === 0 ? 'band-strong' : 'band-light'}`}>
+                    <th scope="row" className="matrix-label">
+                      {subcategory.name}
+                      {subcategory.description && <span className="non-project-demand-description"> — {subcategory.description}</span>}
+                    </th>
+                    {chartColumns.map((week) => {
+                      const demandRow = subcategory.demand;
+                      const key = `${demandRow?.id ?? subcategory.id}:${week}`;
+                      const currentHours = demandRow?.weeks[week] ?? 0;
+                      const value = demandRow ? draftDemand[key] ?? (currentHours ? String(currentHours) : '') : '';
+                      return (
+                        <td key={week} className="assignment-demand-cell">
+                          <input
+                            type="number"
+                            min={0}
+                            max={MAX_HOURS}
+                            step={1}
+                            value={value}
+                            placeholder="0"
+                            readOnly={!canManageRoster || !demandRow}
+                            onChange={(event) => setDraftDemand((prev) => ({ ...prev, [key]: event.target.value }))}
+                            onFocus={(event) => event.target.select()}
+                            onBlur={(event) => {
+                              if (demandRow) commitNonProjectDemand(demandRow.id, currentHours, week, event.target.value);
+                            }}
+                            onKeyDown={blockNonIntegerKeys}
+                            aria-label={`${subcategory.name}, week of ${weekLabel(week)}`}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
                 ))}
               </tbody>
+
               <tfoot>
                 <tr className="non-project-demand-section-row non-project-demand-total-row">
                   <th scope="row" className="matrix-label">

@@ -6,7 +6,7 @@ import DataTable, { Column } from '../../components/admin/DataTable';
 import ListToolbar from '../../components/admin/ListToolbar';
 import type { NonProjectDemandCategory } from '../../types';
 
-export default function NonProjectDemandCategoriesPage() {
+export default function NonProjectDemandCategoriesPage({ embedded = false }: { embedded?: boolean }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [hideInactive, setHideInactive] = useState(true);
@@ -157,12 +157,8 @@ export default function NonProjectDemandCategoriesPage() {
     },
   ];
 
-  return (
-    <AccentSection
-      accent="projects"
-      title="Non-project demand categories"
-      subtitle="Categories available when department leads assign work outside a project."
-    >
+  const content = (
+    <>
       {error && <div className="alert error">{error}</div>}
       {(categories.isError || subcategories.isError) && (
         <div className="alert error">{errorMessage(categories.error ?? subcategories.error)}</div>
@@ -193,6 +189,16 @@ export default function NonProjectDemandCategoriesPage() {
           emptyMessage="No non-project demand categories match the current filters."
         />
       </div>
+    </>
+  );
+
+  return embedded ? content : (
+    <AccentSection
+      accent="projects"
+      title="Non-project demand categories"
+      subtitle="Categories available when department leads assign work outside a project."
+    >
+      {content}
     </AccentSection>
   );
 }

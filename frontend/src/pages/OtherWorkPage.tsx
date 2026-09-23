@@ -1,30 +1,43 @@
 import { Fragment, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import AccentSection from '../components/admin/AccentSection';
-import { departmentsApi, nonProjectDemandApi, peopleApi } from '../api/client';
-import { MAX_POSITIONS, weekLabelShort, weekYear } from '../utils/arrayParser';
+import SiteCapacityAnalytics from '../components/SiteCapacityAnalytics';
+import NonProjectDemandCategoriesPage from './admin/NonProjectDemandCategoriesPage';
+import { demandApi, nonProjectDemandApi } from '../api/client';
+import { currentWeekStart, MAX_POSITIONS, weekLabelShort, weekYear } from '../utils/arrayParser';
+import { formatCount } from '../utils/format';
 
-type GroupedDemandRow = {
-  id: string;
-  personId: string;
-  personName: string;
-  departmentName: string;
-  description?: string;
-  weeks: number[];
-};
-
-type GroupedSubcategory = {
+type DemandRow = {
   id: string;
   name: string;
   total: number[];
-  rows: GroupedDemandRow[];
 };
 
-type GroupedCategory = {
+type DemandGroup = {
   id: string;
   name: string;
   total: number[];
-  subcategories: GroupedSubcategory[];
+  rows: DemandRow[];
+};
+
+type AccountingRow = {
+  category: string;
+  subcategory: string;
+  previousPrevious: number;
+  next: number;
+  recent: number;
+  previous: number;
+  total: number;
+};
+
+type AccountingGroup = {
+  category: string;
+  rows: AccountingRow[];
+  previousPrevious: number;
+  next: number;
+  recent: number;
+  previous: number;
+  total: number;
 };
 
 const DEFAULT_WEEKS = 52;
@@ -33,127 +46,221 @@ function emptyWeeks(length: number): number[] {
   return new Array(length).fill(0);
 }
 
-function sumArray(source: number[], weeks: number): number[] {
-  const total = emptyWeeks(weeks);
-  for (let index = 0; index < weeks; index += 1) total[index] += source[index] ?? 0;
+function addWeeks(target: number[], source: number[]): number[] {
+  return target.map((value, index) => value + (source[index] ?? 0));
+}
+
+function sumPeriod(weeks: number[], start: number, end: number): number {
+  let total = 0;
+  for (let week = start; week <= end; week += 1) total += weeks[week] ?? 0;
   return total;
+}
+
+function monthLabel(week: number): string {
+  const date = currentWeekStart();
+  date.setUTCDate(date.getUTCDate() + week * 7);
+  return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
+function periodSubtitle(startWeek: number, endWeek: number): string {
+  return `${monthLabel(startWeek)} - ${monthLabel(endWeek)}`;
 }
 
 export default function OtherWorkPage() {
   const [weeks, setWeeks] = useState(DEFAULT_WEEKS);
+  const [lookDirection, setLookDirection] = useState<'ahead' | 'back'>('ahead');
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
+  const projectDemand = useQuery({ queryKey: ['demand', 'all'], queryFn: () => demandApi.list() });
   const nonProjectDemand = useQuery({ queryKey: ['non-project-demand', 'all'], queryFn: () => nonProjectDemandApi.list() });
-  const allPeople = useQuery({ queryKey: ['people', 'all'], queryFn: () => peopleApi.list() });
-  const allDepartments = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.list() });
 
-  const groupedDemand = useMemo<GroupedCategory[]>(() => {
-    const peopleById = new Map((allPeople.data ?? []).map((person) => [person.id, person]));
-    const departmentsById = new Map((allDepartments.data ?? []).map((department) => [department.id, department]));
-    const categories = new Map<string, GroupedCategory>();
+  const columns = useMemo(
+    () => Array.from({ length: weeks }, (_, index) => (lookDirection === 'back' ? -(index + 1) : index)),
+    [weeks, lookDirection],
+  );
+
+  const groupedDemand = useMemo<DemandGroup[]>(() => {
+    const categories = new Map<string, DemandGroup>();
 
     for (const row of nonProjectDemand.data ?? []) {
-      const person = peopleById.get(row.personId);
-      const departmentName = person?.departmentId ? departmentsById.get(person.departmentId)?.name ?? '—' : '—';
-      const category = categories.get(row.categoryId) ?? {
-        id: row.categoryId,
-        name: row.categoryName,
+      const categoryKey = row.categoryId ?? '__general__';
+      const category = categories.get(categoryKey) ?? {
+        id: categoryKey,
+        name: row.categoryName ?? 'Other work',
         total: emptyWeeks(weeks),
-        subcategories: [],
+        rows: [],
       };
-
       const subcategoryKey = row.subcategoryId ?? '__general__';
-      const subcategory =
-        category.subcategories.find((entry) => entry.id === subcategoryKey) ?? {
-          id: subcategoryKey,
-          name: row.subcategoryName ?? 'General',
-          total: emptyWeeks(weeks),
-          rows: [],
-        };
-
-      const item = {
-        id: row.id,
-        personId: row.personId,
-        personName: person?.name ?? 'Unknown person',
-        departmentName,
-        description: row.description ?? undefined,
-        weeks: Array.from({ length: weeks }, (_, index) => row.weeks[index] ?? 0),
+      const subcategory = category.rows.find((item) => item.id === subcategoryKey) ?? {
+        id: subcategoryKey,
+        name: row.subcategoryName ?? 'General',
+        total: emptyWeeks(weeks),
+        rows: [],
       };
 
-      subcategory.rows.push(item);
-      subcategory.total = sumArray(subcategory.total, weeks).map((value, index) => value + (item.weeks[index] ?? 0));
-      category.total = sumArray(category.total, weeks).map((value, index) => value + (item.weeks[index] ?? 0));
-
-      if (!category.subcategories.some((entry) => entry.id === subcategoryKey)) {
-        category.subcategories.push(subcategory);
-      }
-
-      categories.set(row.categoryId, category);
+      subcategory.total = addWeeks(subcategory.total, columns.map((week) => row.weeks[week] ?? 0));
+      if (!category.rows.some((item) => item.id === subcategoryKey)) category.rows.push(subcategory);
+      category.total = addWeeks(category.total, columns.map((week) => row.weeks[week] ?? 0));
+      categories.set(categoryKey, category);
     }
 
-    return Array.from(categories.values())
-      .map((category) => ({
-        ...category,
-        subcategories: category.subcategories
-          .map((subcategory) => ({
-            ...subcategory,
-            rows: subcategory.rows.sort((a, b) => a.personName.localeCompare(b.personName) || a.departmentName.localeCompare(b.departmentName)),
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [allDepartments.data, allPeople.data, nonProjectDemand.data, weeks]);
+    return Array.from(categories.values()).sort((first, second) => first.name.localeCompare(second.name));
+  }, [columns, nonProjectDemand.data, weeks]);
 
-  const chartColumns = useMemo(() => Array.from({ length: weeks }, (_, index) => index), [weeks]);
+  const groupedProjects = useMemo<DemandGroup>(() => {
+    const projects = new Map<string, DemandGroup>();
+    for (const row of projectDemand.data ?? []) {
+      const projectId = row.projectId;
+      const project = projects.get(projectId) ?? {
+        id: projectId,
+        name: row.projectName ?? row.name ?? 'Unnamed project',
+        total: emptyWeeks(weeks),
+        rows: [],
+      };
+      project.total = addWeeks(project.total, columns.map((week) => row.weeks[week] ?? 0));
+      projects.set(projectId, project);
+    }
+
+    const total = Array.from(projects.values()).reduce((sum, project) => addWeeks(sum, project.total), emptyWeeks(weeks));
+    return { id: 'projects', name: 'Projects', total, rows: [] };
+  }, [columns, projectDemand.data, weeks]);
 
   const totalByWeek = useMemo(() => {
     return Array.from({ length: weeks }, (_, index) =>
-      (nonProjectDemand.data ?? []).reduce((sum, row) => sum + (row.weeks[index] ?? 0), 0),
+      [...(projectDemand.data ?? []), ...(nonProjectDemand.data ?? [])].reduce(
+        (sum, row) => sum + (row.weeks[columns[index]] ?? 0),
+        0,
+      ),
     );
-  }, [nonProjectDemand.data, weeks]);
+  }, [columns, nonProjectDemand.data, projectDemand.data, weeks]);
 
   const totalHours = totalByWeek.reduce((sum, value) => sum + value, 0);
-  const activeCategories = new Set(
-    (nonProjectDemand.data ?? []).filter((row) => row.weeks.slice(0, weeks).some((value) => value > 0)).map((row) => row.categoryId),
+  const activeActivities = new Set(
+    (nonProjectDemand.data ?? [])
+      .filter((row) => columns.some((week) => (row.weeks[week] ?? 0) > 0))
+      .map((row) => row.subcategoryId ?? row.id),
+  );
+
+  const accountingRows = useMemo<AccountingRow[]>(() => {
+    const rows = new Map<string, AccountingRow>();
+    const add = (category: string, subcategory: string, weeksForRow: number[]) => {
+      const key = `${category}:${subcategory}`;
+      const row = rows.get(key) ?? { category, subcategory, previousPrevious: 0, next: 0, recent: 0, previous: 0, total: 0 };
+      row.previousPrevious += sumPeriod(weeksForRow, -39, -27);
+      row.next += sumPeriod(weeksForRow, 0, 12);
+      row.recent += sumPeriod(weeksForRow, -13, -1);
+      row.previous += sumPeriod(weeksForRow, -26, -14);
+      row.total = row.previousPrevious + row.previous + row.recent + row.next;
+      rows.set(key, row);
+    };
+
+    for (const row of projectDemand.data ?? []) add('Projects', 'All project demand', row.weeks);
+    for (const row of nonProjectDemand.data ?? []) {
+      add(row.categoryName ?? 'Other work', row.subcategoryName ?? 'General', row.weeks);
+    }
+
+    return Array.from(rows.values()).sort((first, second) =>
+      first.category.localeCompare(second.category) || first.subcategory.localeCompare(second.subcategory),
+    );
+  }, [nonProjectDemand.data, projectDemand.data]);
+
+  const accountingTotals = accountingRows.reduce(
+    (totals, row) => ({
+      previousPrevious: totals.previousPrevious + row.previousPrevious,
+      next: totals.next + row.next,
+      recent: totals.recent + row.recent,
+      previous: totals.previous + row.previous,
+      total: totals.total + row.total,
+    }),
+    { previousPrevious: 0, next: 0, recent: 0, previous: 0, total: 0 },
+  );
+
+  const accountingGroups = accountingRows.reduce<AccountingGroup[]>((groups, row) => {
+    const group = groups.find((current) => current.category === row.category) ?? {
+      category: row.category,
+      rows: [],
+      previousPrevious: 0,
+      next: 0,
+      recent: 0,
+      previous: 0,
+      total: 0,
+    };
+    group.rows.push(row);
+    group.previousPrevious += row.previousPrevious;
+    group.next += row.next;
+    group.recent += row.recent;
+    group.previous += row.previous;
+    group.total += row.total;
+    if (!groups.includes(group)) groups.push(group);
+    return groups;
+  }, []);
+
+
+  const lookDirectionControl = (
+    <div className="pill-toggle" role="group" aria-label="Look direction">
+      <button type="button" className={lookDirection === 'ahead' ? 'active' : ''} onClick={() => setLookDirection('ahead')}>
+        Look ahead
+      </button>
+      <button type="button" className={lookDirection === 'back' ? 'active' : ''} onClick={() => setLookDirection('back')}>
+        Look back
+      </button>
+    </div>
+  );
+
+  const kpis = (
+    <>
+      <div className="department-header-kpis" aria-label="Other work KPIs">
+        <div className="department-header-kpi">
+          <span className="value">{formatCount(activeActivities.size)}</span>
+          <span className="label">Active activities</span>
+        </div>
+        <div className="department-header-kpi">
+          <span className="value">{formatCount(totalHours)}</span>
+          <span className="label">Total hours</span>
+        </div>
+      </div>
+      <div className="weeks-lookahead-control">
+        <label htmlFor="other-work-weeks">Weeks to show</label>
+        <input
+          id="other-work-weeks"
+          type="number"
+          min={1}
+          max={MAX_POSITIONS}
+          value={weeks}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            if (Number.isFinite(next)) setWeeks(Math.min(MAX_POSITIONS, Math.max(1, Math.round(next))));
+          }}
+        />
+      </div>
+    </>
   );
 
   return (
-    <AccentSection accent="requests" title="Other work" subtitle="All non-project demand across the organization for the next planning period.">
+    <>
+    <AccentSection
+      accent="projects"
+      title="Run the Business"
+      subtitle="All non-project demand across the organization for the selected planning window."
+      headerContent={kpis}
+      actions={lookDirectionControl}
+      collapsible
+    >
+      <div className="toolbar">
+        <div style={{ flex: 1 }}>
+          <h2 style={{ margin: 0 }}>Non-project demand</h2>
+          <p className="page-subtitle" style={{ margin: '0.25rem 0 0' }}>
+            Review demand and manage the categories available to department leads.
+          </p>
+        </div>
+      </div>
       <div className="card">
-        <div className="toolbar my-workload-header">
-          <h2 style={{ margin: 0, flex: 1 }}>Other demand</h2>
-          <div className="weeks-lookahead-control">
-            <label htmlFor="other-work-weeks">Weeks to show</label>
-            <input
-              id="other-work-weeks"
-              type="number"
-              min={1}
-              max={MAX_POSITIONS}
-              value={weeks}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                if (Number.isFinite(next)) setWeeks(Math.min(MAX_POSITIONS, Math.max(1, Math.round(next))));
-              }}
-            />
-          </div>
-        </div>
-
-        <div className="department-header-kpis" aria-label="Other work KPIs" style={{ marginBottom: '1rem' }}>
-          <div className="department-header-kpi">
-            <span className="value">{activeCategories.size}</span>
-            <span className="label">Active categories</span>
-          </div>
-          <div className="department-header-kpi">
-            <span className="value">{totalHours}</span>
-            <span className="label">Total hours</span>
-          </div>
-        </div>
-
         <div className="matrix-scroll">
           <table className="weekly-matrix demand-grid department-person-matrix">
             <thead>
               <tr>
                 <th className="matrix-label" aria-hidden="true" />
-                {chartColumns.map((week) => (
+                {columns.map((week) => (
                   <th key={week} className={weekYear(week) % 2 === 1 ? 'year-shade-alt' : undefined}>
                     {weekLabelShort(week)}
                   </th>
@@ -161,45 +268,41 @@ export default function OtherWorkPage() {
               </tr>
             </thead>
             <tbody>
-              {groupedDemand.length === 0 && (
+              {(projectDemand.data ?? []).length === 0 && groupedDemand.length === 0 && (
                 <tr className="no-demand-notice-row">
-                  <td colSpan={chartColumns.length + 1}>No other work demand found for the selected period.</td>
+                  <td colSpan={columns.length + 1}>No project or non-project demand found for the selected period.</td>
                 </tr>
               )}
-              {groupedDemand.map((category, categoryIndex) => (
-                <Fragment key={category.id}>
-                  <tr className={`non-project-category-row ${categoryIndex % 2 === 0 ? 'category-band-70' : 'category-band-60'}`}>
-                    <th scope="row" className="matrix-label">{category.name}</th>
-                    {chartColumns.map((week) => (
-                      <td key={`${category.id}-${week}`}>{category.total[week] || ''}</td>
+              {[groupedProjects, ...groupedDemand].map((group, groupIndex) => (
+                <Fragment key={group.id}>
+                  <tr className={`non-project-category-row ${groupIndex % 2 === 0 ? 'category-band-70' : 'category-band-60'}`}>
+                    <th scope="row" className="matrix-label">
+                      {group.id === 'projects' ? (
+                        group.name
+                      ) : (
+                        <button
+                          type="button"
+                          className="table-row-expand-button"
+                          aria-expanded={Boolean(expandedCategories[group.id])}
+                          onClick={() => setExpandedCategories((current) => ({ ...current, [group.id]: !current[group.id] }))}
+                        >
+                          <span className={expandedCategories[group.id] ? 'workload-collapse-chevron' : 'workload-collapse-chevron collapsed'} aria-hidden="true" />
+                          {group.name}
+                        </button>
+                      )}
+                    </th>
+                    {columns.map((week) => (
+                      <td key={`${group.id}-${week}`}>{formatCount(group.total[week])}</td>
                     ))}
                   </tr>
 
-                  {category.subcategories.map((subcategory) => (
-                    <Fragment key={`${category.id}-${subcategory.id}`}>
-                      <tr className="non-project-demand-section-row">
-                        <th scope="row" className="matrix-label">{subcategory.name}</th>
-                        {chartColumns.map((week) => (
-                          <td key={`${category.id}-${subcategory.id}-${week}`}>{subcategory.total[week] || ''}</td>
-                        ))}
-                      </tr>
-
-                      {subcategory.rows.map((row, rowIndex) => (
-                        <tr
-                          key={row.id}
-                          className={`assignment-row non-project-demand-row ${rowIndex % 2 === 0 ? 'band-strong' : 'band-light'}`}
-                        >
-                          <th scope="row" className="matrix-label">
-                            <span>{row.personName}</span>
-                            <span className="department-detail-inline"> · {row.departmentName}</span>
-                            {row.description && <span className="non-project-demand-description"> — {row.description}</span>}
-                          </th>
-                          {chartColumns.map((week) => (
-                            <td key={`${row.id}-${week}`}>{row.weeks[week] || ''}</td>
-                          ))}
-                        </tr>
+                  {group.id !== 'projects' && expandedCategories[group.id] && group.rows.map((subcategory, rowIndex) => (
+                    <tr key={subcategory.id} className={`assignment-row non-project-demand-row ${rowIndex % 2 === 0 ? 'band-strong' : 'band-light'}`}>
+                      <th scope="row" className="matrix-label">{subcategory.name}</th>
+                      {columns.map((week) => (
+                        <td key={`${subcategory.id}-${week}`}>{formatCount(subcategory.total[week])}</td>
                       ))}
-                    </Fragment>
+                    </tr>
                   ))}
                 </Fragment>
               ))}
@@ -207,8 +310,8 @@ export default function OtherWorkPage() {
             <tfoot>
               <tr className="non-project-demand-section-row non-project-demand-total-row">
                 <th scope="row" className="matrix-label">Total</th>
-                {chartColumns.map((week) => (
-                  <td key={`total-${week}`}>{totalByWeek[week] || ''}</td>
+                {columns.map((week) => (
+                  <td key={`total-${week}`}>{formatCount(totalByWeek[week])}</td>
                 ))}
               </tr>
             </tfoot>
@@ -216,5 +319,89 @@ export default function OtherWorkPage() {
         </div>
       </div>
     </AccentSection>
+    <AccentSection
+      accent="departments"
+      title="Live Capacity Model"
+      subtitle="Total demand grouped by project and non-project category."
+      collapsible
+    >
+      <div className="demand-accounting-layout">
+        <SiteCapacityAnalytics
+          projectDemand={projectDemand.data ?? []}
+          nonProjectDemand={nonProjectDemand.data ?? []}
+        />
+        <div className="card table-card">
+          <h2 className="accounting-title">Demand accounting</h2>
+          <table className="data-table demand-accounting-table">
+          <thead>
+            <tr>
+              <th colSpan={2}>Category / Subcategory</th>
+              <th>
+                <span className="accounting-period-header">Previous Quarter</span>
+                <small className="accounting-period-subtitle">{periodSubtitle(-39, -27)}</small>
+              </th>
+              <th>
+                <span className="accounting-period-header">Last Quarter</span>
+                <small className="accounting-period-subtitle">{periodSubtitle(-26, -14)}</small>
+              </th>
+              <th>
+                <span className="accounting-period-header">This Quarter</span>
+                <small className="accounting-period-subtitle">{periodSubtitle(-13, -1)}</small>
+              </th>
+              <th>
+                <span className="accounting-period-header">Next Quarter</span>
+                <small className="accounting-period-subtitle">{periodSubtitle(0, 12)}</small>
+              </th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {accountingGroups.map((group) => (
+              <Fragment key={group.category}>
+                <tr className="accounting-category-row">
+                  <th colSpan={2}>{group.category}</th>
+                  <th>{formatCount(group.previousPrevious)}</th>
+                  <th>{formatCount(group.previous)}</th>
+                  <th>{formatCount(group.recent)}</th>
+                  <th>{formatCount(group.next)}</th>
+                  <th>{formatCount(group.total)}</th>
+                </tr>
+                {group.rows.map((row) => (
+                  <tr key={`${row.category}-${row.subcategory}`} className="accounting-subcategory-row">
+                    <td colSpan={2}>{row.subcategory}</td>
+                    <td>{formatCount(row.previousPrevious)}</td>
+                    <td>{formatCount(row.previous)}</td>
+                    <td>{formatCount(row.recent)}</td>
+                    <td>{formatCount(row.next)}</td>
+                    <td>{formatCount(row.total)}</td>
+                  </tr>
+                ))}
+              </Fragment>
+            ))}
+            {accountingRows.length === 0 && <tr><td colSpan={6}>No demand accounting data found.</td></tr>}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th colSpan={2}>Total demand</th>
+              <th>{formatCount(accountingTotals.previousPrevious)}</th>
+              <th>{formatCount(accountingTotals.previous)}</th>
+              <th>{formatCount(accountingTotals.recent)}</th>
+              <th>{formatCount(accountingTotals.next)}</th>
+              <th>{formatCount(accountingTotals.total)}</th>
+            </tr>
+          </tfoot>
+          </table>
+        </div>
+      </div>
+    </AccentSection>
+    <AccentSection
+      accent="projects"
+      title="Non-project demand categories"
+      subtitle="Categories available when department leads assign work outside a project."
+      collapsible
+    >
+      <NonProjectDemandCategoriesPage embedded />
+    </AccentSection>
+    </>
   );
 }

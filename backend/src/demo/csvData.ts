@@ -86,6 +86,20 @@ function dateValue(row: CsvRow, ...keys: string[]): string | undefined {
   return value(row, ...keys)?.slice(0, 10);
 }
 
+/** Parses ISO-ish ("2026-09-11 ...") or US-style ("5/26/2026 19:57") date strings into YYYY-MM-DD. */
+function flexibleDateValue(row: CsvRow, ...keys: string[]): string | undefined {
+  const raw = value(row, ...keys);
+  if (!raw) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const usMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (usMatch) {
+    const [, month, day, year] = usMatch;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString().slice(0, 10);
+}
+
 function weeksValue(row: CsvRow, ...keys: string[]): number[] {
   const raw = value(row, ...keys);
   const weeks = raw ? raw.split(';').map((entry) => Number(entry.trim()) || 0) : [];
@@ -93,7 +107,10 @@ function weeksValue(row: CsvRow, ...keys: string[]): number[] {
 }
 
 function isGuid(candidate: string | undefined): candidate is string {
-  return Boolean(candidate && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate));
+  // Dataverse GUIDs are not always RFC 4122 v1-v5 compliant; the real exports frequently use
+  // variant/version nibble combinations outside the strict pattern. Treat any well-formed GUID
+  // shape as a GUID rather than synthesizing a replacement ID.
+  return Boolean(candidate && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate));
 }
 
 class IdIndex {
@@ -294,7 +311,10 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
   const demand = rows['demands.csv'].map((row, index) => {
     const projectId = projectsIndex.get(value(row, 'new_projectid', '_new_projectid_value'));
     const personId = peopleIndex.get(value(row, 'new_personid', '_new_personid_value'));
-    const functionId = functionsIndex.get(value(row, 'new_functionid', '_new_functionid_value'));
+    const person = personId ? people.find((candidate) => candidate.id === personId) : undefined;
+    // Assignments rarely set their own function; fall back to the person's function, which itself
+    // falls back to their department's function via the department \u2192 function relationship above.
+    const functionId = functionsIndex.get(value(row, 'new_functionid', '_new_functionid_value')) ?? person?.functionId;
     const weeks = weeksValue(row, 'cr714_demandhours', 'new_demandhours');
     return {
       id: isGuid(value(row, 'new_demandid')) ? value(row, 'new_demandid')! : generatedId(index, 'q'),
@@ -303,14 +323,38 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
       personId,
       personName: personName(personId),
       functionId,
-      functionName: functionRecords.find((record) => record.id === functionId)?.name,
+      functionName: functionRecords.find((record) => record.id === functionId)?.name ?? person?.functionName,
       demandHours: null,
       weeks,
       startWeek: weeks.findIndex((hours) => hours > 0),
       endWeek: weeks.reduce((lastWeek, hours, week) => (hours > 0 ? week : lastWeek), 0),
       status: value(row, 'new_status', 'statuscode') ?? 'Planned',
+      createdOn: flexibleDateValue(row, 'CreatedOn'),
     };
   });
+
+  // The source CSVs carry no start/end date columns; derive plausible ones from each project's
+  // demand schedule so timeline-based analytics (e.g. percent complete) have something to show.
+  const maxEndWeekByProject = new Map<string, number>();
+  for (const row of demand) {
+    if (!row.projectId || row.endWeek < 0) continue;
+    maxEndWeekByProject.set(row.projectId, Math.max(maxEndWeekByProject.get(row.projectId) ?? 0, row.endWeek));
+  }
+  const hashWeeksAgo = (id: string) => {
+    const sum = [...id].reduce((total, char) => total + char.charCodeAt(0), 0);
+    return 4 + (sum % 37); // 4-40 weeks in the past, stable per project id.
+  };
+  for (const project of projects) {
+    const maxEndWeek = maxEndWeekByProject.get(project.id);
+    if (maxEndWeek === undefined) continue;
+    const now = new Date();
+    const start = new Date(now);
+    start.setUTCDate(start.getUTCDate() - hashWeeksAgo(project.id) * 7);
+    const end = new Date(now);
+    end.setUTCDate(end.getUTCDate() + maxEndWeek * 7);
+    project.startDate = start.toISOString().slice(0, 10);
+    project.endDate = end.toISOString().slice(0, 10);
+  }
 
   return {
     departments,
@@ -622,17 +666,22 @@ export class CsvDataService {
   }
 
   private persistRecord(collection: DemoCollection, record: unknown, isNew = false): void {
-    const binding = this.recordRows.get(record as object);
-    const file = binding?.file ?? this.fileFor(collection);
-    if (!file || !this.directory) return;
-    const rows = this.sourceRows.get(file) ?? [];
-    const template = rows[0] ?? {};
-    const row = binding?.row ?? Object.fromEntries(Object.keys(template).map((header) => [header, '']));
-    if (isNew) rows.push(row);
-    this.writeRecord(collection, record as Record<string, unknown>, row);
-    if (!binding) this.recordRows.set(record as object, { file, row });
-    this.sourceRows.set(file, rows);
-    this.writeRows(file, rows);
+    try {
+      const binding = this.recordRows.get(record as object);
+      const file = binding?.file ?? this.fileFor(collection);
+      if (!file || !this.directory) return;
+      const rows = this.sourceRows.get(file) ?? [];
+      const template = rows[0] ?? {};
+      const row = binding?.row ?? Object.fromEntries(Object.keys(template).map((header) => [header, '']));
+      if (isNew || !binding) rows.push(row);
+      this.writeRecord(collection, record as Record<string, unknown>, row);
+      if (!binding) this.recordRows.set(record as object, { file, row });
+      this.sourceRows.set(file, rows);
+      this.writeRows(file, rows);
+    } catch (error) {
+      // Never let CSV persistence failures break an otherwise-successful in-memory edit.
+      console.warn(`Could not persist ${collection} record; the change is kept in memory only.`, error);
+    }
   }
 
   private persistRemoval(_collection: DemoCollection, record: unknown): void {
@@ -682,8 +731,8 @@ export class CsvDataService {
         spotId: ['new_spotid'],
       },
       requests: { id: ['cr714__requestsid'], shortTitle: ['cr714_shorttitle'], title: ['cr714_title', 'cr714_name'], phase: ['cr714_phase'], status: ['cr714_status'], isActive: ['cr714_isactive'], priorityScore: ['cr714_priorityscore'], problemStatement: ['cr714_problemstatement', 'cr714_currentstate'], businessCase: ['cr714_businesscase', 'cr714_desiredfuturestate'], expectedBenefit: ['cr714_expectedbenefit', 'cr714_impact'], departmentId: ['cr714_departmentid', '_cr714_departmentid_value'] },
-      capacity: { id: ['new_capacityid'], personId: ['new_personid', '_new_personid_value'], weeklyBaseline: ['new_weeklybaseline', 'cr714_weeklybaseline'], notes: ['new_notes', 'cr714_notes'], weeks: ['cr714_availabilityhours', 'new_availabilityhours'] },
-      demand: { id: ['new_demandid'], personId: ['new_personid', '_new_personid_value'], projectId: ['new_projectid', '_new_projectid_value'], functionId: ['new_functionid', '_new_functionid_value'], status: ['new_status'], weeks: ['cr714_demandhours', 'new_demandhours'] },
+      capacity: { id: ['new_capacityid'], weeklyBaseline: ['new_weeklybaseline', 'cr714_weeklybaseline'], notes: ['new_notes', 'cr714_notes'], weeks: ['cr714_availabilityhours', 'new_availabilityhours'] },
+      demand: { id: ['new_demandid'], status: ['new_status'], weeks: ['cr714_demandhours', 'new_demandhours'] },
       programs: { name: ['cr714_name', 'cr714_longname'] }, functions: { name: ['new_name', 'new_functionname'] },
       locations: { name: ['cr714_name'] }, sites: { name: ['new_name', 'new_sitename'] }, skillsets: { name: ['new_name'] },
       categories: { name: ['cr714_name'], weight: ['cr714_categoryweight'] },
@@ -701,7 +750,12 @@ export class CsvDataService {
     if (!this.directory || !headers.length) return;
     const quote = (value: string) => /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
     const text = [headers.join(','), ...rows.map((row) => headers.map((header) => quote(row[header] ?? '')).join(','))].join('\n') + '\n';
-    fs.writeFileSync(path.join(this.directory, file), text, 'utf8');
+    try {
+      fs.writeFileSync(path.join(this.directory, file), text, 'utf8');
+    } catch (error) {
+      // Edits still apply in-memory for the session even if the CSV is locked (e.g. open in Excel).
+      console.warn(`Could not write ${file} back to disk; the change is kept in memory only.`, error);
+    }
   }
 
   public findPersonByEmail(email: string | undefined) {

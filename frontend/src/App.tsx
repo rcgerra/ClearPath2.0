@@ -60,8 +60,12 @@ export default function App() {
                   <Route path="projects/:id" element={<ProjectEditPage />} />
                   <Route path="departments" element={<DepartmentsListPage />} />
                   <Route path="departments/:id" element={<DepartmentEditPage />} />
-                  <Route path="non-project-demand-categories" element={<NonProjectDemandCategoriesPage />} />
                   <Route path="other-work" element={<OtherWorkPage />} />
+                  <Route path="other-work/non-project-demand-categories" element={<NonProjectDemandCategoriesPage />} />
+                  <Route
+                    path="non-project-demand-categories"
+                    element={<Navigate to="/admin/other-work/non-project-demand-categories" replace />}
+                  />
                   <Route path="skills" element={<SkillsPage />} />
                   <Route path="people" element={<PeopleListPage />} />
                   <Route path="people/:id" element={<PersonEditPage />} />

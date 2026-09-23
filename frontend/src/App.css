@@ -30,6 +30,73 @@
   grid-column: span 2;
 }
 
+.project-analytics-insights {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.analytics-project-half-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.analytics-project-risk-panel {
+  grid-column: span 2;
+}
+
+.analytics-project-gauge-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.analytics-project-gauge-panel h3 {
+  align-self: flex-start;
+  text-align: left;
+}
+
+.analytics-gauge-value {
+  font-size: 1.9rem;
+  font-weight: 700;
+  color: var(--accent-ink, var(--sorairo-blue));
+}
+
+.analytics-gauge-caption {
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+@media (max-width: 900px) {
+  .analytics-project-half-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analytics-project-risk-panel {
+    grid-column: auto;
+  }
+}
+
+.analytics-stacked-bar-track {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--light-grey);
+}
+
+.analytics-stacked-bar-segment.past {
+  background: var(--sorairo-blue);
+}
+
+.analytics-stacked-bar-segment.future {
+  background: var(--matsutake-green);
+}
+
 .analytics-workstream-list {
   display: grid;
   gap: 0.55rem;
@@ -121,6 +188,24 @@
   stroke: var(--matsutake-green);
   stroke-width: 2;
   stroke-dasharray: 3 3;
+}
+
+.sankey-links path {
+  fill: none;
+  opacity: 0.42;
+  stroke-linecap: round;
+}
+
+.sankey-node-label {
+  fill: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.sankey-node-value {
+  fill: var(--muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 900px) {
@@ -306,6 +391,14 @@
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.accent-section-header .row-actions {
+  margin-left: auto;
+  justify-content: flex-end;
+  align-self: flex-start;
 }
 
 .back-button.department-inline-back,
@@ -495,6 +588,8 @@
   display: flex;
   gap: 0.4rem;
   flex-wrap: wrap;
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .toolbar {
@@ -566,6 +661,97 @@
 
 .workload-collapse-chevron.collapsed {
   transform: translateY(-2px) rotate(225deg);
+}
+
+.table-row-expand-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+}
+
+.table-row-expand-button .workload-collapse-chevron {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+}
+
+.demand-accounting-table th:nth-child(n + 2),
+.demand-accounting-table td:nth-child(n + 2) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.accounting-period-header,
+.accounting-period-subtitle {
+  display: block;
+}
+
+.accounting-period-subtitle {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.demand-accounting-table .accounting-category-row {
+  border-top: 2px solid var(--accent, var(--takeda-red));
+  background: rgba(76, 155, 207, 0.16);
+}
+
+.demand-accounting-table .accounting-category-row th {
+  color: var(--accent-ink, var(--sorairo-blue));
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.demand-accounting-table .accounting-category-row th:nth-child(n + 3),
+.demand-accounting-table tfoot th {
+  font-weight: 800;
+}
+
+.demand-accounting-table th:last-child,
+.demand-accounting-table td:last-child {
+  border-left: 2px solid var(--border);
+  background: rgba(171, 180, 54, 0.12);
+  font-weight: 800;
+}
+
+.demand-accounting-table tfoot tr {
+  border-top: 2px solid var(--accent, var(--takeda-red));
+  background: rgba(225, 36, 42, 0.08);
+}
+
+.demand-accounting-table .accounting-subcategory-row td:first-child {
+  padding-left: 0;
+  color: var(--muted);
+}
+
+.demand-accounting-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.demand-accounting-layout .analytics-comparison-charts {
+  display: block;
+  margin-top: 0;
+}
+
+@media (max-width: 1100px) {
+  .demand-accounting-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .workload-section {
@@ -855,10 +1041,21 @@
   z-index: 1;
   background: var(--surface);
   text-align: left;
-  min-width: 200px;
+  width: 300px;
+  min-width: 300px;
+  max-width: 300px;
   font-weight: 600;
   color: var(--text);
   border-right: 1px solid var(--border);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.weekly-matrix .matrix-label-column {
+  width: 300px;
+  min-width: 300px;
+  max-width: 300px;
 }
 
 .department-roster-matrix .department-heatmap-person-cell {
@@ -874,18 +1071,18 @@
 }
 
 .my-workload-card .weekly-matrix .matrix-label {
-  width: 25cqw;
-  min-width: 25cqw;
-  max-width: 25cqw;
+  width: 300px;
+  min-width: 300px;
+  max-width: 300px;
   white-space: normal;
   overflow-wrap: anywhere;
   line-height: 1.25;
 }
 
 .my-workload-card .weekly-matrix .matrix-label-column {
-  width: 25cqw;
-  min-width: 25cqw;
-  max-width: 25cqw;
+  width: 300px;
+  min-width: 300px;
+  max-width: 300px;
 }
 
 /* The corner cell is sticky both ways, so it must sit above the plain sticky header/label cells. */
@@ -1024,20 +1221,25 @@ button.danger-solid:hover:not(:disabled) {
 
 .person-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .person-identity {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  flex: 1 1 120px;
   line-height: 1.25;
 }
 
 .person-name {
   font-weight: 600;
   color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .person-name.person-me {
@@ -1049,6 +1251,12 @@ button.danger-solid:hover:not(:disabled) {
   font-size: 0.7rem;
   font-weight: 400;
   color: var(--medium-grey);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.person-actions {
+  flex-shrink: 0;
 }
 
 .person-name-row {
@@ -1360,6 +1568,7 @@ button.danger-solid:hover:not(:disabled) {
 .department-layout.department-view-heatmap > .accent-section-header,
 .department-layout.department-view-heatmap > .alert,
 .department-layout.department-view-heatmap > .department-analytics-card,
+.department-layout.department-view-heatmap > .department-analytics-summary-card,
 .department-layout.department-view-heatmap > .project-header {
   grid-column: 1 / -1;
 }
@@ -1892,6 +2101,23 @@ button.non-project-demand-action.primary:hover:not(:disabled) {
   background: rgba(171, 180, 54, 0.3);
 }
 
+.project-section-header {
+  align-items: center;
+  margin: -1.1rem -1.25rem 1rem;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid rgba(47, 126, 199, 0.4);
+  border-radius: 9px 9px 0 0;
+  background: rgba(47, 126, 199, 0.16);
+}
+
+.project-individual-details-heading {
+  margin: 1.5rem 0 0.85rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  font-size: 1.05rem;
+  color: var(--accent-ink, var(--text));
+}
+
 .analytics-kpis {
   margin-left: auto;
 }
@@ -1966,6 +2192,25 @@ button.non-project-demand-action.primary:hover:not(:disabled) {
 
 .analytics-demand-table td {
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-project-risk-panel .data-table th:nth-child(3),
+.analytics-project-risk-panel .data-table td:nth-child(3),
+.analytics-project-risk-panel .data-table th:nth-child(4),
+.analytics-project-risk-panel .data-table td:nth-child(4),
+.analytics-project-risk-panel .data-table th:nth-child(5),
+.analytics-project-risk-panel .data-table td:nth-child(5) {
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.analytics-project-risk-panel .data-table td:nth-child(3),
+.analytics-project-risk-panel .data-table td:nth-child(4),
+.analytics-project-risk-panel .data-table td:nth-child(5) {
   font-variant-numeric: tabular-nums;
 }
 
@@ -2581,6 +2826,60 @@ button.non-project-demand-action.primary:hover:not(:disabled) {
   font-weight: 700;
 }
 
+.demand-grid td.week-has-history {
+  background: rgba(47, 126, 199, 0.1);
+}
+
+.demand-grid td.week-no-history {
+  background-color: rgba(137, 145, 158, 0.12);
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(137, 145, 158, 0.28) 0,
+    rgba(137, 145, 158, 0.28) 2px,
+    transparent 2px,
+    transparent 8px
+  );
+}
+
+.demand-grid td.week-no-history input {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.demand-grid td.matrix-total-cell,
+.demand-grid th.matrix-total-cell {
+  text-align: center;
+  vertical-align: middle;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: rgba(18, 24, 33, 0.03);
+  min-width: 0;
+  width: 64px;
+  max-width: 64px;
+}
+
+.demand-grid thead th.matrix-total-cell {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: var(--surface);
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.demand-grid thead th.matrix-total-cell .sort-header {
+  background: transparent;
+  justify-content: center;
+  text-align: center;
+  width: 100%;
+}
+
+.demand-grid th.matrix-total-cell .sort-header {
+  white-space: normal;
+  line-height: 1.15;
+  text-align: center;
+  justify-content: center;
+}
+
 .demand-grid td.threshold-alert {
   background: rgba(230, 170, 26, 0.24);
   box-shadow: inset 0 -2px 0 var(--yamabuki-yellow);
@@ -3072,10 +3371,10 @@ button.non-project-demand-action.primary:hover:not(:disabled) {
 }
 
 .pill-toggle button.active {
-  background: var(--surface);
-  color: var(--accent-ink, var(--text));
+  background: var(--accent, var(--takeda-red));
+  color: var(--white);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
 .row-legend {
@@ -3379,9 +3678,41 @@ button.assign-me-button.primary:hover:not(:disabled) {
   overflow-x: auto;
 }
 
+.data-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
 .data-table th {
   padding: 0.4rem 0.7rem;
   border-bottom: 2px solid var(--accent, var(--border));
+}
+
+.data-table th:first-child,
+.data-table td:first-child {
+  width: 22%;
+  min-width: 22%;
+}
+
+.data-table th:last-child,
+.data-table td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  background: var(--surface);
+  box-shadow: -1px 0 0 var(--border);
+}
+
+.data-table thead th:last-child {
+  z-index: 6;
+}
+
+.data-table tbody tr:nth-child(even):not(.row-inactive) td:last-child {
+  background: var(--light-grey);
+}
+
+.data-table tbody tr:hover td:last-child {
+  background: var(--accent-wash);
 }
 
 .projects-table-card .data-table th:nth-child(5),
