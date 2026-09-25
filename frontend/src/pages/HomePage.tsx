@@ -117,39 +117,36 @@ export default function HomePage() {
   return (
     <section className="operational-home">
       <header className="operational-home-header">
-        <div className="operational-home-header-copy">
-          <h1 className="page-title">Good morning, {user?.name?.split(' ')[0] ?? 'planner'}</h1>
-          <p>Here is the current state of your portfolio and the decisions that need attention this week.</p>
-        </div>
+        <div className="operational-home-header-top">
+          <div className="operational-home-header-copy">
+            <h1 className="page-title">Good morning, {user?.name?.split(' ')[0] ?? 'planner'}</h1>
+            <p>Here is the current state of your portfolio and the decisions that need attention this week.</p>
+          </div>
 
-        <div className="operational-home-actions">
-          <Link className="operational-home-primary" to="/me">My workload</Link>
-          <Link className="operational-home-secondary" to="/requests">Open requests</Link>
+          <div className="operational-home-kpis">
+            <div className="home-mini-stat home-mini-stat-projects">
+              <span className="home-mini-stat-label">Portfolio</span>
+              <strong>{myProjects.length}</strong>
+              <small>projects in focus</small>
+            </div>
+            <div className="home-mini-stat home-mini-stat-departments">
+              <span className="home-mini-stat-label">Departments</span>
+              <strong>{myDepartments.length}</strong>
+              <small>team areas</small>
+            </div>
+            <div className="home-mini-stat home-mini-stat-governance">
+              <span className="home-mini-stat-label">Reviews due</span>
+              <strong>{reviewsDue}</strong>
+              <small>plans needing review</small>
+            </div>
+            <div className="home-mini-stat home-mini-stat-availability">
+              <span className="home-mini-stat-label">Schedule risk</span>
+              <strong>{scheduleRiskCount}</strong>
+              <small>at-risk programs</small>
+            </div>
+          </div>
         </div>
       </header>
-
-      <div className="operational-home-kpis">
-        <div className="home-mini-stat home-mini-stat-projects">
-          <span className="home-mini-stat-label">Portfolio</span>
-          <strong>{myProjects.length}</strong>
-          <small>projects in focus</small>
-        </div>
-        <div className="home-mini-stat home-mini-stat-departments">
-          <span className="home-mini-stat-label">Departments</span>
-          <strong>{myDepartments.length}</strong>
-          <small>team areas</small>
-        </div>
-        <div className="home-mini-stat home-mini-stat-governance">
-          <span className="home-mini-stat-label">Reviews due</span>
-          <strong>{reviewsDue}</strong>
-          <small>plans needing review</small>
-        </div>
-        <div className="home-mini-stat home-mini-stat-availability">
-          <span className="home-mini-stat-label">Schedule risk</span>
-          <strong>{scheduleRiskCount}</strong>
-          <small>at-risk programs</small>
-        </div>
-      </div>
 
       <div className="operational-home-grid">
         <section className="card home-panel home-panel-prioritization">

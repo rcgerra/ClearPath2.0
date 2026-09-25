@@ -136,6 +136,34 @@ const VIEW_ROLE_LABELS: Array<[string, string]> = [
   ['demand_moderator', 'Demand Moderator'],
 ];
 
+const HEADER_CHEVRONS = [
+  { x: 0, y: 19, size: 16, tone: 'dark' },
+  { x: 13, y: 67, size: 13, tone: 'red' },
+  { x: 22, y: 42, size: 20, tone: 'dark' },
+  { x: 32, y: 78, size: 15, tone: 'red' },
+  { x: 38, y: 23, size: 12, tone: 'dark' },
+  { x: 46, y: 54, size: 18, tone: 'red' },
+  { x: 53, y: 14, size: 14, tone: 'dark' },
+  { x: 58, y: 83, size: 17, tone: 'red' },
+  { x: 62, y: 37, size: 12, tone: 'dark' },
+  { x: 67, y: 65, size: 20, tone: 'red' },
+  { x: 70, y: 34, size: 14, tone: 'red' },
+  { x: 71, y: 20, size: 16, tone: 'dark' },
+  { x: 74, y: 48, size: 13, tone: 'red' },
+  { x: 76, y: 70, size: 13, tone: 'dark' },
+  { x: 79, y: 78, size: 17, tone: 'dark' },
+  { x: 82, y: 31, size: 19, tone: 'red' },
+  { x: 83, y: 16, size: 13, tone: 'red' },
+  { x: 85, y: 58, size: 12, tone: 'dark' },
+  { x: 88, y: 13, size: 17, tone: 'red' },
+  { x: 90, y: 61, size: 15, tone: 'dark' },
+  { x: 91, y: 43, size: 15, tone: 'dark' },
+  { x: 94, y: 73, size: 20, tone: 'red' },
+  { x: 96, y: 37, size: 17, tone: 'red' },
+  { x: 97, y: 24, size: 13, tone: 'dark' },
+  { x: 100, y: 53, size: 16, tone: 'red' },
+];
+
 /** Front-end areas. */
 const USER_NAV = [
   { to: '/', label: 'Home', end: true, accent: '', icon: 'home' as const },
@@ -188,6 +216,9 @@ export default function Layout() {
   const isAdmin = Boolean(user?.roles.includes('admin'));
   const inAdminPortal = isAdmin && location.pathname.startsWith('/admin');
   const isPortfolioManager = Boolean(user?.roles.includes('portfolio_manager'));
+  const roleLabels = VIEW_ROLE_LABELS
+    .filter(([value]) => user?.roles.includes(value as never))
+    .map(([, label]) => label);
   const links = inAdminPortal
     ? ADMIN_NAV
     : isAdmin
@@ -218,12 +249,24 @@ export default function Layout() {
             <path className="brand-chevron-red" d="M42 2 57 14 42 26h10l15-12L52 2H42Z" />
           </svg>
         </NavLink>
-        <div className="header-identity" aria-label="Your security roles">
-          {VIEW_ROLE_LABELS.filter(([value]) => user?.roles.includes(value as never)).map(([, label]) => (
-            <span key={label} className="pill pill-role">{label}</span>
+        <div className="header-chevron-pattern" aria-hidden="true">
+          {HEADER_CHEVRONS.map((chevron, index) => (
+            <svg
+              key={`${chevron.x}-${index}`}
+              className={`header-chevron header-chevron-${chevron.tone}`}
+              viewBox="0 0 27 28"
+              style={{ left: `${chevron.x}%`, top: `${chevron.y}%`, width: `${chevron.size}px` }}
+            >
+              <path d="M2 2 17 14 2 26h10l15-12L12 2H2Z" />
+            </svg>
           ))}
-          {(!user?.roles.length || user.roles.includes('user')) && <span className="pill pill-role">Anyone</span>}
         </div>
+        {roleLabels.length > 0 && (
+          <div className="header-identity" aria-label="My roles">
+            <span className="header-identity-label">My Roles:</span>
+            {roleLabels.map((label) => <span key={label} className="pill pill-role">{label}</span>)}
+          </div>
+        )}
       </header>
 
       {inAdminPortal && (
@@ -248,12 +291,11 @@ export default function Layout() {
             <span>Viewing as</span>
             <strong>{user.name}</strong>
           </div>
-          <div className="view-as-roles" aria-label={`${user.name} security roles`}>
-            {VIEW_ROLE_LABELS.filter(([value]) => user.roles.includes(value as never)).map(([, label]) => (
-              <span key={label} className="pill view-as-role-badge">{label}</span>
-            ))}
-            {(!user.roles.length || user.roles.includes('user')) && <span className="pill view-as-role-badge">Anyone</span>}
-          </div>
+          {roleLabels.length > 0 && (
+            <div className="view-as-roles" aria-label={`${user.name} security roles`}>
+              {roleLabels.map((label) => <span key={label} className="pill view-as-role-badge">{label}</span>)}
+            </div>
+          )}
           <button type="button" className="view-as-stop" onClick={stopViewing} aria-label="Stop viewing as this person" title="Stop viewing as this person">×</button>
         </div>
       )}
