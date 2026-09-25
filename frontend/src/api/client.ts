@@ -14,10 +14,12 @@ import type {
   NonProjectDemandSubcategory,
   Person,
   PortfolioSummary,
+  PrioritizationModel,
   Project,
   ProjectRequest,
   Question,
   RankedRequest,
+  ScoringCategory,
   Role,
   Skill,
   SkillCategory,
@@ -28,8 +30,9 @@ import type {
 export const api = axios.create({ baseURL: '/api' });
 
 api.interceptors.request.use((config) => {
-  const { token } = useAuthStore.getState();
+  const { token, viewAsToken } = useAuthStore.getState();
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (viewAsToken) config.headers['X-ClearPath-View-As'] = viewAsToken;
   return config;
 });
 
@@ -51,6 +54,7 @@ export function errorMessage(error: unknown): string {
 export const authApi = {
   users: (search?: string) => api.get<DirectoryUser[]>('/auth/users', { params: { search } }).then((r) => r.data),
   session: (userId: string) => api.get<{ token: string; user: AuthUser }>('/auth/session', { params: { userId } }).then((r) => r.data),
+  viewAs: (personId: string) => api.post<{ viewAsToken: string; user: AuthUser }>('/auth/view-as', { personId }).then((r) => r.data),
   me: () => api.get<{ user: AuthUser }>('/auth/me').then((r) => r.data.user),
 };
 
@@ -165,13 +169,22 @@ export const capacityApi = {
 };
 
 export const prioritizationApi = {
-  questions: () => api.get<Question[]>('/prioritization/questions').then((r) => r.data),
-  categories: () => api.get<Lookup[]>('/prioritization/categories').then((r) => r.data),
+  model: () => api.get<PrioritizationModel>('/prioritization/model').then((r) => r.data),
+  updateModel: (body: { impactWeight: number; complexityWeight: number }) =>
+    api.patch<PrioritizationModel>('/prioritization/model', body).then((r) => r.data),
+  requests: () => api.get<ProjectRequest[]>('/prioritization/requests').then((r) => r.data),
+  questions: (includeInactive = false) => api.get<Question[]>('/prioritization/questions', { params: { includeInactive } }).then((r) => r.data),
+  categories: () => api.get<ScoringCategory[]>('/prioritization/categories').then((r) => r.data),
+  createCategory: (body: { name: string; parent: 'Impact' | 'Complexity'; weight: number; notes?: string }) =>
+    api.post<{ id: string }>('/prioritization/categories', body).then((r) => r.data),
+  updateCategory: (id: string, body: WritePayload) => api.patch(`/prioritization/categories/${id}`, body).then((r) => r.data),
+  createQuestion: (body: WritePayload) => api.post<{ id: string }>('/prioritization/questions', body).then((r) => r.data),
+  updateQuestion: (id: string, body: WritePayload) => api.patch(`/prioritization/questions/${id}`, body).then((r) => r.data),
   answers: (requestId: string) =>
     api.get<Answer[]>(`/prioritization/requests/${requestId}/answers`).then((r) => r.data),
-  submit: (requestId: string, answers: Array<{ questionId: string; value: string | number; comment?: string }>) =>
+  submit: (requestId: string, answers: Array<{ questionId: string; score: 0 | 1 | 5 | 10 | 15; justification: string; methodology?: string }>) =>
     api
-      .post<{ requestId: string; priorityScore: number }>('/prioritization/submit', { requestId, answers })
+      .post<{ requestId: string; quartile: string; topTen: boolean }>('/prioritization/submit', { requestId, answers })
       .then((r) => r.data),
   ranking: () => api.get<RankedRequest[]>('/prioritization/ranking').then((r) => r.data),
 };

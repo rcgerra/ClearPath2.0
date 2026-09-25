@@ -1,9 +1,9 @@
-﻿"cr714__categoriesid","cr714_name","cr714_categorytype","cr714_categoryweight","importsequencenumber","cr714_isactive","cr714_notes","statuscode","statecode","timezoneruleversionnumber","utcconversiontimezonecode","versionnumber","owningbusinessunit"
-"49f3b519-9189-f011-b4cc-002248271486","Cost","Complexity","0.1","","True","Total CAPEX and Incremental/ Unbudgeted OPEX","1","0","","","19900056","04d25798-3a42-ee11-bdf5-000d3a8fd327"
-"6ccaff06-9189-f011-b4cc-002248271486","Project Resources","Complexity","0.3","","True","Overall FTE equivalent resource investment.","1","0","","","19900054","04d25798-3a42-ee11-bdf5-000d3a8fd327"
-"99e6a804-9189-f011-b4cc-7c1e527d2157","Production Schedule Impact","Complexity","0.3","","True","Overall impact to site production schedule (slowdown / shutdown requirements).","1","0","","","19900052","04d25798-3a42-ee11-bdf5-000d3a8fd327"
-"a5e23dfd-9089-f011-b4cc-7c1e527cd923","Technical Risk","Complexity","0.3","","True","Overall complexity & difficulty in executing the project","1","0","","","19900050","04d25798-3a42-ee11-bdf5-000d3a8fd327"
-"5b8245f7-9089-f011-b4cc-7c1e527cd923","Strategic Alignment","Importance","0.15","","True","Overall strategic alignment to company goals, strategic plan & strategic metrics.","1","0","","","19900048","04d25798-3a42-ee11-bdf5-000d3a8fd327"
-"398245f7-9089-f011-b4cc-7c1e527cd923","Supply Risk","Importance","0.2","","True","Mitigation of  production & reliability risks","1","0","","","19900046","04d25798-3a42-ee11-bdf5-000d3a8fd327"
-"909ca8ed-9089-f011-b4cc-002248271486","Compliance Risk","Importance","0.3","","True","Mitigation of site quality risk register findings","1","0","","","19900044","04d25798-3a42-ee11-bdf5-000d3a8fd327"
-"c3f8fbea-9089-f011-b4cc-7c1e527cd923","EHS Impact","Importance","0.35","","True","Mitigation of site environmental, health, & safety risk register findings.","1","0","","","19900042","04d25798-3a42-ee11-bdf5-000d3a8fd327"
+cr714__categoriesid,cr714_name,cr714_categorytype,cr714_categoryweight,importsequencenumber,cr714_isactive,cr714_notes,statuscode,statecode,timezoneruleversionnumber,utcconversiontimezonecode,versionnumber,owningbusinessunit
+49f3b519-9189-f011-b4cc-002248271486,Cost,Complexity,0.1,,true,Total CAPEX and Incremental/ Unbudgeted OPEX,1,0,,,19900056,04d25798-3a42-ee11-bdf5-000d3a8fd327
+6ccaff06-9189-f011-b4cc-002248271486,Project Resources,Complexity,0.3,,True,Overall FTE equivalent resource investment.,1,0,,,19900054,04d25798-3a42-ee11-bdf5-000d3a8fd327
+99e6a804-9189-f011-b4cc-7c1e527d2157,Production Schedule Impact,Complexity,0.3,,True,Overall impact to site production schedule (slowdown / shutdown requirements).,1,0,,,19900052,04d25798-3a42-ee11-bdf5-000d3a8fd327
+a5e23dfd-9089-f011-b4cc-7c1e527cd923,Technical Risk,Complexity,0.3,,True,Overall complexity & difficulty in executing the project,1,0,,,19900050,04d25798-3a42-ee11-bdf5-000d3a8fd327
+5b8245f7-9089-f011-b4cc-7c1e527cd923,Strategic Alignment,Importance,0.15,,True,"Overall strategic alignment to company goals, strategic plan & strategic metrics.",1,0,,,19900048,04d25798-3a42-ee11-bdf5-000d3a8fd327
+398245f7-9089-f011-b4cc-7c1e527cd923,Supply Risk,Importance,0.2,,True,Mitigation of  production & reliability risks,1,0,,,19900046,04d25798-3a42-ee11-bdf5-000d3a8fd327
+909ca8ed-9089-f011-b4cc-002248271486,Compliance Risk,Importance,0.3,,True,Mitigation of site quality risk register findings,1,0,,,19900044,04d25798-3a42-ee11-bdf5-000d3a8fd327
+c3f8fbea-9089-f011-b4cc-7c1e527cd923,EHS Impact,Importance,0.35,,True,"Mitigation of site environmental, health, & safety risk register findings.",1,0,,,19900042,04d25798-3a42-ee11-bdf5-000d3a8fd327

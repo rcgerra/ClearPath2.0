@@ -5,8 +5,10 @@ import { capacityApi, demandApi, departmentsApi, errorMessage, nonProjectDemandA
 import PersonDemandChart from '../components/PersonDemandChart';
 import TeamDemandChart from '../components/TeamDemandChart';
 import DepartmentAnalyticsInsights from '../components/DepartmentAnalyticsInsights';
+import AllocationConflictQueue from '../components/AllocationConflictQueue';
 import PlanningScenarioPanel, { type ScenarioWeekOverrides } from '../components/PlanningScenarioPanel';
 import ConflictResolutionPanel from '../components/ConflictResolutionPanel';
+import DataReviewChecklistModal from '../components/DataReviewChecklistModal';
 import KpiRow from '../components/KpiRow';
 import SlideOverPanel from '../components/SlideOverPanel';
 import UserSelect from '../components/admin/UserSelect';
@@ -19,7 +21,7 @@ import type { CapacityRow, DemandRow, NonProjectDemandRow, Person } from '../typ
 
 const WEEKS = 104;
 const MAX_HOURS = 60;
-type DepartmentWorkspaceTab = 'overview' | 'team' | 'availability' | 'assignments' | 'kpis' | 'risk';
+type DepartmentWorkspaceTab = 'overview' | 'team' | 'availability' | 'assignments' | 'kpis' | 'risk' | 'analytics';
 
 function formatWholeNumber(value: number) {
   return Math.round(value).toLocaleString('en-US');
@@ -50,6 +52,7 @@ export default function DepartmentTeamPage() {
   const [fteOnly, setFteOnly] = useState(false);
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
   const [resolvingConflict, setResolvingConflict] = useState<AllocationConflict | null>(null);
+  const [reviewChecklistOpen, setReviewChecklistOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<DepartmentWorkspaceTab>('overview');
   const [scenarioActive, setScenarioActive] = useState(false);
   const [scenarioOverrides, setScenarioOverrides] = useState<ScenarioWeekOverrides>({});
@@ -59,7 +62,7 @@ export default function DepartmentTeamPage() {
   const [analyticsTableSort, setAnalyticsTableSort] = useState<'name' | 'total'>('name');
   const [analyticsTableSortDirection, setAnalyticsTableSortDirection] = useState<'asc' | 'desc'>('asc');
   const [activeDetailDemandTab, setActiveDetailDemandTab] = useState<'project' | 'other'>('project');
-  const [detailWeeks, setDetailWeeks] = useState(13);
+  const [detailWeeks, setDetailWeeks] = useState(26);
   const alertThreshold = 40;
   const [bulkAvailability, setBulkAvailability] = useState('40');
   const [addingAssignment, setAddingAssignment] = useState(false);
@@ -70,7 +73,6 @@ export default function DepartmentTeamPage() {
   const [departmentView, setDepartmentView] = useState<'details' | 'heatmap'>('details');
   const [teamOverviewCollapsed, setTeamOverviewCollapsed] = useState(false);
   const [analyticsCollapsed, setAnalyticsCollapsed] = useState(true);
-  const [analyticsSummaryCollapsed, setAnalyticsSummaryCollapsed] = useState(true);
   const gridRef = useRef<HTMLTableElement>(null);
 
   const department = useQuery({
@@ -435,7 +437,10 @@ export default function DepartmentTeamPage() {
 
   const checkIn = useMutation({
     mutationFn: () => departmentsApi.update(id, { lastCheckIn: new Date().toISOString().slice(0, 10) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['department', id] }),
+    onSuccess: () => {
+      setReviewChecklistOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['department', id] });
+    },
     onError: (err) => setError(errorMessage(err)),
   });
 
@@ -749,8 +754,7 @@ export default function DepartmentTeamPage() {
 
   function selectWorkspaceTab(tab: DepartmentWorkspaceTab) {
     setActiveTab(tab);
-    if (tab === 'availability') setDepartmentView('heatmap');
-    if (tab === 'assignments') setDepartmentView('details');
+    setDepartmentView(tab === 'availability' ? 'heatmap' : 'details');
   }
 
   return (
@@ -774,8 +778,9 @@ export default function DepartmentTeamPage() {
               {activeTab === 'team' && 'Department roster and team responsibilities.'}
               {activeTab === 'availability' && `Weekly availability and utilization across ${detailWeeks} weeks.`}
               {activeTab === 'assignments' && `Project and run-the-business assignments across ${detailWeeks} weeks.`}
-              {activeTab === 'kpis' && `Performance indicators across ${detailWeeks} weeks.`}
+              {activeTab === 'kpis' && `Group demand across ${detailWeeks} weeks.`}
               {activeTab === 'risk' && `Allocation risk and what-if scenario planning across ${detailWeeks} weeks.`}
+              {activeTab === 'analytics' && `Demand and capacity analytics across ${detailWeeks} weeks.`}
             </p>
           </div>
         </div>
@@ -783,7 +788,7 @@ export default function DepartmentTeamPage() {
           <button
             type="button"
             className={['icon-button', 'icon-button-add', 'icon-button-add-labeled', checkInClass].filter(Boolean).join(' ')}
-            onClick={() => checkIn.mutate()}
+            onClick={() => setReviewChecklistOpen(true)}
             disabled={!canEditDepartment(user, details) || checkIn.isPending}
             title={
               Number.isFinite(daysSinceCheckIn)
@@ -796,19 +801,29 @@ export default function DepartmentTeamPage() {
               <rect x="5" y="6" width="14" height="15" rx="2" />
               <polyline points="9 14 11 16 15 12" />
             </svg>
-            <span>{checkIn.isPending ? 'Saving review…' : 'Mark data reviewed'}</span>
+            <span>{checkIn.isPending ? 'Saving review…' : 'Periodic review'}</span>
           </button>
         </div>
       </div>
 
+      <DataReviewChecklistModal
+        open={reviewChecklistOpen}
+        onClose={() => setReviewChecklistOpen(false)}
+        onConfirm={() => checkIn.mutate()}
+        confirming={checkIn.isPending}
+        scope="department"
+      />
+
+      <div className="workspace-tabs-row">
       <nav className="workspace-tabs" aria-label="Department workspace">
         {([
           ['overview', 'Overview'],
-          ['team', 'Team'],
-          ['availability', 'Heat Map'],
           ['assignments', 'Assignments'],
-          ['kpis', 'KPIs'],
+          ['availability', 'Heat Map'],
           ['risk', 'Risk'],
+          ['team', 'Roster'],
+          ['kpis', 'Group Demand'],
+          ['analytics', 'Analytics'],
         ] as Array<[DepartmentWorkspaceTab, string]>).map(([tab, label]) => (
           <button
             key={tab}
@@ -825,8 +840,6 @@ export default function DepartmentTeamPage() {
         ))}
       </nav>
 
-      {error && <div className="alert error">{error}</div>}
-
       <div className="workspace-horizon-bar">
         <span>Planning horizon</span>
         <div className="pill-toggle" role="group" aria-label="Planning horizon">
@@ -835,6 +848,9 @@ export default function DepartmentTeamPage() {
           ))}
         </div>
       </div>
+      </div>
+
+      {error && <div className="alert error">{error}</div>}
 
       {activeTab === 'overview' && (
         <div className="department-overview-layout">
@@ -1314,88 +1330,36 @@ export default function DepartmentTeamPage() {
       {activeTab === 'assignments' && selected && (
         <div className="card department-individual-details-card" hidden={teamOverviewCollapsed || departmentView !== 'details'}>
         <section id="department-individual-detail-section" className="department-person-detail individual-detail-section">
-          <div className="toolbar department-person-detail-header">
-            <h2 style={{ margin: 0, flex: 1 }}>
-              {selected.personName ?? 'Person'}
-            </h2>
-          </div>
           <div id="department-person-detail-content" className="department-person-detail-content">
-          <aside className="department-detail-roster-picker" aria-label="Department roster" hidden={departmentView === 'heatmap'}>
-            <h3>
-              Roster <span className="department-detail-roster-count">({rows.length})</span>
-            </h3>
-            <div className="department-detail-roster-list">
-              {rows.map((row) => {
-                const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks();
-                const { weeksOver, hoursOver } = overallocationFor(row, demandWeeks, detailWeeks);
-                const assignments = assignmentCountByPerson.get(row.personId?.toLowerCase() ?? '') ?? 0;
-                const totalDemand = demandWeeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0);
-                const totalAvailability = row.weeks.slice(0, detailWeeks).reduce((sum, value) => sum + value, 0);
-                return (
-                  <div key={row.id} className={selectedRow === row.id ? 'department-detail-roster-item active' : 'department-detail-roster-item'}>
-                    <button type="button" className="department-detail-roster-select" onClick={() => setSelectedRow(row.id)}>
-                      <span className="department-detail-roster-name-line">
-                        <strong>{row.personName ?? 'Unassigned'}</strong>
-                        <span className="department-detail-roster-pills">
-                          <span
-                            className={totalDemand > totalAvailability ? 'department-detail-roster-pill demand-alert' : 'department-detail-roster-pill'}
-                            title="Total demand"
-                          >
-                            {formatWholeNumber(totalDemand)}
-                          </span>
-                          <span
-                            className={totalAvailability > alertThreshold * detailWeeks ? 'department-detail-roster-pill availability-alert' : 'department-detail-roster-pill'}
-                            title={`Total availability; cumulative alert level ${alertThreshold * detailWeeks} hours`}
-                          >
-                            {formatWholeNumber(totalAvailability)}
-                          </span>
-                        </span>
+          <div className="department-person-chip-bar" role="tablist" aria-label="Select a person">
+            {rows.map((row) => {
+              const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks();
+              const { weeksOver } = overallocationFor(row, demandWeeks, detailWeeks);
+              return (
+                <button
+                  key={row.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selectedRow === row.id}
+                  className={['person-chip', selectedRow === row.id ? 'active' : '', weeksOver > 0 ? 'over-allocated' : ''].join(' ').trim()}
+                  onClick={() => setSelectedRow(row.id)}
+                >
+                  {row.personName ?? 'Unassigned'}
+                  {weeksOver > 0
+                    ? <span className="person-chip-badge" title={`${weeksOver} weeks over`}>{weeksOver}</span>
+                    : (
+                      <span className="person-chip-ok" title="No allocation conflicts" aria-label="No allocation conflicts">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="5 13 9 17 19 7" />
+                        </svg>
                       </span>
-                      <span className="department-detail-roster-metrics">
-                        <span className={weeksOver > 0 ? 'metric-warn' : undefined}>Weeks Over: {weeksOver}</span>
-                        {' · '}
-                        <span className={hoursOver > 0 ? 'metric-warn' : undefined}>Hours Over: {hoursOver}</span>
-                        {' · '}
-                        Assignments: {assignments}
-                      </span>
-                    </button>
-                    {canManageRoster && (
-                      <div className="department-detail-roster-actions">
-                        <button
-                          type="button"
-                          className={['icon-button', 'icon-button-plain', row.isActive === false ? 'success' : 'danger'].join(' ')}
-                          aria-label={row.isActive === false ? `Reactivate ${row.personName ?? 'this person'}'s availability` : `Inactivate ${row.personName ?? 'this person'}'s availability`}
-                          title={row.isActive === false ? `Reactivate ${row.personName ?? 'this person'}'s availability` : `Inactivate ${row.personName ?? 'this person'}'s availability`}
-                          onClick={() => setRowActive.mutate({ capacityId: row.id, isActive: row.isActive === false })}
-                        >
-                          {row.isActive === false ? '↻' : '⊘'}
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-button icon-button-plain transfer-person-inline-action"
-                          aria-label={`Transfer ${row.personName ?? 'this person'}`}
-                          title={`Transfer ${row.personName ?? 'this person'}`}
-                          onClick={() => {
-                            setSelectedRow(row.id);
-                            setTransferDepartmentId('');
-                            setTransferring(true);
-                          }}
-                        >
-                          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="M4 7h13l-3-3" />
-                            <path d="m17 7-3 3" />
-                            <path d="M20 17H7l3 3" />
-                            <path d="m7 17 3-3" />
-                          </svg>
-                        </button>
-                      </div>
                     )}
-                  </div>
-                );
-              })}
-            </div>
-          </aside>
+                </button>
+              );
+            })}
+          </div>
           <div className="department-detail-view-panel" hidden={departmentView !== 'details'}>
+          <h2 className="department-person-chart-heading">{selected.personName ?? 'Person'}</h2>
           {(nonProjectDemand.isError || nonProjectCategories.isError || nonProjectSubcategories.isError) && (
             <div className="alert error">
               Other demand is unavailable:{' '}
@@ -1792,6 +1756,22 @@ export default function DepartmentTeamPage() {
         </div>
       )}
 
+      {activeTab === 'risk' && (
+        <div className="card">
+          <div className="toolbar project-section-header">
+            <h2 style={{ margin: 0, flex: 1 }}>Risk</h2>
+            <span className={peopleAtRisk > 0 ? 'risk-status risk-status-danger' : 'risk-status risk-status-clear'}>
+              {peopleAtRisk > 0 ? `${peopleAtRisk} at risk` : 'No conflicts'}
+            </span>
+          </div>
+          <section className="analytics-chart-panel">
+            <h3>Allocation conflicts</h3>
+            <p className="muted">Severity reflects peak weekly excess and how long the conflict persists. Resolve directly or start a what-if scenario below.</p>
+            <AllocationConflictQueue conflicts={allocationConflicts} onOpen={(conflict) => setResolvingConflict(conflict)} />
+          </section>
+        </div>
+      )}
+
       {activeTab === 'risk' && editable && (
         <PlanningScenarioPanel
           active={scenarioActive}
@@ -1804,6 +1784,7 @@ export default function DepartmentTeamPage() {
             label: row.personName ?? 'Unassigned',
             subtitle: peopleById.get(row.personId.toLowerCase())?.title || 'Team member',
             weeks: row.weeks,
+            demandWeeks: demandByPerson.get(row.personId.toLowerCase()),
           }))}
           overrides={scenarioOverrides}
           baselineConflicts={allocationConflicts}
@@ -1855,9 +1836,9 @@ export default function DepartmentTeamPage() {
       {activeTab === 'kpis' && selected && (
         <div className="card department-analytics-card">
           <div className="toolbar department-analytics-header">
-            <h2 style={{ margin: 0, flex: 1 }}>Team Overview</h2>
+            <h2 style={{ margin: 0, flex: 1 }}>Group Demand</h2>
             <KpiRow
-              ariaLabel="Analytics summary"
+              ariaLabel="Group demand summary"
               variant="compact"
               className="analytics-kpis"
               items={[
@@ -1981,34 +1962,17 @@ export default function DepartmentTeamPage() {
         </div>
       )}
 
-      {activeTab === 'risk' && selected && (
+      {activeTab === 'analytics' && selected && (
         <div className="card department-analytics-summary-card">
-          <div className="toolbar department-analytics-header">
-            <h2 style={{ margin: 0, flex: 1 }}>Analytics</h2>
-            <span className="muted">Next {detailWeeks} weeks</span>
-            <button
-              type="button"
-              className="workload-collapse-button department-section-collapse-button"
-              aria-label={analyticsSummaryCollapsed ? 'Expand Analytics' : 'Collapse Analytics'}
-              aria-expanded={!analyticsSummaryCollapsed}
-              aria-controls="department-analytics-summary-content"
-              title={analyticsSummaryCollapsed ? 'Expand Analytics' : 'Collapse Analytics'}
-              onClick={() => setAnalyticsSummaryCollapsed((value) => !value)}
-            >
-              <span className={analyticsSummaryCollapsed ? 'workload-collapse-chevron collapsed' : 'workload-collapse-chevron'} aria-hidden="true" />
-            </button>
-          </div>
-          <div id="department-analytics-summary-content" hidden={analyticsSummaryCollapsed} aria-label="Analytics summary">
-            <DepartmentAnalyticsInsights
-              weeks={detailWeeks}
-              totalDemand={analyticsWeeklyDemand}
-              availability={totals.slice(0, detailWeeks)}
-              workstreams={teamSeriesByProject}
-              people={peopleAnalytics}
-              conflicts={allocationConflicts}
-              onResolveConflict={(conflict) => setResolvingConflict(conflict)}
-            />
-          </div>
+          <DepartmentAnalyticsInsights
+            weeks={detailWeeks}
+            totalDemand={analyticsWeeklyDemand}
+            availability={totals.slice(0, detailWeeks)}
+            workstreams={teamSeriesByProject}
+            people={peopleAnalytics}
+            conflicts={allocationConflicts}
+            onResolveConflict={(conflict) => setResolvingConflict(conflict)}
+          />
         </div>
       )}
 

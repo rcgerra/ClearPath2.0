@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { formatCount } from '../utils/format';
 
 export interface KpiItem {
   key?: string;
@@ -18,7 +19,7 @@ export default function KpiRow({
   className,
 }: {
   items: KpiItem[];
-  variant?: 'grid' | 'inline' | 'compact';
+  variant?: 'grid' | 'inline' | 'compact' | 'stack';
   ariaLabel?: string;
   className?: string;
 }) {
@@ -29,7 +30,7 @@ export default function KpiRow({
           key={item.key ?? index}
           className={[item.risk ? 'is-risk' : '', item.className ?? ''].filter(Boolean).join(' ') || undefined}
         >
-          <strong>{item.value}</strong>
+          <strong>{typeof item.value === 'number' ? formatCount(item.value) : item.value}</strong>
           <span>{item.label}</span>
         </div>
       ))}

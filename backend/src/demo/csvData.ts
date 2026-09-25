@@ -199,6 +199,7 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
   for (const record of personRecords) {
     peopleIndex.add(value(record.row, 'new_peopleid'), record.name, record.id);
     peopleIndex.add(value(record.row, 'new_userid.azureactivedirectoryobjectid'), record.name, record.id);
+    peopleIndex.add(value(record.row, 'new_email'), record.name, record.id);
   }
   for (const record of projectRecords) projectsIndex.add(value(record.row, 'new_projectsid'), record.name, record.id);
   for (const record of requestRecords) requestsIndex.add(value(record.row, 'cr714__requestsid'), record.name, record.id);
@@ -300,23 +301,33 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
     title: value(row, 'cr714_title', 'cr714_name') ?? name ?? 'Untitled request',
     phase: value(row, 'cr714_phase', 'cr714_workflowstep') ?? 'Draft',
     status: value(row, 'cr714_status', 'statuscode') ?? 'Submitted',
+    disposition: value(row, 'cr714_disposition') ?? 'Pending',
+    location: value(row, 'cr714_location') ?? '',
     isActive: booleanValue(row, 'cr714_isactive', 'statecode'),
     priorityScore: numberValue(row, 'cr714_priorityscore') ?? 0,
     requesterPersonId: peopleIndex.get(value(row, 'cr714_requester', '_cr714_requester_value')),
     requesterName: undefined as string | undefined,
-    delegatePersonId: peopleIndex.get(value(row, 'cr714_delegate', '_cr714_delegate_value')),
+    delegatePersonId: peopleIndex.get(value(row, 'cr714_delegate', '_cr714_delegate_value', 'cr714_delegates')),
     delegateName: undefined as string | undefined,
+    sponsorPersonId: peopleIndex.get(value(row, 'cr714_sponsor', '_cr714_sponsor_value', 'cr714_sponsor.azureactivedirectoryobjectid')),
+    sponsorName: undefined as string | undefined,
+    sponsorNameFlat: value(row, 'cr714_sponsornameflat') ?? '',
     departmentId: departmentsIndex.get(value(row, 'cr714_departmentid', '_cr714_departmentid_value')),
     departmentName: undefined as string | undefined,
-    submittedOn: value(row, 'createdon', 'cr714_submittedon') ?? '',
+    submittedOn: value(row, 'createdon', 'cr714_submittedon', 'cr714_timestamp_submitted') ?? '',
     projectId: projectsIndex.get(value(row, 'cr714_projectid', '_cr714_projectid_value', 'cr714_businesscaseid')),
-    problemStatement: value(row, 'cr714_problemstatement', 'cr714_currentstate') ?? '',
-    businessCase: value(row, 'cr714_businesscase', 'cr714_desiredfuturestate') ?? '',
-    expectedBenefit: value(row, 'cr714_expectedbenefit', 'cr714_impact') ?? '',
+    neededBy: dateValue(row, 'cr714_whenneeded'),
+    neededByJustification: value(row, 'cr714_whenneededjustification') ?? '',
+    currentState: value(row, 'cr714_currentstate') ?? '',
+    discoveryMethod: value(row, 'cr714_howdiscovered') ?? '',
+    impactToOperations: value(row, 'cr714_impact') ?? '',
+    desiredFutureState: value(row, 'cr714_desiredfuturestate') ?? '',
+    additionalInformation: value(row, 'cr714_additionalinformation') ?? '',
   }));
   for (const request of requests) {
     request.requesterName = personName(request.requesterPersonId);
     request.delegateName = personName(request.delegatePersonId);
+    request.sponsorName = personName(request.sponsorPersonId) ?? (request.sponsorNameFlat || undefined);
     request.departmentName = departmentName(request.departmentId);
   }
 
@@ -390,15 +401,49 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
     projects,
     requests,
     functions: functionRecords.map(({ id, name }) => ({ id, name: name ?? 'Unnamed function' })),
-    categories: categoryRecords.map(({ row, id, name }) => ({ id, name: name ?? 'Unnamed category', weight: numberValue(row, 'cr714_categoryweight') ?? 1 })),
+    categories: categoryRecords.map(({ row, id, name }) => ({
+      id,
+      name: name ?? 'Unnamed category',
+      weight: numberValue(row, 'cr714_categoryweight') ?? 1,
+      parent: value(row, 'cr714_categorytype') === 'Complexity' ? 'Complexity' : 'Impact',
+      categoryType: value(row, 'cr714_categorytype') ?? 'Importance',
+      notes: value(row, 'cr714_notes'),
+      isActive: booleanValue(row, 'cr714_isactive'),
+    })),
     capacity,
     demand,
     programs: programRecords,
     locations: locationRecords,
     sites: siteRecords,
     skillsets: skillsetRecords,
-    questions: rows['questions.csv'],
-    answers: rows['answers.csv'],
+    questions: rows['questions.csv'].map((row, index) => ({
+      id: value(row, 'cr714__questionsid', 'cr714_questionsid') ?? generatedId(index, 'q'),
+      text: value(row, 'cr714_questiontext', 'cr714_name') ?? 'Untitled question',
+      categoryId: value(row, 'cr714_categoryid', '_cr714_category_value'),
+      weight: numberValue(row, 'cr714_questionweight', 'cr714_weight') ?? 1,
+      sequence: numberValue(row, 'cr714_sequence', 'importsequencenumber') ?? index,
+      answerType: 'score',
+      isActive: booleanValue(row, 'cr714_isactive'),
+      required: booleanValue(row, 'cr714_required'),
+      metric: value(row, 'cr714_metric'),
+      helpText: value(row, 'cr714_questionhelptext'),
+      subtitle: value(row, 'cr714_questionsubtitle'),
+      options: [0, 1, 5, 10, 15].map((score) => ({
+        score,
+        label: ({ 0: 'No impact', 1: 'Low impact', 5: 'Moderate impact', 10: 'High impact', 15: 'Critical impact' } as Record<number, string>)[score],
+        text: value(row, `cr714_label${score}`) ?? '',
+      })),
+    })),
+    answers: rows['answers.csv'].map((row, index) => ({
+      id: value(row, 'cr714__answersid', 'cr714_answersid') ?? generatedId(index, 'a'),
+      questionId: value(row, 'cr714_questionid', '_cr714_question_value') ?? '',
+      requestId: value(row, 'cr714_parentid', '_cr714_request_value') ?? '',
+      value: value(row, 'cr714_response') ?? '',
+      score: numberValue(row, 'cr714_basescore') ?? 0,
+      comment: value(row, 'cr714_explanation') ?? '',
+      justification: value(row, 'cr714_explanation') ?? '',
+      methodology: value(row, 'cr714_howcalculated') ?? '',
+    })),
   };
 }
 
@@ -832,12 +877,41 @@ export class CsvDataService {
         lastCheckIn: ['new_lastupdated', 'new_lastcheckin'],
         spotId: ['new_spotid'],
       },
-      requests: { id: ['cr714__requestsid'], shortTitle: ['cr714_shorttitle'], title: ['cr714_title', 'cr714_name'], phase: ['cr714_phase'], status: ['cr714_status'], isActive: ['cr714_isactive'], priorityScore: ['cr714_priorityscore'], problemStatement: ['cr714_problemstatement', 'cr714_currentstate'], businessCase: ['cr714_businesscase', 'cr714_desiredfuturestate'], expectedBenefit: ['cr714_expectedbenefit', 'cr714_impact'], departmentId: ['cr714_departmentid', '_cr714_departmentid_value'] },
+      requests: {
+        id: ['cr714__requestsid'],
+        shortTitle: ['cr714_shorttitle'],
+        title: ['cr714_title', 'cr714_name'],
+        phase: ['cr714_phase', 'cr714_workflowstep'],
+        status: ['cr714_status'],
+        disposition: ['cr714_disposition'],
+        location: ['cr714_location'],
+        isActive: ['cr714_isactive'],
+        priorityScore: ['cr714_priorityscore'],
+        neededBy: ['cr714_whenneeded'],
+        neededByJustification: ['cr714_whenneededjustification'],
+        currentState: ['cr714_currentstate'],
+        discoveryMethod: ['cr714_howdiscovered'],
+        impactToOperations: ['cr714_impact'],
+        desiredFutureState: ['cr714_desiredfuturestate'],
+        additionalInformation: ['cr714_additionalinformation'],
+        sponsorNameFlat: ['cr714_sponsornameflat'],
+        departmentId: ['cr714_departmentid', '_cr714_departmentid_value'],
+      },
       capacity: { id: ['new_capacityid'], weeklyBaseline: ['new_weeklybaseline', 'cr714_weeklybaseline'], notes: ['new_notes', 'cr714_notes'], weeks: ['cr714_availabilityhours', 'new_availabilityhours'] },
       demand: { id: ['new_demandid'], status: ['new_status'], weeks: ['cr714_demandhours', 'new_demandhours'] },
       programs: { name: ['cr714_name', 'cr714_longname'] }, functions: { name: ['new_name', 'new_functionname'] },
       locations: { name: ['cr714_name'] }, sites: { name: ['new_name', 'new_sitename'] }, skillsets: { name: ['new_name'] },
-      categories: { name: ['cr714_name'], weight: ['cr714_categoryweight'] },
+      categories: { name: ['cr714_name'], weight: ['cr714_categoryweight'], parent: ['cr714_categorytype'], categoryType: ['cr714_categorytype'], notes: ['cr714_notes'], isActive: ['cr714_isactive'] },
+      questions: {
+        id: ['cr714__questionsid', 'cr714_questionsid'], text: ['cr714_name', 'cr714_questiontext'],
+        categoryId: ['cr714_categoryid'], weight: ['cr714_questionweight', 'cr714_weight'], sequence: ['importsequencenumber', 'cr714_sequence'],
+        isActive: ['cr714_isactive'], required: ['cr714_required'], metric: ['cr714_metric'], helpText: ['cr714_questionhelptext'],
+        subtitle: ['cr714_questionsubtitle'],
+      },
+      answers: {
+        id: ['cr714__answersid', 'cr714_answersid'], questionId: ['cr714_questionid'], requestId: ['cr714_parentid'],
+        value: ['cr714_response'], score: ['cr714_basescore'], comment: ['cr714_explanation'], justification: ['cr714_explanation'], methodology: ['cr714_howcalculated'],
+      },
     };
     for (const [key, value] of Object.entries(record)) {
       const candidates = fields[collection]?.[key];

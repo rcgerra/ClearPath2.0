@@ -41,7 +41,7 @@ type AccountingGroup = {
   total: number;
 };
 
-const DEFAULT_WEEKS = 52;
+const DEFAULT_WEEKS = 26;
 
 function emptyWeeks(length: number): number[] {
   return new Array(length).fill(0);

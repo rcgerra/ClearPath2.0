@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 
 /** Right-hand slide-over used to keep secondary detail out of the main flow until requested. */
@@ -38,7 +39,9 @@ export default function SlideOverPanel({
 
   if (!open) return null;
 
-  return (
+  // Rendered via portal so a fixed-position ancestor (e.g. .accent-section's backdrop-filter) can't
+  // constrain this overlay's containing block and shrink it away from the real viewport.
+  return createPortal(
     <div className="slide-over-backdrop" onClick={onClose}>
       <section
         className={size === 'wide' ? 'slide-over-panel slide-over-panel-wide' : 'slide-over-panel'}
@@ -63,7 +66,8 @@ export default function SlideOverPanel({
         )}
         <div className="slide-over-body">{children}</div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

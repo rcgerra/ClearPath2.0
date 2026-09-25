@@ -69,7 +69,7 @@ export default function AccessListPage() {
     ...ROLE_OPTIONS.map<Column<Person>>((option) => ({
       key: option.value,
       label: option.label,
-      width: '110px',
+      width: '145px',
       value: (row) => (rolesFor(row).includes(option.value) ? 'yes' : 'no'),
       render: (row) => (
         <input

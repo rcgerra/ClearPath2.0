@@ -19,6 +19,8 @@ interface Props {
   maxY?: number;
   /** Highlights total-demand bars above the department alert threshold. */
   alertThreshold?: number;
+  /** Draws an emphasis band behind this week's column, e.g. when a risk chip is selected. */
+  highlightWeek?: number | null;
 }
 
 const FALLBACK_COL_WIDTH = 16;
@@ -40,6 +42,7 @@ export default function PersonDemandChart({
   showThis = true,
   maxY,
   alertThreshold,
+  highlightWeek,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -75,6 +78,15 @@ export default function PersonDemandChart({
         {ticks.map((tick) => (
           <line key={tick} x1={PAD_LEFT} x2={width - 6} y1={y(tick)} y2={y(tick)} className="chart-gridline" />
         ))}
+        {highlightWeek !== null && highlightWeek !== undefined && highlightWeek < weeks && (
+          <rect
+            x={PAD_LEFT + highlightWeek * colWidth}
+            y={PAD_TOP}
+            width={colWidth}
+            height={plotHeight}
+            className="chart-week-highlight"
+          />
+        )}
         {Array.from({ length: weeks }, (_, index) => {
           const mine = thisProject[index] ?? 0;
           const others = otherProjects[index] ?? 0;

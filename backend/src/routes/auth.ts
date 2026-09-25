@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { userService } from '../services/userService';
-import { AuthUser, Role, signToken, authenticate } from '../middleware/auth';
+import { AuthUser, Role, ROLES, signToken, signViewAsToken, authenticate, requireRole } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
 import { env } from '../config/env';
+import * as dv from '../dataverse/client';
+import { COLUMNS } from '../dataverse/fields';
 
 const router = Router();
 
@@ -27,6 +29,14 @@ function parseRoles(email: string): Role[] {
   return ['user'];
 }
 
+function parsePersonRoles(raw: unknown): Role[] {
+  const roles = String(raw ?? '')
+    .split(/[;,]/)
+    .map((value) => value.trim().toLowerCase().replace(/\s+/g, '_'))
+    .filter((value): value is Role => (ROLES as readonly string[]).includes(value));
+  return roles.includes('user') ? roles : ['user', ...roles];
+}
+
 /** Temporary passwordless session. TODO(Entra): validate an Entra access token instead. */
 router.get('/session', asyncHandler(async (req, res) => {
   const userId = z.string().min(1).parse(req.query.userId);
@@ -42,6 +52,26 @@ router.get('/session', asyncHandler(async (req, res) => {
     departmentId: selected.Department ?? undefined,
   };
   res.json({ token: signToken(authUser), user: authUser });
+}));
+
+router.post('/view-as', authenticate, requireRole('admin'), asyncHandler(async (req, res) => {
+  const personId = z.string().min(1).parse(req.body?.personId);
+  const P = COLUMNS.people;
+  const record = await dv.retrieve('people', personId, {
+    select: [P.id, P.userId, P.name, P.email, P.role, P.departmentId, P.isActive],
+    includeFormattedValues: false,
+  }) as Record<string, unknown>;
+  if (record[P.isActive] === false) throw new HttpError(403, 'Inactive people cannot be viewed as.');
+
+  const user: AuthUser = {
+    userId: String(record[P.userId] ?? personId),
+    personId: String(record[P.id] ?? personId),
+    email: String(record[P.email] ?? ''),
+    name: String(record[P.name] ?? 'Selected person'),
+    roles: parsePersonRoles(record[P.role]),
+    departmentId: record[P.departmentId] ? String(record[P.departmentId]) : undefined,
+  };
+  res.json({ viewAsToken: signViewAsToken(user), user });
 }));
 
 router.get('/me', authenticate, (req, res) => {

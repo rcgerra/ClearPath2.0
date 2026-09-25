@@ -4,7 +4,7 @@ import { formatDate, formatDayMonth } from './dates';
 export const DIGITS_PER_POSITION = 2;
 export const MAX_POSITIONS = 1333;
 export const MAX_VALUE = 99;
-export const PLANNING_HORIZONS = [13, 26, 52, 104] as const;
+export const PLANNING_HORIZONS = [4, 13, 26, 52, 104] as const;
 
 export function encodeArray(values: number[], positions: number = MAX_POSITIONS): string {
   if (values.length > positions) throw new Error(`Array exceeds ${positions} weekly positions.`);

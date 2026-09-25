@@ -1,4 +1,4 @@
-import { FormEvent, useId, useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { errorMessage, skillsApi } from '../api/client';
@@ -10,10 +10,13 @@ interface Props {
   canEdit: boolean;
   title?: string;
   subtitle?: string;
+  /** Skip the built-in title/collapse toolbar when the page already shows this information in its own header. */
+  hideHeader?: boolean;
+  collapsible?: boolean;
 }
 
-/** Assigned skills for a person, grouped by category, with add/remove when `canEdit` is true. */
-export default function SkillsCard({ personId, canEdit, title = 'Skills', subtitle }: Props) {
+/** Assigned skills for a person, grouped by category, shown as bubbles you click to assign/unassign when `canEdit` is true. */
+export default function SkillsCard({ personId, canEdit, title = 'Skills', subtitle, hideHeader = false, collapsible = true }: Props) {
   const contentId = useId();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(false);
@@ -32,7 +35,6 @@ export default function SkillsCard({ personId, canEdit, title = 'Skills', subtit
     mutationFn: (skillId: string) => skillsApi.addPersonSkill(personId, skillId),
     onSuccess: () => {
       setError(null);
-      setAdding(false);
       queryClient.invalidateQueries({ queryKey: ['skills', 'person', personId] });
     },
     onError: (cause) => setError(errorMessage(cause)),
@@ -46,15 +48,19 @@ export default function SkillsCard({ personId, canEdit, title = 'Skills', subtit
 
   const assignedIds = useMemo(() => new Set((personSkills.data ?? []).map((row) => row.skillId)), [personSkills.data]);
 
-  /** Unassigned, active skills for the "pick a skill" dropdown — just names, category is inferred. */
-  const availableSkills = useMemo(
-    () =>
-      (allSkills.data ?? [])
-        .filter((skill) => skill.isActive && !assignedIds.has(skill.id))
-        .slice()
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [allSkills.data, assignedIds],
-  );
+  /** Unassigned, active skills for the "click to add" bubble picker, grouped by category. */
+  const groupedAvailable = useMemo(() => {
+    const map = new Map<string, { categoryName: string; rows: typeof allSkills.data }>();
+    for (const skill of allSkills.data ?? []) {
+      if (!skill.isActive || assignedIds.has(skill.id)) continue;
+      const bucket = map.get(skill.categoryId) ?? { categoryName: skill.categoryName, rows: [] };
+      bucket.rows = [...(bucket.rows ?? []), skill];
+      map.set(skill.categoryId, bucket);
+    }
+    return [...map.entries()]
+      .map(([categoryId, bucket]) => ({ categoryId, ...bucket }))
+      .sort((a, b) => a.categoryName.localeCompare(b.categoryName));
+  }, [allSkills.data, assignedIds]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, { categoryName: string; rows: typeof personSkills.data }>();
@@ -68,15 +74,98 @@ export default function SkillsCard({ personId, canEdit, title = 'Skills', subtit
       .sort((a, b) => a.categoryName.localeCompare(b.categoryName));
   }, [personSkills.data]);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    const skillId = String(new FormData(event.currentTarget).get('skillId') || '');
-    if (!skillId) {
-      setError('Select a skill.');
-      return;
-    }
-    assignSkill.mutate(skillId);
+  const addAction = canEdit && (
+    <button
+      type="button"
+      className="icon-button icon-button-add icon-button-add-labeled"
+      aria-expanded={adding}
+      onClick={() => setAdding((value) => !value)}
+    >
+      <span aria-hidden="true">+</span>
+      <span>{adding ? 'Done adding' : 'Add skill'}</span>
+    </button>
+  );
+
+  const content = (
+    <>
+      {subtitle && <p className="muted">{subtitle}</p>}
+      {error && <div className="alert error">{error}</div>}
+
+      {adding && canEdit && (
+        <div className="skills-picker">
+          <p className="muted">Click a skill to add it to your profile.</p>
+          {allSkills.isLoading ? (
+            <p className="muted">Loading skills…</p>
+          ) : groupedAvailable.length === 0 ? (
+            <p className="muted">All active skills are already assigned.</p>
+          ) : (
+            <div className="category-subcategories-editor">
+              {groupedAvailable.map((category) => (
+                <div key={category.categoryId} className="subcategory-list" style={{ marginBottom: '0.5rem' }}>
+                  <strong style={{ marginRight: '0.5rem' }}>{category.categoryName}:</strong>
+                  {(category.rows ?? []).map((skill) => (
+                    <button
+                      key={skill.id}
+                      type="button"
+                      className="subcategory-chip subcategory-chip-add"
+                      disabled={assignSkill.isPending}
+                      onClick={() => assignSkill.mutate(skill.id)}
+                    >
+                      + {skill.name}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {personSkills.isLoading ? (
+        <p className="muted">Loading…</p>
+      ) : grouped.length === 0 ? (
+        <p className="muted">No skills recorded yet.</p>
+      ) : (
+        <div className="category-subcategories-editor">
+          {grouped.map((category) => (
+            <div key={category.categoryId} className="subcategory-list" style={{ marginBottom: '0.5rem' }}>
+              <strong style={{ marginRight: '0.5rem' }}>{category.categoryName}:</strong>
+              {(category.rows ?? []).map((row) =>
+                canEdit ? (
+                  <button
+                    key={row.id}
+                    type="button"
+                    className="subcategory-chip subcategory-chip-assigned"
+                    disabled={removeSkill.isPending}
+                    aria-label={`Remove ${row.skillName}`}
+                    title={`Click to remove ${row.skillName}`}
+                    onClick={() => removeSkill.mutate(row.skillId)}
+                  >
+                    {row.skillName} <span aria-hidden="true">×</span>
+                  </button>
+                ) : (
+                  <span key={row.id} className="subcategory-chip">{row.skillName}</span>
+                ),
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
+  if (hideHeader) {
+    return (
+      <div className="card skills-card skills-card-plain">
+        {(canManageRepository || addAction) && (
+          <div className="row-actions skills-simple-actions">
+            {canManageRepository && <Link to="/skills" className="skills-repository-link">Manage skill repository</Link>}
+            {addAction}
+          </div>
+        )}
+        {content}
+      </div>
+    );
   }
 
   return (
@@ -84,81 +173,23 @@ export default function SkillsCard({ personId, canEdit, title = 'Skills', subtit
       <div className="toolbar skills-header">
         <h2 style={{ margin: 0, flex: 1 }}>{title}</h2>
         {canManageRepository && <Link to="/skills" className="skills-repository-link">Manage skill repository</Link>}
-        {canEdit && (
+        {addAction}
+        {collapsible && (
           <button
             type="button"
-            className="icon-button icon-button-add icon-button-add-labeled"
-            onClick={() => setAdding((value) => !value)}
+            className="workload-collapse-button"
+            aria-label={collapsed ? `Expand ${title}` : `Collapse ${title}`}
+            aria-expanded={!collapsed}
+            aria-controls={contentId}
+            title={collapsed ? `Expand ${title}` : `Collapse ${title}`}
+            onClick={() => setCollapsed((value) => !value)}
           >
-            <span aria-hidden="true">+</span>
-            <span>Add skill</span>
+            <span className={collapsed ? 'workload-collapse-chevron collapsed' : 'workload-collapse-chevron'} aria-hidden="true" />
           </button>
         )}
-        <button
-          type="button"
-          className="workload-collapse-button"
-          aria-label={collapsed ? `Expand ${title}` : `Collapse ${title}`}
-          aria-expanded={!collapsed}
-          aria-controls={contentId}
-          title={collapsed ? `Expand ${title}` : `Collapse ${title}`}
-          onClick={() => setCollapsed((value) => !value)}
-        >
-          <span className={collapsed ? 'workload-collapse-chevron collapsed' : 'workload-collapse-chevron'} aria-hidden="true" />
-        </button>
       </div>
       <div id={contentId} hidden={collapsed}>
-        {subtitle && <p className="muted">{subtitle}</p>}
-        {error && <div className="alert error">{error}</div>}
-
-        {adding && canEdit && (
-          <form className="toolbar assignment-picker" onSubmit={submit}>
-            <div>
-              <label htmlFor={`skillId-${personId}`}>Skill</label>
-              <select id={`skillId-${personId}`} name="skillId" required defaultValue="">
-                <option value="" disabled>
-                  {allSkills.isLoading ? 'Loading skills…' : 'Select…'}
-                </option>
-                {availableSkills.map((skill) => (
-                  <option key={skill.id} value={skill.id}>{skill.name}</option>
-                ))}
-              </select>
-            </div>
-            <button type="submit" className="primary" disabled={assignSkill.isPending}>
-              {assignSkill.isPending ? 'Adding…' : 'Add'}
-            </button>
-            <button type="button" onClick={() => setAdding(false)}>Cancel</button>
-          </form>
-        )}
-
-        {personSkills.isLoading ? (
-          <p className="muted">Loading…</p>
-        ) : grouped.length === 0 ? (
-          <p className="muted">No skills recorded yet.</p>
-        ) : (
-          <div className="category-subcategories-editor">
-            {grouped.map((category) => (
-              <div key={category.categoryId} className="subcategory-list" style={{ marginBottom: '0.5rem' }}>
-                <strong style={{ marginRight: '0.5rem' }}>{category.categoryName}:</strong>
-                {(category.rows ?? []).map((row) => (
-                  <span key={row.id} className="subcategory-chip">
-                    {row.skillName}
-                    {canEdit && (
-                      <button
-                        type="button"
-                        aria-label={`Remove ${row.skillName}`}
-                        title={`Remove ${row.skillName}`}
-                        disabled={removeSkill.isPending}
-                        onClick={() => removeSkill.mutate(row.skillId)}
-                      >
-                        ×
-                      </button>
-                    )}
-                  </span>
-                ))}
-              </div>
-            ))}
-          </div>
-        )}
+        {content}
       </div>
     </div>
   );

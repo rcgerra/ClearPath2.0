@@ -17,6 +17,8 @@ function requireUser(user?: AuthUser): AuthUser {
 }
 
 const isAdmin = (user: AuthUser) => user.roles.includes('admin');
+const isDemandModerator = (user: AuthUser) => user.roles.includes('demand_moderator');
+const isAvailabilityModerator = (user: AuthUser) => user.roles.includes('availability_moderator');
 
 /** Project manager or delegate on the project record. */
 export async function assertProjectEditable(user: AuthUser | undefined, projectId: string): Promise<void> {
@@ -43,7 +45,7 @@ export async function assertDepartmentEditable(user: AuthUser | undefined, depar
 /** Project demand is controlled by the project's manager, demand delegate or an admin. */
 export async function assertDemandEditable(user: AuthUser | undefined, projectId: string): Promise<void> {
   const current = requireUser(user);
-  if (isAdmin(current)) return;
+  if (isAdmin(current) || isDemandModerator(current)) return;
   await assertProjectEditable(current, projectId);
 }
 
@@ -68,7 +70,7 @@ export async function assertAvailabilityEditable(
   target: { personId?: string; departmentId?: string },
 ): Promise<void> {
   const current = requireUser(user);
-  if (isAdmin(current)) return;
+  if (isAdmin(current) || isAvailabilityModerator(current)) return;
   if (same(target.personId, current.personId)) return;
 
   if (target.departmentId) {

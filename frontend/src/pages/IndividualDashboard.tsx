@@ -1,17 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { capacityApi, demandApi, errorMessage, nonProjectDemandApi, projectsApi } from '../api/client';
 import PersonDemandChart from '../components/PersonDemandChart';
-import SkillsCard from '../components/SkillsCard';
-import KpiRow from '../components/KpiRow';
 import { useAuthStore } from '../store/authStore';
 import { weekLabel, weekLabelShort, weekYear, PLANNING_HORIZONS } from '../utils/arrayParser';
 import { DemandRow, NonProjectDemandRow } from '../types';
 
-const DEFAULT_WEEKS = 13;
+const DEFAULT_WEEKS = 26;
 const MAX_HOURS = 60;
-type MyWorkTab = 'summary' | 'assignments' | 'skills';
 
 function sumArrays(rows: number[][], weeks: number): number[] {
   const total = new Array(weeks).fill(0);
@@ -26,10 +23,16 @@ function blockNonIntegerKeys(event: React.KeyboardEvent<HTMLInputElement>) {
   if (['-', '+', '.', 'e', 'E'].includes(event.key)) event.preventDefault();
 }
 
-export default function IndividualDashboard({ initialTab = 'summary' }: { initialTab?: MyWorkTab }) {
+/** Appends the "highlighted" class for a week column when it matches the selected overage chip. */
+function weekColumnClass(week: number, highlightedWeek: number | null, base?: string): string | undefined {
+  return [base, week === highlightedWeek ? 'week-highlighted' : ''].filter(Boolean).join(' ') || undefined;
+}
+
+export default function IndividualDashboard() {
   const user = useAuthStore((state) => state.user);
   const personId = user?.personId;
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [weeks, setWeeks] = useState(DEFAULT_WEEKS);
   const [draftDemand, setDraftDemand] = useState<Record<string, string>>({});
   const [addingAssignment, setAddingAssignment] = useState(false);
@@ -37,9 +40,8 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
   const [addingNewActivity, setAddingNewActivity] = useState(false);
   const [hideInactiveProjectRows, setHideInactiveProjectRows] = useState(true);
   const [hideInactiveOtherRows, setHideInactiveOtherRows] = useState(true);
-  const [workloadCollapsed, setWorkloadCollapsed] = useState(false);
   const [activeDemandTab, setActiveDemandTab] = useState<'project' | 'other'>('project');
-  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<MyWorkTab>(initialTab);
+  const [highlightedWeek, setHighlightedWeek] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const capacity = useQuery({
@@ -231,63 +233,33 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
     return nonProjectDemandRows.filter((row) => row.demand.isActive !== false);
   }, [nonProjectDemandRows, hideInactiveOtherRows]);
 
-  const metrics = useMemo(() => {
-    const assignedProjects = selectedProjectDemand.filter(
-      (row) => row.isActive && row.weeks.slice(0, weeks).some((value) => value > 0),
-    ).length;
-    let overWeeks = 0;
-    let overHours = 0;
-    for (let index = 0; index < weeks; index += 1) {
-      const over = totalDemand[index] - (availability[index] ?? 0);
-      if (over > 0) {
-        overWeeks += 1;
-        overHours += over;
-      }
-    }
-    const demandHours = totalDemand.reduce((sum, value) => sum + value, 0);
-    const availableHours = availability.reduce((sum, value) => sum + value, 0);
-    return {
-      assignedProjects,
-      overWeeks,
-      overHours,
-      utilization: availableHours > 0 ? Math.round((demandHours / availableHours) * 100) : 0,
-    };
-  }, [selectedProjectDemand, totalDemand, availability, weeks]);
-
   const assignedProjectIds = new Set((demand.data ?? []).map((row) => row.projectId));
   const availableProjects = (projects.data ?? [])
     .filter((project) => !assignedProjectIds.has(project.id))
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name));
   const chartColumns = useMemo(() => Array.from({ length: weeks }, (_, index) => index), [weeks]);
-  const riskWeeks = useMemo(
+  /** Weeks where total demand exceeds availability, chronological, for the overage chip strip. */
+  const overallocatedWeeks = useMemo(
     () => Array.from({ length: weeks }, (_, week) => ({
       week,
-      demand: totalDemand[week] ?? 0,
-      availability: availability[week] ?? 0,
       over: Math.max(0, (totalDemand[week] ?? 0) - (availability[week] ?? 0)),
-    })).filter((entry) => entry.over > 0).sort((first, second) => second.over - first.over),
+    })).filter((entry) => entry.over > 0),
     [availability, totalDemand, weeks],
   );
-  const upcomingCommitments = useMemo(
-    () => [
-      ...selectedProjectDemand.filter((row) => row.isActive).map((row) => ({
-        id: row.demandId,
-        label: row.projectName,
-        type: 'Project',
-        hours: row.weeks.slice(0, weeks).reduce((sum, value) => sum + value, 0),
-        projectId: row.projectId,
-      })),
-      ...selectedNonProjectDemand.filter((row) => row.isActive !== false).map((row) => ({
-        id: row.id,
-        label: row.subcategoryName ?? row.description ?? 'Other work',
-        type: row.categoryName ?? 'Other work',
-        hours: row.weeks.slice(0, weeks).reduce((sum, value) => sum + value, 0),
-        projectId: undefined,
-      })),
-    ].filter((row) => row.hours > 0).sort((first, second) => second.hours - first.hours),
-    [selectedNonProjectDemand, selectedProjectDemand, weeks],
-  );
+
+  /** Highlights the chosen week in the chart and scrolls/flashes its column in the visible table. */
+  function highlightWeek(week: number) {
+    setHighlightedWeek((current) => (current === week ? null : week));
+  }
+
+  useEffect(() => {
+    if (highlightedWeek === null) return;
+    const id = activeDemandTab === 'project' ? `project-week-${highlightedWeek}` : `other-week-${highlightedWeek}`;
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    const timeout = setTimeout(() => setHighlightedWeek(null), 3000);
+    return () => clearTimeout(timeout);
+  }, [highlightedWeek, activeDemandTab]);
 
   if (!personId) {
     return (
@@ -300,53 +272,21 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
     );
   }
 
-  const workloadKpis = (
-    <KpiRow
-      ariaLabel="My work KPIs"
-      variant="compact"
-      items={[
-        { key: 'assignments', value: metrics.assignedProjects, label: 'Project assignments' },
-        { key: 'over-weeks', value: metrics.overWeeks, label: 'Weeks overallocated', risk: metrics.overWeeks > 0 },
-        { key: 'over-hours', value: metrics.overHours, label: 'Hours overallocated', risk: metrics.overHours > 0 },
-        { key: 'utilization', value: `${metrics.utilization}%`, label: 'Utilization' },
-      ]}
-    />
-  );
-
   return (
     <>
       <div className="my-work-header-row">
+        <div className="department-title-row">
+        <button type="button" className="back-button department-inline-back" onClick={() => navigate(-1)} aria-label="Go back" title="Go back">
+          ←
+        </button>
         <div>
-          <h1 className="page-title">{user?.name ?? 'My work'}</h1>
-          <p className="page-subtitle">
-            {activeWorkspaceTab === 'summary' && 'Your upcoming commitments and allocation risk.'}
-            {activeWorkspaceTab === 'assignments' && 'Review and update project and run-the-business demand.'}
-            {activeWorkspaceTab === 'skills' && 'Keep your capabilities current for project and department planning.'}
-          </p>
+          <h1 className="page-title">My Workload</h1>
+          <p className="page-subtitle">Review and update project and run-the-business demand, {weeks} weeks from this Monday.</p>
+        </div>
         </div>
       </div>
 
-      <nav className="workspace-tabs" aria-label="My Work workspace">
-        {([
-          ['summary', 'Summary'],
-          ['assignments', 'Assignments'],
-          ['skills', 'Skills'],
-        ] as Array<[MyWorkTab, string]>).map(([tab, label]) => (
-          <button
-            key={tab}
-            type="button"
-            className={activeWorkspaceTab === tab ? 'active' : ''}
-            aria-current={activeWorkspaceTab === tab ? 'page' : undefined}
-            onClick={() => setActiveWorkspaceTab(tab)}
-          >
-            {label}
-            {tab === 'summary' && metrics.overWeeks > 0 && (
-              <span className="tab-badge" aria-label={`${metrics.overWeeks} weeks overallocated`}>{metrics.overWeeks}</span>
-            )}
-          </button>
-        ))}
-      </nav>
-
+      <div className="workspace-tabs-row">
       <div className="workspace-horizon-bar">
         <span>Planning horizon</span>
         <div className="pill-toggle" role="group" aria-label="Planning horizon">
@@ -355,75 +295,10 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
           ))}
         </div>
       </div>
+      </div>
 
-      {activeWorkspaceTab === 'summary' && (
-        <>
-        <div className="my-work-summary-kpis">{workloadKpis}</div>
-        <div className="my-work-summary-layout">
-          <section className="card my-work-attention">
-            <div className="project-overview-heading">
-              <div>
-                <h2>Allocation outlook</h2>
-                <p className="muted">Demand compared with your recorded availability over the next {weeks} weeks.</p>
-              </div>
-              <span className={riskWeeks.length ? 'risk-status risk-status-danger' : 'risk-status risk-status-clear'}>
-                {riskWeeks.length ? 'Attention needed' : 'Within availability'}
-              </span>
-            </div>
-            {riskWeeks.length ? (
-              <div className="personal-risk-list">
-                {riskWeeks.slice(0, 5).map((entry) => (
-                  <div key={entry.week}>
-                    <span><strong>{weekLabelShort(entry.week)}</strong><small>{entry.demand} h demand / {entry.availability} h available</small></span>
-                    <strong>{entry.over} h over</strong>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="my-work-clear-state">No weeks exceed your recorded availability in this horizon.</p>
-            )}
-            <button type="button" onClick={() => setActiveWorkspaceTab('assignments')}>Review assignment plan</button>
-          </section>
-
-          <section className="card my-work-commitments">
-            <div className="project-overview-heading">
-              <div><h2>Upcoming commitments</h2><p className="muted">Largest planned commitments in the next {weeks} weeks.</p></div>
-            </div>
-            <div className="personal-commitment-list">
-              {upcomingCommitments.slice(0, 8).map((commitment) => (
-                <div key={commitment.id}>
-                  <span>
-                    {commitment.projectId ? <Link to={`/projects/${commitment.projectId}`}>{commitment.label}</Link> : <strong>{commitment.label}</strong>}
-                    <small>{commitment.type}</small>
-                  </span>
-                  <strong>{Math.round(commitment.hours).toLocaleString('en-US')} h</strong>
-                </div>
-              ))}
-              {!upcomingCommitments.length && <p className="muted">No planned commitments in this horizon.</p>}
-            </div>
-          </section>
-        </div>
-        </>
-      )}
-
-      {activeWorkspaceTab === 'assignments' && (
       <div className="card my-workload-card">
-        <div className="toolbar my-workload-header">
-          <h2 style={{ margin: 0, flex: 1 }}>My Workload</h2>
-          {workloadCollapsed && workloadKpis}
-          <button
-            type="button"
-            className="workload-collapse-button"
-            aria-label={workloadCollapsed ? 'Expand My Workload' : 'Collapse My Workload'}
-            aria-expanded={!workloadCollapsed}
-            aria-controls="my-workload-content"
-            title={workloadCollapsed ? 'Expand My Workload' : 'Collapse My Workload'}
-            onClick={() => setWorkloadCollapsed((value) => !value)}
-          >
-            <span className={workloadCollapsed ? 'workload-collapse-chevron collapsed' : 'workload-collapse-chevron'} aria-hidden="true" />
-          </button>
-        </div>
-        <div id="my-workload-content" hidden={workloadCollapsed}>
+        <div id="my-workload-content">
           {error && <div className="alert error">{error}</div>}
           {(nonProjectDemand.isError || nonProjectCategories.isError || nonProjectSubcategories.isError) && (
             <div className="alert error">
@@ -445,7 +320,25 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
               thisColor="var(--asagi-blue)"
               otherColor="var(--sorairo-blue)"
               maxY={MAX_HOURS}
+              highlightWeek={highlightedWeek}
             />
+          )}
+
+          {overallocatedWeeks.length > 0 && (
+            <div className="overage-chip-row" role="group" aria-label="Weeks with overallocation">
+              {overallocatedWeeks.map((entry) => (
+                <button
+                  key={entry.week}
+                  type="button"
+                  className={entry.week === highlightedWeek ? 'overage-chip active' : 'overage-chip'}
+                  title={`Week of ${weekLabel(entry.week)}: ${Math.round(entry.over)} hours over availability`}
+                  onClick={() => highlightWeek(entry.week)}
+                >
+                  {weekLabelShort(entry.week)}
+                  <span className="overage-chip-token">{Math.round(entry.over)}h</span>
+                </button>
+              ))}
+            </div>
           )}
 
           <div className="demand-section-toolbar">
@@ -491,6 +384,20 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
                 <line x1="9" y1="14" x2="15" y2="14" />
               </svg>
               <span>Add assignment</span>
+            </button>
+            <button
+              type="button"
+              className="icon-button icon-button-add-labeled my-workload-export-action"
+              title="Export chart and full tables for printing or saving as PDF"
+              aria-label="Export my workload"
+              onClick={() => window.print()}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M6 9V3h12v6" />
+                <rect x="6" y="13" width="12" height="8" />
+                <path d="M6 17H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-2" />
+              </svg>
+              <span>Export</span>
             </button>
             <label className="switch demand-zero-toggle" title="Hide inactive">
               <input
@@ -546,7 +453,11 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
                 <tr>
                   <th className="matrix-label" aria-hidden="true" />
                   {chartColumns.map((week) => (
-                    <th key={week} className={weekYear(week) % 2 === 1 ? 'year-shade-alt' : undefined}>
+                    <th
+                      key={week}
+                      id={`project-week-${week}`}
+                      className={weekColumnClass(week, highlightedWeek, weekYear(week) % 2 === 1 ? 'year-shade-alt' : undefined)}
+                    >
                       {weekLabelShort(week)}
                     </th>
                   ))}
@@ -561,7 +472,11 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
                   </tr>
                 )}
                 {visibleProjectDemand.map((project, rowIndex) => (
-                  <tr key={project.demandId} className={`assignment-row ${rowIndex % 2 === 0 ? 'band-strong' : 'band-light'}`}>
+                  <tr
+                    key={project.demandId}
+                    id={`assignment-row-${project.projectId}`}
+                    className={['assignment-row', rowIndex % 2 === 0 ? 'band-strong' : 'band-light'].join(' ')}
+                  >
                     <th scope="row" className="matrix-label">
                       {project.projectName}
                     </th>
@@ -570,7 +485,7 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
                       const currentHours = project.weeks[week] ?? 0;
                       const value = draftDemand[key] ?? (currentHours ? String(currentHours) : '');
                       return (
-                        <td key={week} className="assignment-demand-cell">
+                        <td key={week} className={weekColumnClass(week, highlightedWeek, 'assignment-demand-cell')}>
                           <input
                             type="number"
                             min={0}
@@ -595,23 +510,23 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
                     Column total
                   </th>
                   {chartColumns.map((week) => (
-                    <td key={week}>{visibleProjectDemand.reduce((sum, project) => sum + (project.weeks[week] ?? 0), 0) || ''}</td>
+                    <td key={week} className={weekColumnClass(week, highlightedWeek)}>{visibleProjectDemand.reduce((sum, project) => sum + (project.weeks[week] ?? 0), 0) || ''}</td>
                   ))}
                 </tr>
                 <tr className="project-demand-section-row project-demand-total-row">
                   <th scope="row" className="matrix-label">
                     Subtotal
                   </th>
-                  {chartColumns.map((week) => <td key={week}>{selectedProjectTotal[week] || ''}</td>)}
+                  {chartColumns.map((week) => <td key={week} className={weekColumnClass(week, highlightedWeek)}>{selectedProjectTotal[week] || ''}</td>)}
                 </tr>
                 <tr className="matrix-total row-total-demand">
                   <th scope="row" className="matrix-label">Total demand</th>
-                  {chartColumns.map((week) => <td key={week}>{totalDemand[week] || ''}</td>)}
+                  {chartColumns.map((week) => <td key={week} className={weekColumnClass(week, highlightedWeek)}>{totalDemand[week] || ''}</td>)}
                 </tr>
                 <tr className="row-availability">
                   <th scope="row" className="matrix-label">My availability</th>
                   {chartColumns.map((week) => (
-                    <td key={week} className={(availability[week] ?? 0) > 0 ? 'has-availability' : undefined}>
+                    <td key={week} className={weekColumnClass(week, highlightedWeek, (availability[week] ?? 0) > 0 ? 'has-availability' : undefined)}>
                       {availability[week] ?? 0}
                     </td>
                   ))}
@@ -625,7 +540,7 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
                     const utilClass =
                       utilization === null ? undefined : utilization > 1.25 ? 'utilization-danger' : utilization > 1 ? 'utilization-warn' : undefined;
                     return (
-                      <td key={week} className={utilClass}>
+                      <td key={week} className={weekColumnClass(week, highlightedWeek, utilClass)}>
                         {utilization === null ? '—' : Number.isFinite(utilization) ? `${Math.round(utilization * 100)}%` : '∞'}
                       </td>
                     );
@@ -724,7 +639,11 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
                 <tr>
                   <th className="matrix-label" aria-hidden="true" />
                   {chartColumns.map((week) => (
-                    <th key={week} className={weekYear(week) % 2 === 1 ? 'year-shade-alt' : undefined}>
+                    <th
+                      key={week}
+                      id={`other-week-${week}`}
+                      className={weekColumnClass(week, highlightedWeek, weekYear(week) % 2 === 1 ? 'year-shade-alt' : undefined)}
+                    >
                       {weekLabelShort(week)}
                     </th>
                   ))}
@@ -792,7 +711,7 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
                       const currentHours = demandRow?.weeks[week] ?? 0;
                       const value = demandRow ? draftDemand[key] ?? (currentHours ? String(currentHours) : '') : '';
                       return (
-                        <td key={week} className="assignment-demand-cell">
+                        <td key={week} className={weekColumnClass(week, highlightedWeek, 'assignment-demand-cell')}>
                           <input
                             type="number"
                             min={0}
@@ -822,23 +741,23 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
                     Column total
                   </th>
                   {chartColumns.map((week) => (
-                    <td key={week}>{visibleNonProjectRows.reduce((sum, row) => sum + (row.demand.weeks[week] ?? 0), 0) || ''}</td>
+                    <td key={week} className={weekColumnClass(week, highlightedWeek)}>{visibleNonProjectRows.reduce((sum, row) => sum + (row.demand.weeks[week] ?? 0), 0) || ''}</td>
                   ))}
                 </tr>
                 <tr className="non-project-demand-section-row non-project-demand-total-row">
                   <th scope="row" className="matrix-label">
                     Subtotal
                   </th>
-                  {chartColumns.map((week) => <td key={week}>{selectedNonProjectTotal[week] || ''}</td>)}
+                  {chartColumns.map((week) => <td key={week} className={weekColumnClass(week, highlightedWeek)}>{selectedNonProjectTotal[week] || ''}</td>)}
                 </tr>
                 <tr className="matrix-total row-total-demand">
                   <th scope="row" className="matrix-label">Total demand</th>
-                  {chartColumns.map((week) => <td key={week}>{totalDemand[week] || ''}</td>)}
+                  {chartColumns.map((week) => <td key={week} className={weekColumnClass(week, highlightedWeek)}>{totalDemand[week] || ''}</td>)}
                 </tr>
                 <tr className="row-availability">
                   <th scope="row" className="matrix-label">My availability</th>
                   {chartColumns.map((week) => (
-                    <td key={week} className={(availability[week] ?? 0) > 0 ? 'has-availability' : undefined}>
+                    <td key={week} className={weekColumnClass(week, highlightedWeek, (availability[week] ?? 0) > 0 ? 'has-availability' : undefined)}>
                       {availability[week] ?? 0}
                     </td>
                   ))}
@@ -852,7 +771,7 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
                     const utilClass =
                       utilization === null ? undefined : utilization > 1.25 ? 'utilization-danger' : utilization > 1 ? 'utilization-warn' : undefined;
                     return (
-                      <td key={week} className={utilClass}>
+                      <td key={week} className={weekColumnClass(week, highlightedWeek, utilClass)}>
                         {utilization === null ? '—' : Number.isFinite(utilization) ? `${Math.round(utilization * 100)}%` : '∞'}
                       </td>
                     );
@@ -866,11 +785,6 @@ export default function IndividualDashboard({ initialTab = 'summary' }: { initia
         </div>
 
       </div>
-      )}
-
-      {activeWorkspaceTab === 'skills' && <div id="my-skills" className="my-skills-anchor">
-        <SkillsCard personId={personId} canEdit title="My Skills" subtitle="Skills you've added to your profile." />
-      </div>}
     </>
   );
 }

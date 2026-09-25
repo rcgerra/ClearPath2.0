@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'portfolio_manager' | 'user';
+export type Role = 'admin' | 'portfolio_manager' | 'availability_moderator' | 'demand_moderator' | 'user';
 
 export interface AuthUser {
   userId: string;
@@ -89,23 +89,36 @@ export interface ProjectRequest {
   shortTitle?: string;
   spotId?: string;
   phase?: string;
-  problemStatement?: string;
-  businessCase?: string;
-  expectedBenefit?: string;
+  disposition?: string;
+  location?: string;
+  neededBy?: string;
+  neededByJustification?: string;
+  currentState?: string;
+  discoveryMethod?: string;
+  impactToOperations?: string;
+  desiredFutureState?: string;
+  additionalInformation?: string;
   status?: string;
   submittedOn?: string;
   requesterPersonId?: string;
   requesterName?: string;
   delegatePersonId?: string;
   delegateName?: string;
+  sponsorPersonId?: string;
+  sponsorName?: string;
   isActive?: boolean;
   departmentId?: string;
   departmentName?: string;
   categoryId?: string;
   categoryName?: string;
   priorityScore?: number;
+  prioritizationComplete?: boolean;
   projectId?: string;
 }
+
+/** Disposition values captured on the intake form; new requests always start Pending. */
+export const REQUEST_DISPOSITIONS = ['Pending', 'Endorsed', 'Not Endorsed', 'Cancelled'] as const;
+
 
 export interface DemandRow {
   id: string;
@@ -204,6 +217,29 @@ export interface Question {
   weight: number;
   sequence?: number;
   answerType?: string;
+  isActive?: boolean;
+  required?: boolean;
+  metric?: string;
+  helpText?: string;
+  subtitle?: string;
+  options: Array<{ score: 0 | 1 | 5 | 10 | 15; label: string; text: string }>;
+}
+
+export interface ScoringCategory {
+  id: string;
+  name: string;
+  weight: number;
+  parent: 'Impact' | 'Complexity';
+  categoryType?: string;
+  notes?: string;
+  isActive?: boolean;
+}
+
+export interface PrioritizationModel {
+  parentWeights: {
+    Impact: number;
+    Complexity: number;
+  };
 }
 
 export interface Answer {
@@ -213,6 +249,8 @@ export interface Answer {
   value?: string;
   score?: number;
   comment?: string;
+  justification?: string;
+  methodology?: string;
 }
 
 export interface RankedRequest {
@@ -221,6 +259,11 @@ export interface RankedRequest {
   title?: string;
   status?: string;
   priorityScore?: number;
+  impactScore?: number;
+  complexityScore?: number;
+  financialBenefit?: number;
+  quartile?: string;
+  topTen?: boolean;
   departmentName?: string;
   categoryName?: string;
 }

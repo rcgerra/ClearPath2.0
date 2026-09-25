@@ -32,6 +32,12 @@ const AREAS = [
     description: 'Maintain the skill categories people can select from.',
   },
   {
+    to: '/admin/prioritization-model',
+    accent: 'prioritization',
+    title: 'Prioritization Model',
+    description: 'Maintain scoring categories, weights, questions and answer choices.',
+  },
+  {
     to: '/admin/access',
     accent: 'access',
     title: 'Security Roles',
@@ -42,6 +48,12 @@ const AREAS = [
     accent: 'projects',
     title: 'Run the Business',
     description: 'Review non-project demand and manage its categories.',
+  },
+  {
+    to: '/admin/controls',
+    accent: 'access',
+    title: 'Admin Controls',
+    description: 'Preview the application as another person without ending your admin session.',
   },
 ] as const;
 

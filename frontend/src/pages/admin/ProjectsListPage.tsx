@@ -21,7 +21,7 @@ import { calculateProjectScheduleHealth } from '../../utils/projectSchedule';
 import type { Project } from '../../types';
 
 /** KPI horizon requested for project roll-ups. */
-const KPI_WEEKS = 13;
+const KPI_WEEKS = 26;
 
 function emptyWeeks(): number[] {
   return new Array(KPI_WEEKS).fill(0);

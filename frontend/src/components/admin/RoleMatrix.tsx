@@ -4,7 +4,8 @@ import type { Role } from '../../types';
 export const ROLE_LABELS: Array<{ value: Role; label: string }> = [
   { value: 'admin', label: 'Admin' },
   { value: 'portfolio_manager', label: 'Portfolio Manager' },
-  { value: 'user', label: 'User' },
+  { value: 'availability_moderator', label: 'Availability Moderator' },
+  { value: 'demand_moderator', label: 'Demand Moderator' },
 ];
 
 type Area = 'requests' | 'projects' | 'departments' | 'people';
@@ -39,7 +40,8 @@ export default function RoleMatrix() {
     <div className={`card role-matrix-card ${activeAccent}`.trim()}>
       <h2>What each role can do</h2>
       <p className="muted">
-        Admin and Portfolio Manager are global roles. Project Manager, Department Lead, Project Demand Delegate,
+        Anyone is the baseline access level. Admin, Portfolio Manager, Availability Moderator, and Demand Moderator
+        are global roles. Project Manager, Department Lead, Project Demand Delegate,
         and Department Delegate are assigned by administrators on each project or department record.
       </p>
 
@@ -70,6 +72,18 @@ export default function RoleMatrix() {
             </tr>
           </thead>
           <tbody>
+            <tr>
+              <th scope="row" className="role-column">Anyone</th>
+              {visible.map((capability) => {
+                const allowed = capability.roles.includes('user');
+                return (
+                  <td key={capability.label} className={allowed ? 'cap-yes' : 'cap-no'}>
+                    <span aria-label={allowed ? 'Allowed' : 'Not allowed'}>{allowed ? '✓' : '—'}</span>
+                  </td>
+                );
+              })}
+              <td className="spacer-column" aria-hidden="true" />
+            </tr>
             {ROLE_LABELS.map((role) => (
               <tr key={role.value}>
                 <th scope="row" className="role-column">

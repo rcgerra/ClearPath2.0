@@ -6,6 +6,7 @@ import ProjectAnalyticsInsights from '../components/ProjectAnalyticsInsights';
 import AllocationConflictQueue from '../components/AllocationConflictQueue';
 import PersonDemandChart from '../components/PersonDemandChart';
 import ConflictResolutionPanel from '../components/ConflictResolutionPanel';
+import DataReviewChecklistModal from '../components/DataReviewChecklistModal';
 import ScheduleHealthBadge from '../components/ScheduleHealthBadge';
 import KpiRow from '../components/KpiRow';
 import SlideOverPanel from '../components/SlideOverPanel';
@@ -19,7 +20,7 @@ import { calculateProjectScheduleHealth } from '../utils/projectSchedule';
 import type { DemandRow, Person } from '../types';
 
 const WEEKS = 104;
-const DEFAULT_WEEKS_TO_SHOW = 13;
+const DEFAULT_WEEKS_TO_SHOW = 26;
 const MAX_HOURS = 60;
 type ProjectWorkspaceTab = 'overview' | 'team' | 'kpis' | 'risk' | 'details';
 
@@ -59,6 +60,7 @@ export default function ProjectTeamPage() {
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [resolvingConflict, setResolvingConflict] = useState<AllocationConflict | null>(null);
+  const [reviewChecklistOpen, setReviewChecklistOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<ProjectWorkspaceTab>('overview');
   const [weeksToShow, setWeeksToShow] = useState(DEFAULT_WEEKS_TO_SHOW);
   const [lookDirection, setLookDirection] = useState<'ahead' | 'back'>('ahead');
@@ -166,7 +168,10 @@ export default function ProjectTeamPage() {
 
   const checkIn = useMutation({
     mutationFn: () => projectsApi.update(id, { lastCheckIn: new Date().toISOString().slice(0, 10) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project', id] }),
+    onSuccess: () => {
+      setReviewChecklistOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+    },
     onError: (err) => setError(errorMessage(err)),
   });
 
@@ -421,8 +426,9 @@ export default function ProjectTeamPage() {
         </div>
         <div className="row-actions">
           <button
-            className={checkInClass}
-            onClick={() => checkIn.mutate()}
+            type="button"
+            className={['icon-button', 'icon-button-add', 'icon-button-add-labeled', checkInClass].filter(Boolean).join(' ')}
+            onClick={() => setReviewChecklistOpen(true)}
             disabled={!editable || checkIn.isPending}
             title={
               Number.isFinite(daysSinceCheckIn)
@@ -430,11 +436,25 @@ export default function ProjectTeamPage() {
                 : 'This project has never been checked in'
             }
           >
-            {checkIn.isPending ? 'Checking in…' : 'Check in project'}
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z" />
+              <rect x="5" y="6" width="14" height="15" rx="2" />
+              <polyline points="9 14 11 16 15 12" />
+            </svg>
+            <span>{checkIn.isPending ? 'Saving review…' : 'Periodic review'}</span>
           </button>
         </div>
       </div>
 
+      <DataReviewChecklistModal
+        open={reviewChecklistOpen}
+        onClose={() => setReviewChecklistOpen(false)}
+        onConfirm={() => checkIn.mutate()}
+        confirming={checkIn.isPending}
+        scope="project"
+      />
+
+      <div className="workspace-tabs-row">
       <nav className="workspace-tabs" aria-label="Project workspace">
         {([
           ['overview', 'Overview'],
@@ -458,8 +478,6 @@ export default function ProjectTeamPage() {
         ))}
       </nav>
 
-      {error && <div className="alert error">{error}</div>}
-
       <div className="workspace-horizon-bar">
         <span>Planning horizon</span>
         <div className="pill-toggle" role="group" aria-label="Planning horizon">
@@ -468,6 +486,9 @@ export default function ProjectTeamPage() {
           ))}
         </div>
       </div>
+      </div>
+
+      {error && <div className="alert error">{error}</div>}
 
       {activeTab === 'overview' && (
         <div className="project-overview-layout">

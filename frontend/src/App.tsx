@@ -1,33 +1,36 @@
+import { lazy } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import SessionGate from './components/SessionGate';
 import { AuthProvider } from './contexts/AuthContext';
-import AdminDashboard from './pages/AdminDashboard';
-import AccessListPage from './pages/admin/AccessListPage';
-import AdminHome from './pages/admin/AdminHome';
-import DepartmentEditPage from './pages/admin/DepartmentEditPage';
-import DepartmentsListPage from './pages/admin/DepartmentsListPage';
-import NonProjectDemandCategoriesPage from './pages/admin/NonProjectDemandCategoriesPage';
-import PeopleListPage from './pages/admin/PeopleListPage';
-import PersonEditPage from './pages/admin/PersonEditPage';
-import ProjectEditPage from './pages/admin/ProjectEditPage';
-import ProjectsListPage from './pages/admin/ProjectsListPage';
-import RequestEditPage from './pages/admin/RequestEditPage';
-import RequestsListPage from './pages/admin/RequestsListPage';
-import SkillsPage from './pages/admin/SkillsPage';
-import DeptLeadDashboard from './pages/DeptLeadDashboard';
-import DepartmentsPage from './pages/DepartmentsPage';
-import DepartmentTeamPage from './pages/DepartmentTeamPage';
 import HomePage from './pages/HomePage';
-import IndividualDashboard from './pages/IndividualDashboard';
-import OtherWorkPage from './pages/OtherWorkPage';
-import PrioritizationPage from './pages/PrioritizationPage';
-import ProjectCapturePage from './pages/ProjectCapturePage';
-import ProjectManagerDashboard from './pages/ProjectManagerDashboard';
-import ProjectsPage from './pages/ProjectsPage';
-import ProjectTeamPage from './pages/ProjectTeamPage';
-import RequestsPage from './pages/RequestsPage';
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const AccessListPage = lazy(() => import('./pages/admin/AccessListPage'));
+const AdminControlsPage = lazy(() => import('./pages/admin/AdminControlsPage'));
+const AdminHome = lazy(() => import('./pages/admin/AdminHome'));
+const DepartmentEditPage = lazy(() => import('./pages/admin/DepartmentEditPage'));
+const DepartmentsListPage = lazy(() => import('./pages/admin/DepartmentsListPage'));
+const NonProjectDemandCategoriesPage = lazy(() => import('./pages/admin/NonProjectDemandCategoriesPage'));
+const PeopleListPage = lazy(() => import('./pages/admin/PeopleListPage'));
+const PrioritizationModelPage = lazy(() => import('./pages/admin/PrioritizationModelPage'));
+const PersonEditPage = lazy(() => import('./pages/admin/PersonEditPage'));
+const ProjectEditPage = lazy(() => import('./pages/admin/ProjectEditPage'));
+const ProjectsListPage = lazy(() => import('./pages/admin/ProjectsListPage'));
+const RequestEditPage = lazy(() => import('./pages/admin/RequestEditPage'));
+const RequestsListPage = lazy(() => import('./pages/admin/RequestsListPage'));
+const SkillsPage = lazy(() => import('./pages/admin/SkillsPage'));
+const DeptLeadDashboard = lazy(() => import('./pages/DeptLeadDashboard'));
+const DepartmentsPage = lazy(() => import('./pages/DepartmentsPage'));
+const DepartmentTeamPage = lazy(() => import('./pages/DepartmentTeamPage'));
+const IndividualDashboard = lazy(() => import('./pages/IndividualDashboard'));
+const OtherWorkPage = lazy(() => import('./pages/OtherWorkPage'));
+const PrioritizationPage = lazy(() => import('./pages/PrioritizationPage'));
+const ProjectCapturePage = lazy(() => import('./pages/ProjectCapturePage'));
+const ProjectManagerDashboard = lazy(() => import('./pages/ProjectManagerDashboard'));
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
+const ProjectTeamPage = lazy(() => import('./pages/ProjectTeamPage'));
+const RequestsPage = lazy(() => import('./pages/RequestsPage'));
 
 export default function App() {
   return (
@@ -51,6 +54,7 @@ export default function App() {
                 <Routes>
                   <Route path="portfolio" element={<AdminDashboard />} />
                   <Route path="access" element={<AccessListPage />} />
+                  <Route path="controls" element={<AdminControlsPage />} />
                   <Route path="requests" element={<RequestsListPage />} />
                   <Route path="requests/:id" element={<RequestEditPage />} />
                   <Route path="projects" element={<ProjectsListPage />} />
@@ -64,6 +68,7 @@ export default function App() {
                     element={<Navigate to="/admin/other-work/non-project-demand-categories" replace />}
                   />
                   <Route path="skills" element={<SkillsPage />} />
+                  <Route path="prioritization-model" element={<PrioritizationModelPage />} />
                   <Route path="people" element={<PeopleListPage />} />
                   <Route path="people/:id" element={<PersonEditPage />} />
                 </Routes>
@@ -116,7 +121,6 @@ export default function App() {
             }
           />
           <Route path="/me" element={<IndividualDashboard />} />
-          <Route path="/my-skills" element={<IndividualDashboard initialTab="skills" />} />
           <Route path="/portfolio" element={<ProtectedRoute roles={['admin', 'portfolio_manager']}><AdminDashboard /></ProtectedRoute>} />
           <Route path="/people" element={<PeopleListPage />} />
           <Route path="/skills" element={<SkillsPage />} />

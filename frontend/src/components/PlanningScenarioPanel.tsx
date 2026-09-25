@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { weekLabelShort } from '../utils/arrayParser';
 import type { AllocationConflict } from '../utils/allocationRisk';
+import { formatCount } from '../utils/format';
 import SlideOverPanel from './SlideOverPanel';
 
 export interface ScenarioAdjustmentRow {
@@ -8,6 +9,8 @@ export interface ScenarioAdjustmentRow {
   label: string;
   subtitle?: string;
   weeks: number[];
+  /** This person's total demand per week over the horizon, shown alongside availability for comparison. */
+  demandWeeks?: number[];
 }
 
 export type ScenarioWeekOverrides = Record<string, Record<number, number>>;
@@ -55,6 +58,19 @@ export default function PlanningScenarioPanel({
 
   const selected = rows.find((row) => row.id === selectedRowId) ?? rows[0];
   const selectedOverrides = selected ? overrides[selected.id] ?? {} : {};
+
+  /** Spare capacity (availability minus demand) over the visible horizon, to spot who could absorb reassigned work. */
+  const spareCapacityFor = (row: ScenarioAdjustmentRow) => {
+    const availability = row.weeks.slice(0, horizon).reduce((sum, value) => sum + value, 0);
+    const demand = (row.demandWeeks ?? []).slice(0, horizon).reduce((sum, value) => sum + value, 0);
+    return availability - demand;
+  };
+  const candidates = rows
+    .filter((row) => row.id !== selected?.id)
+    .map((row) => ({ row, spare: spareCapacityFor(row) }))
+    .filter((entry) => entry.spare > 0)
+    .sort((a, b) => b.spare - a.spare)
+    .slice(0, 5);
   const changedRows = Object.values(overrides).filter((weekValues) => Object.keys(weekValues).length > 0).length;
   const baselineIds = new Set(baselineConflicts.map((conflict) => conflict.personId));
   const scenarioIds = new Set(scenarioConflicts.map((conflict) => conflict.personId));
@@ -98,9 +114,9 @@ export default function PlanningScenarioPanel({
       <div className="scenario-comparison" aria-label="Scenario conflict comparison">
         <div><strong>{baselineConflicts.length}</strong><span>Baseline conflicts</span></div>
         <div><strong>{scenarioConflicts.length}</strong><span>Scenario conflicts</span></div>
-        <div><strong>{Math.round(baselineExcess).toLocaleString('en-US')} h</strong><span>Baseline excess</span></div>
+        <div><strong>{formatCount(baselineExcess)} h</strong><span>Baseline excess</span></div>
         <div className={scenarioExcess < baselineExcess ? 'scenario-resolved' : scenarioExcess > baselineExcess ? 'scenario-introduced' : undefined}>
-          <strong>{Math.round(scenarioExcess).toLocaleString('en-US')} h</strong><span>Scenario excess</span>
+          <strong>{formatCount(scenarioExcess)} h</strong><span>Scenario excess</span>
         </div>
         <div className="scenario-resolved"><strong>{resolved.length}</strong><span>Resolved</span></div>
         <div className={introduced.length ? 'scenario-introduced' : undefined}><strong>{introduced.length}</strong><span>Introduced</span></div>
@@ -123,6 +139,12 @@ export default function PlanningScenarioPanel({
             <table className="weekly-matrix scenario-weekly-matrix">
               <thead><tr><th className="matrix-label">{valueLabel}</th>{columns.map((week) => <th key={week}>{weekLabelShort(week)}</th>)}</tr></thead>
               <tbody>
+                {selected.demandWeeks && (
+                  <tr className="scenario-demand-row">
+                    <th className="matrix-label" scope="row">Demand (reference)</th>
+                    {columns.map((week) => <td key={week}>{selected.demandWeeks?.[week] ?? 0}</td>)}
+                  </tr>
+                )}
                 <tr><th className="matrix-label" scope="row">Baseline</th>{columns.map((week) => <td key={week}>{selected.weeks[week] ?? 0}</td>)}</tr>
                 <tr className="scenario-weekly-edit-row">
                   <th className="matrix-label" scope="row">Scenario</th>
@@ -148,6 +170,21 @@ export default function PlanningScenarioPanel({
               </tbody>
             </table>
           </div>
+
+          {candidates.length > 0 && (
+            <div className="scenario-candidates">
+              <strong>People with spare capacity who could take on reassigned work</strong>
+              <p className="muted">Based on demand vs. availability over the same {horizon}-week horizon.</p>
+              <div className="scenario-candidates-list">
+                {candidates.map(({ row, spare }) => (
+                  <button key={row.id} type="button" onClick={() => setSelectedRowId(row.id)}>
+                    <span>{row.label}{row.subtitle ? <small>{row.subtitle}</small> : null}</span>
+                    <strong>{formatCount(spare)} h spare</strong>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       ) : <p className="muted">No planning rows are available for this scenario.</p>}
     </SlideOverPanel>

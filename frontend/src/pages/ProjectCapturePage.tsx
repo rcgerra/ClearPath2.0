@@ -1,16 +1,15 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { departmentsApi, errorMessage, prioritizationApi, requestsApi } from '../api/client';
+import { useMutation } from '@tanstack/react-query';
+import { errorMessage, requestsApi } from '../api/client';
+import UserSelect from '../components/admin/UserSelect';
+import LocationChipPicker from '../components/LocationChipPicker';
 
-/** Project capture form: problem statement first, questionnaire second. */
+/** Intake capture form: problem statement first, questionnaire second. Fields mirror the "New Business Case" form. */
 export default function ProjectCapturePage() {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
-
-  const departments = useQuery({ queryKey: ['departments'], queryFn: departmentsApi.list });
-  const categories = useQuery({ queryKey: ['categories'], queryFn: prioritizationApi.categories });
 
   const submit = useMutation({
     mutationFn: (body: Parameters<typeof requestsApi.create>[0]) => requestsApi.create(body),
@@ -22,13 +21,19 @@ export default function ProjectCapturePage() {
     event.preventDefault();
     setError(null);
     const form = new FormData(event.currentTarget);
+    const optional = (key: string) => String(form.get(key) || '').trim() || undefined;
     submit.mutate({
-      title: String(form.get('title')),
-      problemStatement: String(form.get('problemStatement')),
-      businessCase: String(form.get('businessCase') || '') || undefined,
-      expectedBenefit: String(form.get('expectedBenefit') || '') || undefined,
-      departmentId: String(form.get('departmentId') || '') || undefined,
-      categoryId: String(form.get('categoryId') || '') || undefined,
+      title: String(form.get('shortTitle')),
+      shortTitle: String(form.get('shortTitle')),
+      sponsorPersonId: optional('sponsorPersonId'),
+      location: optional('location'),
+      neededBy: optional('neededBy'),
+      neededByJustification: optional('neededByJustification'),
+      currentState: String(form.get('currentState')),
+      discoveryMethod: optional('discoveryMethod'),
+      impactToOperations: optional('impactToOperations'),
+      desiredFutureState: optional('desiredFutureState'),
+      additionalInformation: optional('additionalInformation'),
     });
   }
 
@@ -51,58 +56,90 @@ export default function ProjectCapturePage() {
 
   return (
     <>
-      <h1 className="page-title">New project request</h1>
+      <h1 className="page-title">New Business Case</h1>
       <p className="page-subtitle">Describe the problem before proposing a solution.</p>
 
       {error && <div className="alert error">{error}</div>}
 
       <form className="card" onSubmit={handleSubmit}>
-        <div className="field">
-          <label htmlFor="title">Request title</label>
-          <input id="title" name="title" required minLength={3} maxLength={200} />
+        <div className="grid cols-2">
+          <div className="field">
+            <label htmlFor="shortTitle">Short Title</label>
+            <input id="shortTitle" name="shortTitle" required minLength={3} maxLength={100} />
+          </div>
+          <UserSelect id="sponsorPersonId" name="sponsorPersonId" label="Proposed Sponsor" personValue />
         </div>
 
         <div className="field">
-          <label htmlFor="problemStatement">
-            Problem statement — what is broken today, who does it affect, and what is the impact?
-          </label>
-          <textarea id="problemStatement" name="problemStatement" required minLength={10} maxLength={4000} />
+          <LocationChipPicker id="location" name="location" />
         </div>
 
         <div className="grid cols-2">
           <div className="field">
-            <label htmlFor="businessCase">Business case</label>
-            <textarea id="businessCase" name="businessCase" maxLength={4000} />
+            <label htmlFor="neededBy">Needed By</label>
+            <input id="neededBy" name="neededBy" type="date" />
           </div>
           <div className="field">
-            <label htmlFor="expectedBenefit">Expected benefit</label>
-            <textarea id="expectedBenefit" name="expectedBenefit" maxLength={4000} />
+            <label htmlFor="neededByJustification">Rationale</label>
+            <textarea
+              id="neededByJustification"
+              name="neededByJustification"
+              maxLength={4000}
+              placeholder="Explain why the project must be done by this date and the impact if delayed (e.g., production loss, compliance risk, missed opportunity)."
+            />
           </div>
         </div>
 
-        <div className="grid cols-2">
-          <div className="field">
-            <label htmlFor="departmentId">Requesting department</label>
-            <select id="departmentId" name="departmentId">
-              <option value="">—</option>
-              {departments.data?.map((dept) => (
-                <option key={dept.id} value={dept.id}>
-                  {dept.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="categoryId">Category</label>
-            <select id="categoryId" name="categoryId">
-              <option value="">—</option>
-              {categories.data?.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="field">
+          <label htmlFor="currentState">Current State</label>
+          <textarea
+            id="currentState"
+            name="currentState"
+            required
+            minLength={10}
+            maxLength={4000}
+            placeholder="Describe the current situation or problem. What isn't working as expected? Include details about the issue or opportunity you want to address and why it matters."
+          />
+        </div>
+
+        <div className="field">
+          <label htmlFor="discoveryMethod">Discovery Method</label>
+          <textarea
+            id="discoveryMethod"
+            name="discoveryMethod"
+            maxLength={4000}
+            placeholder="Explain how this issue or opportunity was identified. Examples include: cGMP audit, internal audit, GEMBA walkthrough, surveys, or other observations."
+          />
+        </div>
+
+        <div className="field">
+          <label htmlFor="impactToOperations">Impact to Operations</label>
+          <textarea
+            id="impactToOperations"
+            name="impactToOperations"
+            maxLength={4000}
+            placeholder="Describe the effect this issue/opportunity is having. Include measurable outcomes where possible, such as value lost or gained, number of incidents, frequency, downtime, or other quantifiable impacts."
+          />
+        </div>
+
+        <div className="field">
+          <label htmlFor="desiredFutureState">Desired Future State</label>
+          <textarea
+            id="desiredFutureState"
+            name="desiredFutureState"
+            maxLength={4000}
+            placeholder="Describe the goal you want to achieve. How much of the problem do you expect to resolve? What specifically will change or improve?"
+          />
+        </div>
+
+        <div className="field">
+          <label htmlFor="additionalInformation">Additional Information</label>
+          <textarea
+            id="additionalInformation"
+            name="additionalInformation"
+            maxLength={4000}
+            placeholder="Include any other relevant details or context that would help reviewers understand the situation or your proposed solution."
+          />
         </div>
 
         <div className="row-actions">

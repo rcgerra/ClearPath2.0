@@ -1,15 +1,12 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { capacityApi, demandApi, departmentsApi, nonProjectDemandApi, peopleApi, projectsApi } from '../api/client';
+import { capacityApi, demandApi, departmentsApi, nonProjectDemandApi, peopleApi, prioritizationApi, projectsApi, requestsApi } from '../api/client';
 import { useAuthStore } from '../store/authStore';
-import { isMine, ownershipRole } from '../utils/ownership';
+import { isMine } from '../utils/ownership';
 import { buildAllocationConflicts } from '../utils/allocationRisk';
-import { weekLabelShort } from '../utils/arrayParser';
 import { calculateProjectScheduleHealth } from '../utils/projectSchedule';
-import ScheduleHealthBadge from '../components/ScheduleHealthBadge';
 import SkillsCard from '../components/SkillsCard';
-import KpiRow from '../components/KpiRow';
 
 function reviewAge(lastCheckIn: string | undefined): number {
   if (!lastCheckIn) return Number.POSITIVE_INFINITY;
@@ -32,7 +29,22 @@ export default function HomePage() {
   const capacity = useQuery({ queryKey: ['capacity', 'all'], queryFn: () => capacityApi.list() });
   const demand = useQuery({ queryKey: ['demand', 'all'], queryFn: () => demandApi.list() });
   const nonProjectDemand = useQuery({ queryKey: ['non-project-demand', 'all'], queryFn: () => nonProjectDemandApi.list() });
+  const myRequests = useQuery({ queryKey: ['requests', 'mine'], queryFn: () => requestsApi.list({ mine: true }) });
+  const sponsorRequests = useQuery({ queryKey: ['sponsored-requests'], queryFn: prioritizationApi.requests });
   const personId = user?.personId;
+
+  const openRequests = useMemo(
+    () => (myRequests.data ?? []).filter((request) =>
+      request.phase !== 'Processed' && !request.projectId && !['Cancelled', 'Not Endorsed'].includes(request.disposition ?? 'Pending'),
+    ),
+    [myRequests.data],
+  );
+  const needsPrioritization = useMemo(
+    () => [...(sponsorRequests.data ?? [])]
+      .filter((request) => !request.prioritizationComplete)
+      .sort((left, right) => String(right.submittedOn ?? '').localeCompare(String(left.submittedOn ?? ''))),
+    [sponsorRequests.data],
+  );
 
   const myProjects = useMemo(
     () => (projects.data ?? []).filter((project) => project.isActive !== false && isMine(project, personId)),
@@ -58,10 +70,27 @@ export default function HomePage() {
       demand: demand.data ?? [],
       nonProjectDemand: nonProjectDemand.data ?? [],
       people: people.data ?? [],
-      horizon: 13,
+      horizon: 26,
       personIds: relevantPersonIds,
     });
   }, [capacity.data, demand.data, myDepartments, myProjects, nonProjectDemand.data, people.data]);
+
+  function mylinkForConflict(
+    conflict: ReturnType<typeof buildAllocationConflicts>[number],
+    peopleLookup: Map<string, any>,
+    demandRows: typeof demand.data,
+    projectIds: Set<string>,
+    departments: typeof myDepartments,
+  ) {
+    const person = peopleLookup.get(conflict.personId);
+    const department = departments.find((entry) => entry.id === person?.departmentId);
+    const projectAssignment = (demandRows ?? []).find(
+      (row) => row.personId?.toLowerCase() === conflict.personId && projectIds.has(row.projectId),
+    );
+    if (department) return `/departments/${department.id}`;
+    if (projectAssignment) return `/projects/${projectAssignment.projectId}`;
+    return '/projects';
+  }
   const peopleById = new Map((people.data ?? []).map((person) => [person.id.toLowerCase(), person]));
   const managedProjectIds = new Set(myProjects.map((project) => project.id));
   const scheduleHealthByProject = useMemo(() => {
@@ -88,141 +117,161 @@ export default function HomePage() {
   return (
     <section className="operational-home">
       <header className="operational-home-header">
-        <div>
-          <span className="operational-home-eyebrow">ClearPath planning workspace</span>
-          <h1>Welcome, {user?.name?.split(' ')[0] ?? 'planner'}</h1>
-          <p>Focus on staffing decisions, current commitments, and plans that need attention.</p>
+        <div className="operational-home-header-copy">
+          <h1 className="page-title">Good morning, {user?.name?.split(' ')[0] ?? 'planner'}</h1>
+          <p>Here is the current state of your portfolio and the decisions that need attention this week.</p>
         </div>
-        <Link className="operational-home-primary" to="/me">Open my workload</Link>
+
+        <div className="operational-home-actions">
+          <Link className="operational-home-primary" to="/me">My workload</Link>
+          <Link className="operational-home-secondary" to="/requests">Open requests</Link>
+        </div>
       </header>
 
-      <KpiRow
-        ariaLabel="Your planning summary"
-        variant="grid"
-        items={[
-          { key: 'projects', value: myProjects.length, label: 'Projects you manage or support' },
-          { key: 'departments', value: myDepartments.length, label: 'Departments you lead or support' },
-          { key: 'reviews', value: reviewsDue, label: 'Plans due for review', risk: reviewsDue > 0 },
-          { key: 'schedule-risk', value: scheduleRiskCount, label: 'Projects with schedule risk' },
-          { key: 'conflicts', value: relevantConflicts.length, label: 'Allocation conflicts', risk: relevantConflicts.length > 0 },
-        ]}
-      />
+      <div className="operational-home-kpis">
+        <div className="home-mini-stat home-mini-stat-projects">
+          <span className="home-mini-stat-label">Portfolio</span>
+          <strong>{myProjects.length}</strong>
+          <small>projects in focus</small>
+        </div>
+        <div className="home-mini-stat home-mini-stat-departments">
+          <span className="home-mini-stat-label">Departments</span>
+          <strong>{myDepartments.length}</strong>
+          <small>team areas</small>
+        </div>
+        <div className="home-mini-stat home-mini-stat-governance">
+          <span className="home-mini-stat-label">Reviews due</span>
+          <strong>{reviewsDue}</strong>
+          <small>plans needing review</small>
+        </div>
+        <div className="home-mini-stat home-mini-stat-availability">
+          <span className="home-mini-stat-label">Schedule risk</span>
+          <strong>{scheduleRiskCount}</strong>
+          <small>at-risk programs</small>
+        </div>
+      </div>
 
-      <div className="operational-home-columns">
-        <section className="home-focus-section accent-projects">
-          <div className="home-focus-heading">
+      <div className="operational-home-grid">
+        <section className="card home-panel home-panel-prioritization">
+          <div className="home-panel-header">
             <div>
-              <h2>Project planning</h2>
-              <p>Build teams, review demand, and resolve allocation risk.</p>
+              <h2>Priority queue</h2>
+              <p>Decisions that need a sponsor response or review.</p>
             </div>
-            <Link to="/projects">View projects</Link>
+            <Link to="/prioritization">Open</Link>
           </div>
-          <div className="home-record-list">
-            {orderedProjects.slice(0, 4).map((project) => (
-              <Link key={project.id} to={`/projects/${project.id}`} className="home-record-row">
-                <span>
-                  <strong>{project.name}</strong>
-                  <small>{project.spotId ? `SPOT ${project.spotId}` : 'Project plan'} · {ownershipRole(project, personId) === 'delegate' ? 'Project demand delegate' : 'Project manager / sponsor'}</small>
-                </span>
-                <span className="home-record-statuses">
-                  {scheduleHealthByProject.get(project.id) && <ScheduleHealthBadge health={scheduleHealthByProject.get(project.id)!} />}
-                  <span className={reviewAge(project.lastCheckIn) > 30 ? 'home-review-status due' : 'home-review-status'}>
-                    {reviewLabel(project.lastCheckIn)}
-                  </span>
-                </span>
-              </Link>
+
+          <ul className="home-simple-list">
+            {needsPrioritization.slice(0, 3).map((request) => (
+              <li key={request.id}>
+                <Link to={`/prioritization?requestId=${request.id}`}>
+                  <strong>{request.shortTitle ?? request.title ?? request.name}</strong>
+                  <span>Assessment due</span>
+                </Link>
+              </li>
             ))}
-            {!projects.isLoading && myProjects.length === 0 && (
-              <p className="home-empty-state">You do not currently manage, sponsor, or support an active project.</p>
+            {needsPrioritization.length === 0 && (
+              <li className="empty-line">No requests currently require prioritization.</li>
             )}
-          </div>
+          </ul>
         </section>
 
-        <section className="home-focus-section accent-departments">
-          <div className="home-focus-heading">
+        <section className="card home-panel home-panel-projects">
+          <div className="home-panel-header">
             <div>
-              <h2>Department planning</h2>
-              <p>Manage availability, assignments, and team capacity.</p>
+              <h2>Portfolio watch</h2>
+              <p>Projects and departments in your current lane.</p>
             </div>
-            <Link to="/departments">View departments</Link>
+            <Link to="/projects">View</Link>
           </div>
-          <div className="home-record-list">
-            {myDepartments.slice(0, 4).map((department) => (
-              <Link key={department.id} to={`/departments/${department.id}`} className="home-record-row">
-                <span>
-                  <strong>{department.name}</strong>
-                  <small>{department.functionName ?? 'No function'} · {ownershipRole(department, personId) === 'delegate' ? 'Department delegate' : 'Department lead'}</small>
-                </span>
-                <span className={reviewAge(department.lastCheckIn) > 30 ? 'home-review-status due' : 'home-review-status'}>
-                  {reviewLabel(department.lastCheckIn)}
-                </span>
-              </Link>
+
+          <ul className="home-simple-list">
+            {orderedProjects.slice(0, 3).map((project) => (
+              <li key={project.id}>
+                <Link to={`/projects/${project.id}`}>
+                  <strong>{project.name}</strong>
+                  <span>{reviewLabel(project.lastCheckIn)}</span>
+                </Link>
+              </li>
             ))}
-            {!departments.isLoading && myDepartments.length === 0 && (
-              <p className="home-empty-state">
-                No department lead or delegate responsibilities are assigned to you.{' '}
-                {user?.departmentId && <Link to={`/departments/${user.departmentId}`}>Open your department</Link>}
-              </p>
+            {orderedProjects.length === 0 && (
+              <li className="empty-line">No active projects are assigned to your current role.</li>
             )}
+          </ul>
+        </section>
+
+        <section className="card home-panel home-panel-requests">
+          <div className="home-panel-header">
+            <div>
+              <h2>Open requests</h2>
+              <p>Ideas and asks still moving through the process.</p>
+            </div>
+            <Link to="/requests">View</Link>
           </div>
+
+          <ul className="home-simple-list">
+            {openRequests.slice(0, 3).map((request) => (
+              <li key={request.id}>
+                <Link to="/requests">
+                  <strong>{request.shortTitle ?? request.title ?? request.name}</strong>
+                  <span>{request.phase ?? 'Draft'}</span>
+                </Link>
+              </li>
+            ))}
+            {openRequests.length === 0 && (
+              <li className="empty-line">No active requests are in flight right now.</li>
+            )}
+          </ul>
+        </section>
+
+        <section className="card home-panel home-panel-availability">
+          <div className="home-panel-header">
+            <div>
+              <h2>Risk watch</h2>
+              <p>Where most of the allocation pressure is building.</p>
+            </div>
+          </div>
+
+          <ul className="home-simple-list risk-list">
+            {relevantConflicts.slice(0, 3).map((conflict) => (
+              <li key={conflict.personId}>
+                <Link to={mylinkForConflict(conflict, peopleById, demand.data ?? [], managedProjectIds, myDepartments)}>
+                  <strong>{conflict.personName}</strong>
+                  <span>{conflict.totalOver} h over · {conflict.overWeeks.length} weeks</span>
+                </Link>
+              </li>
+            ))}
+            {relevantConflicts.length === 0 && (
+              <li className="empty-line">No allocation conflicts require attention in the next 26 weeks.</li>
+            )}
+          </ul>
         </section>
       </div>
 
-      <section className="home-risk-section">
-        <div className="home-focus-heading">
-          <div>
-            <h2>Allocation risks</h2>
-            <p>People supporting your projects or departments who exceed availability in the next 13 weeks.</p>
+      <div className="home-supporting-cards">
+        {personId && (
+          <section className="home-skills-section">
+            <SkillsCard
+              personId={personId}
+              canEdit
+              title="My skillset"
+              subtitle="Keep your profile current so project and department planners can match the right support."
+              collapsible={false}
+            />
+          </section>
+        )}
+
+        <section className="card home-governance-section">
+          <div className="home-panel-header">
+            <div>
+              <h2>Governance</h2>
+              <p>Policy, approvals, and operating standards.</p>
+            </div>
+            <span className="home-placeholder-badge">Coming soon</span>
           </div>
-        </div>
-        <div className="home-risk-list">
-          {relevantConflicts.slice(0, 5).map((conflict) => {
-            const person = peopleById.get(conflict.personId);
-            const department = myDepartments.find((entry) => entry.id === person?.departmentId);
-            const projectAssignment = (demand.data ?? []).find(
-              (row) => row.personId?.toLowerCase() === conflict.personId && managedProjectIds.has(row.projectId),
-            );
-            const destination = department ? `/departments/${department.id}` : projectAssignment ? `/projects/${projectAssignment.projectId}` : '/projects';
-            const firstWeek = conflict.overWeeks[0];
-            const lastWeek = conflict.overWeeks[conflict.overWeeks.length - 1];
-            return (
-              <Link key={conflict.personId} to={destination} className="home-risk-row">
-                <span className={`risk-severity risk-severity-${conflict.severity}`}>{conflict.severity}</span>
-                <span><strong>{conflict.personName}</strong><small>{conflict.departmentName ?? 'Department not assigned'}</small></span>
-                <span><strong>{Math.round(conflict.totalOver)} h</strong><small>Total over</small></span>
-                <span><strong>{conflict.overWeeks.length}</strong><small>Weeks over</small></span>
-                <span><strong>{firstWeek === lastWeek ? weekLabelShort(firstWeek) : `${weekLabelShort(firstWeek)}–${weekLabelShort(lastWeek)}`}</strong><small>Conflict window</small></span>
-                <span aria-hidden="true">›</span>
-              </Link>
-            );
-          })}
-          {!relevantConflicts.length && <p className="home-empty-state">No allocation conflicts affect the work you own in the next 13 weeks.</p>}
-        </div>
-      </section>
-
-      {personId && (
-        <section className="home-skills-section">
-          <SkillsCard
-            personId={personId}
-            canEdit
-            title="My Skillset"
-            subtitle="Keep your capabilities current so project and department planners can identify suitable support."
-          />
+          <p className="home-placeholder-copy">A future workspace for governance decisions, controls, and review cadence.</p>
         </section>
-      )}
-
-      <section className="home-supporting-actions">
-        <div>
-          <h2>Skills &amp; planning tools</h2>
-          <p>Keep your skill profile current or explore broader planning information.</p>
-        </div>
-        <div className="row-actions">
-          <Link to="/projects">All projects</Link>
-          <Link to="/departments">All departments</Link>
-          <Link to="/people">People directory</Link>
-          {user?.roles.includes('admin') && <Link to="/skills">Manage skill repository</Link>}
-        </div>
-      </section>
+      </div>
     </section>
   );
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { requestsApi } from '../../api/client';
+import { prioritizationApi, requestsApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
 import DataTable, { Column } from '../../components/admin/DataTable';
 import ListToolbar from '../../components/admin/ListToolbar';
@@ -17,8 +17,10 @@ export default function RequestsListPage() {
   const [search, setSearch] = useState('');
   const [hideInactive, setHideInactive] = useState(true);
   const requests = useQuery({ queryKey: ['requests'], queryFn: () => requestsApi.list() });
+  const ranking = useQuery({ queryKey: ['ranking'], queryFn: prioritizationApi.ranking });
 
   const rows = (requests.data ?? []).filter((row) => !hideInactive || row.isActive !== false);
+  const scores = new Map((ranking.data ?? []).map((row) => [row.id, row]));
 
   const columns: Column<ProjectRequest>[] = [
     {
@@ -45,11 +47,45 @@ export default function RequestsListPage() {
       render: (row) => <PersonCell name={row.requesterName} personId={row.requesterPersonId} me={personId} />,
     },
     {
+      key: 'sponsor',
+      label: 'Proposed sponsor',
+      value: (row) => row.sponsorName,
+      render: (row) => <PersonCell name={row.sponsorName} personId={row.sponsorPersonId} me={personId} />,
+    },
+    {
       key: 'phase',
       label: 'Phase',
       value: (row) => row.phase ?? DEFAULT_REQUEST_PHASE,
       sortValue: (row) => phaseOrder(row.phase ?? DEFAULT_REQUEST_PHASE),
       render: (row) => <span className="badge">{row.phase ?? DEFAULT_REQUEST_PHASE}</span>,
+    },
+    {
+      key: 'disposition',
+      label: 'Disposition',
+      width: '120px',
+      value: (row) => row.disposition ?? 'Pending',
+      render: (row) => <span className="badge">{row.disposition ?? 'Pending'}</span>,
+    },
+    {
+      key: 'rawScore',
+      label: 'Raw',
+      width: '72px',
+      value: (row) => scores.get(row.id)?.priorityScore ?? row.priorityScore ?? 0,
+      render: (row) => <strong>{Number(scores.get(row.id)?.priorityScore ?? row.priorityScore ?? 0).toFixed(2)}</strong>,
+    },
+    {
+      key: 'impactScore',
+      label: 'Impact',
+      width: '82px',
+      value: (row) => scores.get(row.id)?.impactScore ?? 0,
+      render: (row) => <span>{Number(scores.get(row.id)?.impactScore ?? 0).toFixed(2)}</span>,
+    },
+    {
+      key: 'complexityScore',
+      label: 'Complexity',
+      width: '96px',
+      value: (row) => scores.get(row.id)?.complexityScore ?? 0,
+      render: (row) => <span>{Number(scores.get(row.id)?.complexityScore ?? 0).toFixed(2)}</span>,
     },
     {
       key: 'edit',

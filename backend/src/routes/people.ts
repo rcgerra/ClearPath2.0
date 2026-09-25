@@ -133,6 +133,9 @@ router.patch(
     const input = upsertSchema.parse(req.body);
     const isAdmin = Boolean(req.user?.roles.includes('admin'));
     const isSelf = Boolean(req.user?.personId && req.user.personId.toLowerCase() === req.params.id.toLowerCase());
+    if (!isAdmin && input.role !== undefined) {
+      throw new HttpError(403, 'Only admins can assign security roles.');
+    }
     if (!isAdmin && !isSelf) {
       const current = await dv.retrieve('people', req.params.id, { select: [P.id, P.departmentId] }) as Record<string, unknown>;
       const currentDepartmentId = current[P.departmentId] ? String(current[P.departmentId]) : undefined;

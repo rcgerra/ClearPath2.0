@@ -22,6 +22,7 @@ interface Props<T> {
   initialSortKey?: string;
   emptyMessage?: string;
   isLoading?: boolean;
+  onRowClick?: (row: T) => void;
 }
 
 type Direction = 'asc' | 'desc';
@@ -45,6 +46,7 @@ export default function DataTable<T>({
   initialSortKey,
   emptyMessage = 'No records found.',
   isLoading = false,
+  onRowClick,
 }: Props<T>) {
   const [sortKey, setSortKey] = useState(initialSortKey ?? columns[0]?.key);
   const [direction, setDirection] = useState<Direction>('asc');
@@ -122,7 +124,7 @@ export default function DataTable<T>({
           )}
           {!isLoading &&
             visible.map((row) => (
-              <tr key={getRowKey(row)} className={getRowClassName?.(row)}>
+              <tr key={getRowKey(row)} className={[getRowClassName?.(row), onRowClick ? 'row-clickable' : ''].filter(Boolean).join(' ')} onClick={() => onRowClick?.(row)}>
                 {columns.map((column) => {
                   const rawValue = column.value(row);
                   const display = column.render
