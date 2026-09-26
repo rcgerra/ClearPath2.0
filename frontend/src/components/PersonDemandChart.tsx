@@ -73,7 +73,7 @@ export default function PersonDemandChart({
   }).join(' ');
 
   return (
-    <div className="chart-scroll" ref={containerRef}>
+    <div className="chart-scroll person-demand-chart" ref={containerRef}>
       <svg width={width} height={height} role="img" aria-label="Weekly demand by project against availability">
         {ticks.map((tick) => (
           <line key={tick} x1={PAD_LEFT} x2={width - 6} y1={y(tick)} y2={y(tick)} className="chart-gridline" />
@@ -209,6 +209,9 @@ export default function PersonDemandChart({
         )}
         <span className="legend-entry">
           <span className="legend-swatch availability" /> Availability
+        </span>
+        <span className="legend-entry">
+          <span className="legend-swatch overallocated-demand" /> Overallocated demand
         </span>
       </div>
     </div>

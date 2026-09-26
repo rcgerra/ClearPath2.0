@@ -144,7 +144,7 @@ export default function AdminDashboard() {
               Cancel
             </button>
           </form>
-          <table>
+          <table className="portfolio-scroll-table">
             <thead>
               <tr>
                 <th>Name</th>
@@ -189,7 +189,7 @@ export default function AdminDashboard() {
               Cancel
             </button>
           </form>
-          <table>
+          <table className="portfolio-scroll-table">
             <thead>
               <tr>
                 <th>Project</th>
@@ -216,7 +216,7 @@ export default function AdminDashboard() {
 
       <div className="card">
         <h2>Intake queue</h2>
-        <table>
+        <table className="portfolio-scroll-table">
           <thead>
             <tr>
               <th>Request</th>

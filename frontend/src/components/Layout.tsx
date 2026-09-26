@@ -213,6 +213,7 @@ export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const onHome = location.pathname === '/';
   const isAdmin = Boolean(user?.roles.includes('admin'));
   const inAdminPortal = isAdmin && location.pathname.startsWith('/admin');
   const isPortfolioManager = Boolean(user?.roles.includes('portfolio_manager'));
@@ -236,7 +237,7 @@ export default function Layout() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={location.pathname === '/me' ? 'app-shell my-work-shell' : 'app-shell'}>
       <header className="app-header">
         <NavLink to="/" className="brand" aria-label="ClearPath home">
           <span className="brand-copy">
@@ -265,11 +266,11 @@ export default function Layout() {
           <div className="header-identity">
             {roleLabels.length > 0 && (
               <div className="header-identity-roles" aria-label="My roles">
-                <span className="header-identity-label">My Roles:</span>
+                <span className="header-identity-label">{onHome ? user.name : 'My Roles:'}</span>
                 {roleLabels.map((label) => <span key={label} className="pill pill-role">{label}</span>)}
               </div>
             )}
-            <strong className="header-identity-name">{user.name}</strong>
+            {(!onHome || roleLabels.length === 0) && <strong className="header-identity-name">{user.name}</strong>}
           </div>
         )}
       </header>

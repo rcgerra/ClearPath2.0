@@ -10,13 +10,14 @@ interface Props {
   canEdit: boolean;
   title?: string;
   subtitle?: string;
+  compact?: boolean;
   /** Skip the built-in title/collapse toolbar when the page already shows this information in its own header. */
   hideHeader?: boolean;
   collapsible?: boolean;
 }
 
 /** Assigned skills for a person, grouped by category, shown as bubbles you click to assign/unassign when `canEdit` is true. */
-export default function SkillsCard({ personId, canEdit, title = 'Skills', subtitle, hideHeader = false, collapsible = true }: Props) {
+export default function SkillsCard({ personId, canEdit, title = 'Skills', subtitle, compact = false, hideHeader = false, collapsible = true }: Props) {
   const contentId = useId();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(false);
@@ -86,12 +87,7 @@ export default function SkillsCard({ personId, canEdit, title = 'Skills', subtit
     </button>
   );
 
-  const content = (
-    <>
-      {subtitle && <p className="muted">{subtitle}</p>}
-      {error && <div className="alert error">{error}</div>}
-
-      {adding && canEdit && (
+  const picker = adding && canEdit && (
         <div className="skills-picker">
           <p className="muted">Click a skill to add it to your profile.</p>
           {allSkills.isLoading ? (
@@ -119,7 +115,13 @@ export default function SkillsCard({ personId, canEdit, title = 'Skills', subtit
             </div>
           )}
         </div>
-      )}
+  );
+
+  const content = (
+    <>
+      {subtitle && <p className="muted">{subtitle}</p>}
+      {error && <div className="alert error">{error}</div>}
+      {picker}
 
       {personSkills.isLoading ? (
         <p className="muted">Loading…</p>
@@ -153,6 +155,30 @@ export default function SkillsCard({ personId, canEdit, title = 'Skills', subtit
       )}
     </>
   );
+
+  if (compact) {
+    return (
+      <div className="home-skill-cloud">
+        <div className="home-skill-cloud-header">
+          <h2>{title}</h2>
+          {canEdit && (
+            <button type="button" className="home-skill-cloud-add" aria-expanded={adding} onClick={() => setAdding((value) => !value)}>
+              {adding ? 'Done adding' : 'Add skills'}
+            </button>
+          )}
+        </div>
+        {error && <div className="alert error">{error}</div>}
+        {picker}
+        {personSkills.isLoading ? (
+          <p className="muted">Loading skills…</p>
+        ) : personSkills.data?.length ? (
+          <div className="home-skill-cloud-items" aria-label="Assigned skills">
+            {personSkills.data.map((row) => <span key={row.id}>{row.skillName}</span>)}
+          </div>
+        ) : <p className="muted">No skills recorded yet.</p>}
+      </div>
+    );
+  }
 
   if (hideHeader) {
     return (

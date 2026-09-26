@@ -51,7 +51,7 @@ export default function RequestsPage() {
   ];
 
   return (
-    <section className="accent-section accent-requests">
+    <section className="accent-section accent-requests requests-page">
       <div className="accent-section-header">
         <div>
           <h1 className="page-title">Requests</h1>

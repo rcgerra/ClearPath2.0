@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import { capacityApi, demandApi, errorMessage, nonProjectDemandApi, projectsApi } from '../api/client';
 import PersonDemandChart from '../components/PersonDemandChart';
 import { useAuthStore } from '../store/authStore';
 import { weekLabel, weekLabelShort, weekYear, PLANNING_HORIZONS } from '../utils/arrayParser';
+import { downloadWorkloadWorkbook } from '../utils/workloadExport';
 import { DemandRow, NonProjectDemandRow } from '../types';
 
 const DEFAULT_WEEKS = 26;
@@ -32,7 +32,6 @@ export default function IndividualDashboard() {
   const user = useAuthStore((state) => state.user);
   const personId = user?.personId;
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const [weeks, setWeeks] = useState(DEFAULT_WEEKS);
   const [draftDemand, setDraftDemand] = useState<Record<string, string>>({});
   const [addingAssignment, setAddingAssignment] = useState(false);
@@ -43,6 +42,7 @@ export default function IndividualDashboard() {
   const [activeDemandTab, setActiveDemandTab] = useState<'project' | 'other'>('project');
   const [highlightedWeek, setHighlightedWeek] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const capacity = useQuery({
     queryKey: ['capacity', 'mine'],
@@ -253,6 +253,18 @@ export default function IndividualDashboard() {
     setHighlightedWeek((current) => (current === week ? null : week));
   }
 
+  async function exportWorkload() {
+    setExporting(true);
+    setError(null);
+    try {
+      await downloadWorkloadWorkbook(weeks, selectedProjectDemand, selectedNonProjectDemand);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   useEffect(() => {
     if (highlightedWeek === null) return;
     const id = activeDemandTab === 'project' ? `project-week-${highlightedWeek}` : `other-week-${highlightedWeek}`;
@@ -275,26 +287,18 @@ export default function IndividualDashboard() {
   return (
     <>
       <div className="my-work-header-row">
-        <div className="department-title-row">
-        <button type="button" className="back-button department-inline-back" onClick={() => navigate(-1)} aria-label="Go back" title="Go back">
-          ←
-        </button>
         <div>
           <h1 className="page-title">My Workload</h1>
-          <p className="page-subtitle">Review and update project and run-the-business demand, {weeks} weeks from this Monday.</p>
+          <p className="page-subtitle">Things I need to support over the next {weeks} weeks</p>
         </div>
+        <div className="workspace-horizon-bar my-work-horizon">
+          <span>Planning horizon</span>
+          <div className="pill-toggle" role="group" aria-label="Planning horizon">
+            {PLANNING_HORIZONS.map((horizon) => (
+              <button key={horizon} type="button" className={weeks === horizon ? 'active' : ''} onClick={() => setWeeks(horizon)}>{horizon} weeks</button>
+            ))}
+          </div>
         </div>
-      </div>
-
-      <div className="workspace-tabs-row">
-      <div className="workspace-horizon-bar">
-        <span>Planning horizon</span>
-        <div className="pill-toggle" role="group" aria-label="Planning horizon">
-          {PLANNING_HORIZONS.map((horizon) => (
-            <button key={horizon} type="button" className={weeks === horizon ? 'active' : ''} onClick={() => setWeeks(horizon)}>{horizon} weeks</button>
-          ))}
-        </div>
-      </div>
       </div>
 
       <div className="card my-workload-card">
@@ -304,6 +308,23 @@ export default function IndividualDashboard() {
             <div className="alert error">
               Other demand is unavailable:{' '}
               {errorMessage(nonProjectDemand.error ?? nonProjectCategories.error ?? nonProjectSubcategories.error)}
+            </div>
+          )}
+          {overallocatedWeeks.length > 0 && (
+            <div className="overage-chip-row" role="group" aria-label="Weeks with overallocation">
+              <span className="overage-chip-label">Weeks at risk</span>
+              {overallocatedWeeks.map((entry) => (
+                <button
+                  key={entry.week}
+                  type="button"
+                  className={entry.week === highlightedWeek ? 'overage-chip active' : 'overage-chip'}
+                  title={`Week of ${weekLabel(entry.week)}: ${Math.round(entry.over)} hours over availability`}
+                  onClick={() => highlightWeek(entry.week)}
+                >
+                  {weekLabelShort(entry.week)}
+                  <span className="overage-chip-token">{Math.round(entry.over)}h</span>
+                </button>
+              ))}
             </div>
           )}
           {capacity.isLoading || demand.isLoading ? (
@@ -322,23 +343,6 @@ export default function IndividualDashboard() {
               maxY={MAX_HOURS}
               highlightWeek={highlightedWeek}
             />
-          )}
-
-          {overallocatedWeeks.length > 0 && (
-            <div className="overage-chip-row" role="group" aria-label="Weeks with overallocation">
-              {overallocatedWeeks.map((entry) => (
-                <button
-                  key={entry.week}
-                  type="button"
-                  className={entry.week === highlightedWeek ? 'overage-chip active' : 'overage-chip'}
-                  title={`Week of ${weekLabel(entry.week)}: ${Math.round(entry.over)} hours over availability`}
-                  onClick={() => highlightWeek(entry.week)}
-                >
-                  {weekLabelShort(entry.week)}
-                  <span className="overage-chip-token">{Math.round(entry.over)}h</span>
-                </button>
-              ))}
-            </div>
           )}
 
           <div className="demand-section-toolbar">
@@ -388,16 +392,12 @@ export default function IndividualDashboard() {
             <button
               type="button"
               className="icon-button icon-button-add-labeled my-workload-export-action"
-              title="Export chart and full tables for printing or saving as PDF"
-              aria-label="Export my workload"
-              onClick={() => window.print()}
+              title="Download project and non-project work for the selected planning horizon"
+              aria-label="Export my workload to Excel"
+              disabled={exporting || capacity.isLoading || demand.isLoading || nonProjectDemand.isLoading}
+              onClick={exportWorkload}
             >
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M6 9V3h12v6" />
-                <rect x="6" y="13" width="12" height="8" />
-                <path d="M6 17H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-2" />
-              </svg>
-              <span>Export</span>
+              <span>{exporting ? 'Exporting…' : 'Export Excel'}</span>
             </button>
             <label className="switch demand-zero-toggle" title="Hide inactive">
               <input
