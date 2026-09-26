@@ -13,7 +13,7 @@
   gap: 1rem;
   width: 100%;
   flex: 1;
-  padding: 1rem clamp(1rem, 2vw, 2rem) 0 0.5rem;
+  padding: 1rem 0.5rem 0;
 }
 
 .app-body.sidebar-collapsed .app-sidebar {
@@ -498,11 +498,19 @@
   position: relative;
   z-index: 2;
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.header-identity-roles {
+  display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 0.35rem;
   flex-wrap: wrap;
-  margin-left: auto;
   padding: 0.3rem 0.4rem;
   border: 1px solid rgba(18, 24, 33, 0.08);
   border-radius: 999px;
@@ -518,9 +526,17 @@
   white-space: nowrap;
 }
 
+.header-identity-name {
+  color: var(--medium-grey);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: right;
+}
+
 @media (max-width: 700px) {
   .app-header {
     padding: 0.7rem 1rem;
+    gap: 0.5rem;
   }
 
   .header-chevron-pattern {
@@ -531,7 +547,7 @@
     position: relative;
     left: auto;
     transform: none;
-    margin-inline: auto;
+    margin-right: auto;
   }
 
   .brand-caption {
@@ -913,11 +929,6 @@
   color: var(--border);
 }
 
-.app-footer strong {
-  color: var(--medium-grey);
-  font-weight: 600;
-}
-
 .app-footer-version {
   color: var(--medium-grey);
   opacity: 0.7;
@@ -930,14 +941,14 @@
   flex-direction: column;
   gap: 1rem;
   min-width: 0;
-  padding: 0;
+  padding: 0 0.75rem;
   border-radius: 18px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(247, 249, 250, 0.9));
 }
 
 @media (max-width: 700px) {
   .app-main {
-    padding: 0;
+    padding: 0 0.75rem;
     border-radius: 18px;
   }
 }
@@ -4565,7 +4576,7 @@ button.assign-me-button.primary:hover:not(:disabled) {
 }
 
 @media (max-width: 1100px) {
-  .app-main { padding: 1rem 0; }
+  .app-main { padding: 1rem 0.75rem; }
   .department-layout.department-view-heatmap {
     display: flex;
     flex-direction: column;
@@ -4733,7 +4744,7 @@ button.assign-me-button.primary:hover:not(:disabled) {
 
 .operational-home-header-top {
   display: grid;
-  grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1.8fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
   gap: 1rem;
   min-width: 0;

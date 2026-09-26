@@ -261,10 +261,15 @@ export default function Layout() {
             </svg>
           ))}
         </div>
-        {roleLabels.length > 0 && (
-          <div className="header-identity" aria-label="My roles">
-            <span className="header-identity-label">My Roles:</span>
-            {roleLabels.map((label) => <span key={label} className="pill pill-role">{label}</span>)}
+        {user && (
+          <div className="header-identity">
+            {roleLabels.length > 0 && (
+              <div className="header-identity-roles" aria-label="My roles">
+                <span className="header-identity-label">My Roles:</span>
+                {roleLabels.map((label) => <span key={label} className="pill pill-role">{label}</span>)}
+              </div>
+            )}
+            <strong className="header-identity-name">{user.name}</strong>
           </div>
         )}
       </header>
@@ -344,10 +349,6 @@ export default function Layout() {
             </Suspense>
           </main>
           <footer className="app-footer">
-            <span>
-              Signed in as <strong>{user?.name}</strong>
-              {user?.email ? ` · ${user.email}` : ''}
-            </span>
             <span>{user?.roles.join(', ')}</span>
             <span className="app-footer-version">ClearPath 2.0</span>
           </footer>

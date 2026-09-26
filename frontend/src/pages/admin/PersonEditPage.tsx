@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { departmentsApi, errorMessage, peopleApi, usersApi } from '../../api/client';
+import { authApi, departmentsApi, errorMessage, peopleApi, usersApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
 import SkillsCard from '../../components/SkillsCard';
 import { useAuthStore } from '../../store/authStore';
@@ -14,6 +14,7 @@ export default function PersonEditPage() {
   const isNew = !id || id === 'new';
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user: authUser, viewingAs, setSession, startViewingAs } = useAuthStore();
   const [error, setError] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState('');
   const [directoryUserId, setDirectoryUserId] = useState('');
@@ -37,9 +38,19 @@ export default function PersonEditPage() {
 
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) => (isNew ? peopleApi.create(body) : peopleApi.update(id!, body)),
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['people'] });
       queryClient.invalidateQueries({ queryKey: ['person', id] });
+      if (id && authUser && id === authUser.personId) {
+        if (viewingAs) {
+          const { viewAsToken, user: refreshedUser } = await authApi.viewAs(id);
+          startViewingAs(viewAsToken, refreshedUser);
+        } else {
+          const { token, user: refreshedUser } = await authApi.session(authUser.userId);
+          setSession(token, refreshedUser);
+        }
+        queryClient.clear();
+      }
       navigate('/admin/people');
     },
     onError: (err) => setError(errorMessage(err)),
@@ -50,7 +61,6 @@ export default function PersonEditPage() {
   const email = selectedDirectoryUser?.email ?? current?.email ?? '';
   const title = selectedDirectoryUser?.jobTitle ?? current?.title ?? '';
   const functionName = selectedDepartment?.functionName ?? 'Inferred from department';
-  const authUser = useAuthStore((state) => state.user);
   const canEditSkills = Boolean(current) && canEditAvailability(authUser, { personId: current?.id, department: selectedDepartment });
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {

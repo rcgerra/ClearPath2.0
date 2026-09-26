@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { errorMessage, peopleApi } from '../../api/client';
+import { authApi, errorMessage, peopleApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
 import DataTable, { Column } from '../../components/admin/DataTable';
 import ListToolbar from '../../components/admin/ListToolbar';
 import RoleMatrix, { ROLE_LABELS } from '../../components/admin/RoleMatrix';
+import { useAuthStore } from '../../store/authStore';
 import type { Person, Role } from '../../types';
 
 const ROLE_OPTIONS = ROLE_LABELS;
@@ -18,6 +19,7 @@ function parseRoles(raw?: string): Role[] {
 
 export default function AccessListPage() {
   const queryClient = useQueryClient();
+  const { user, viewingAs, setSession, startViewingAs } = useAuthStore();
   const [search, setSearch] = useState('');
   const [hideInactive, setHideInactive] = useState(true);
   const [draft, setDraft] = useState<Record<string, Role[]>>({});
@@ -28,7 +30,7 @@ export default function AccessListPage() {
 
   const save = useMutation({
     mutationFn: ({ id, roles }: { id: string; roles: Role[] }) => peopleApi.setRoles(id, roles),
-    onSuccess: (_result, variables) => {
+    onSuccess: async (_result, variables) => {
       setSaved(variables.id);
       setDraft((prev) => {
         const next = { ...prev };
@@ -36,6 +38,16 @@ export default function AccessListPage() {
         return next;
       });
       queryClient.invalidateQueries({ queryKey: ['people'] });
+      if (variables.id === user?.personId) {
+        if (viewingAs) {
+          const { viewAsToken, user: refreshedUser } = await authApi.viewAs(variables.id);
+          startViewingAs(viewAsToken, refreshedUser);
+        } else {
+          const { token, user: refreshedUser } = await authApi.session(user.userId);
+          setSession(token, refreshedUser);
+        }
+        queryClient.clear();
+      }
     },
     onError: (err) => setError(errorMessage(err)),
   });

@@ -43,12 +43,19 @@ router.get('/session', asyncHandler(async (req, res) => {
   const selected = await userService.get(userId);
   if (!selected || !selected.IsActive) throw new HttpError(403, 'Select an active user.');
 
+  const roles = new Set(parseRoles(selected.Email ?? ''));
+  if (selected.LegacyDataverseId) {
+    const P = COLUMNS.people;
+    const person = await dv.retrieve('people', selected.LegacyDataverseId, { select: [P.role] }) as Record<string, unknown>;
+    for (const role of parsePersonRoles(person[P.role])) roles.add(role);
+  }
+
   const authUser: AuthUser = {
     userId: String(selected.UserId),
     personId: selected.LegacyDataverseId ?? undefined,
     email: selected.Email ?? '',
     name: selected.DisplayName,
-    roles: parseRoles(selected.Email ?? ''),
+    roles: [...roles],
     departmentId: selected.Department ?? undefined,
   };
   res.json({ token: signToken(authUser), user: authUser });
