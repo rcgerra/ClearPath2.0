@@ -12,6 +12,7 @@ import { filterByScope, OwnershipScope, rowClassName } from '../utils/ownership'
 import { canEditProject } from '../utils/permissions';
 import { formatDate } from '../utils/dates';
 import { calculateProjectScheduleHealth } from '../utils/projectSchedule';
+import { useSiteAccess } from '../utils/useSiteAccess';
 import type { Project } from '../types';
 
 const KPI_WEEKS = 26;
@@ -59,7 +60,7 @@ export default function ProjectsPage() {
   const user = useAuthStore((state) => state.user);
   const navigate = useNavigate();
   const personId = user?.personId;
-  const canCreate = Boolean(user?.roles.includes('admin'));
+  const { canCreate } = useSiteAccess();
   const [search, setSearch] = useState('');
   const [scope, setScope] = useState<OwnershipScope>(personId ? 'mine' : 'all');
   const [hideInactive, setHideInactive] = useState(true);

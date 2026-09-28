@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
 import { assertAvailabilityEditable } from '../middleware/recordAccess';
 import { capacityRepository } from '../repositories/sql';
+import { personIdsAtSite, viewSiteForRequest } from '../services/siteScope';
 
 const router = Router();
 
@@ -50,10 +51,15 @@ router.get('/', asyncHandler(async (req, res) => {
     personId: req.query.mine === 'true' ? req.user?.personId : req.query.personId ? String(req.query.personId) : undefined,
     departmentId: req.query.departmentId ? String(req.query.departmentId) : undefined,
   });
-  res.json(records.map((record) => toCapacity(record)));
+  const siteId = await viewSiteForRequest(req);
+  const personIds = siteId ? await personIdsAtSite(siteId) : null;
+  res.json(records.map((record) => toCapacity(record))
+    .filter((row) => !personIds || personIds.has(String(row.personId).toLowerCase())));
 }));
 
 router.get('/person/:personId/net', asyncHandler(async (req, res) => {
+  const siteId = await viewSiteForRequest(req);
+  if (siteId && !(await personIdsAtSite(siteId)).has(req.params.personId.toLowerCase())) throw new HttpError(404, 'Person not found.');
   res.json(await capacityRepository.net(req.params.personId));
 }));
 

@@ -124,8 +124,8 @@ export default function ReferenceTablesPage() {
               {people.data?.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
             </select>
           </div>}
-          {(tableKey === 'functions' || tableKey === 'programs') && <div className="field">
-            <label htmlFor="reference-assistants">Assistant {tableKey === 'programs' ? 'program' : 'function'} leads</label>
+          {(tableKey === 'functions' || tableKey === 'programs' || tableKey === 'sites') && <div className="field">
+            <label htmlFor="reference-assistants">Assistant {tableKey === 'programs' ? 'program' : tableKey === 'sites' ? 'site' : 'function'} leads</label>
             <select id="reference-assistants" multiple size={4} value={draft.assistantLeadPersonIds ?? []} onChange={(event) => setDraft((value) => ({ ...value,
               assistantLeadPersonIds: Array.from(event.target.selectedOptions, (option) => option.value) }))}>
               {people.data?.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}

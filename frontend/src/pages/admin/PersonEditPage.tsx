@@ -1,11 +1,12 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { authApi, departmentsApi, errorMessage, peopleApi, usersApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
 import SkillsCard from '../../components/SkillsCard';
 import { useAuthStore } from '../../store/authStore';
 import { canEditAvailability } from '../../utils/permissions';
+import { useSiteAccess } from '../../utils/useSiteAccess';
 
 const EMPLOYMENT_TYPES = ['FTE', 'Contractor'];
 
@@ -13,28 +14,36 @@ export default function PersonEditPage() {
   const { id } = useParams();
   const isNew = !id || id === 'new';
   const navigate = useNavigate();
+  const inAdminPortal = useLocation().pathname.startsWith('/admin');
   const queryClient = useQueryClient();
   const { user: authUser, viewingAs, setSession, startViewingAs } = useAuthStore();
+  const { site, sites, admin, canCreatePerson, loading } = useSiteAccess();
+  const canEditSite = admin && inAdminPortal && !isNew;
   const [error, setError] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState('');
   const [directoryUserId, setDirectoryUserId] = useState('');
   const [departmentId, setDepartmentId] = useState('');
+  const [siteId, setSiteId] = useState('');
   const [isActive, setIsActive] = useState(true);
 
   const person = useQuery({ queryKey: ['person', id], queryFn: () => peopleApi.get(id!), enabled: !isNew });
   const departments = useQuery({ queryKey: ['departments'], queryFn: departmentsApi.list });
+  const current = person.data;
   const directory = useQuery({
-    queryKey: ['users', userSearch],
-    queryFn: () => usersApi.search(userSearch),
-    enabled: isNew && userSearch.length > 2,
+    queryKey: ['users', isNew ? userSearch : current?.email],
+    queryFn: () => usersApi.search(isNew ? userSearch : current!.email!),
+    enabled: isNew ? userSearch.length > 2 : Boolean(current?.email),
   });
 
-  const current = person.data;
 
   useEffect(() => {
     setDepartmentId(current?.departmentId ?? '');
     setIsActive(current?.isActive !== false);
   }, [current?.id]);
+
+  useEffect(() => {
+    setSiteId(current?.siteId ?? site?.id ?? '');
+  }, [current?.siteId, site?.id]);
 
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) => (isNew ? peopleApi.create(body) : peopleApi.update(id!, body)),
@@ -51,17 +60,20 @@ export default function PersonEditPage() {
         }
         queryClient.clear();
       }
-      navigate('/admin/people');
+      navigate(inAdminPortal ? '/admin/people' : '/people');
     },
     onError: (err) => setError(errorMessage(err)),
   });
 
   const selectedDirectoryUser = directory.data?.find((entry) => entry.id === directoryUserId);
+  const linkedDirectoryUser = !isNew && current?.email
+    ? directory.data?.find((entry) => entry.email?.toLowerCase() === current.email?.toLowerCase()) : undefined;
   const selectedDepartment = departments.data?.find((dept) => dept.id === departmentId);
   const email = selectedDirectoryUser?.email ?? current?.email ?? '';
-  const title = selectedDirectoryUser?.jobTitle ?? current?.title ?? '';
+  const title = selectedDirectoryUser?.jobTitle ?? linkedDirectoryUser?.jobTitle ?? current?.title ?? '';
   const functionName = selectedDepartment?.functionName ?? 'Inferred from department';
   const canEditSkills = Boolean(current) && canEditAvailability(authUser, { personId: current?.id, department: selectedDepartment });
+  const canEdit = isNew || admin || authUser?.personId === current?.id;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -74,11 +86,17 @@ export default function PersonEditPage() {
       email: email || undefined,
       userId: directoryUserId || undefined,
       departmentId: departmentId || undefined,
+      ...(canEditSite ? { siteId: siteId || undefined } : {}),
       employmentType: text('employmentType'),
-      title: title || undefined,
-      role: text('role'),
+      ...(isNew && selectedDirectoryUser?.jobTitle ? { title: selectedDirectoryUser.jobTitle } : {}),
       isActive,
     });
+  }
+
+  if (isNew && !canCreatePerson) {
+    return <AccentSection accent="people" title="New person" subtitle="Add someone to the roster.">
+      <p className="muted">{loading ? 'Checking your site assignment…' : 'Your People record must have an assigned site before you can add a person.'}</p>
+    </AccentSection>;
   }
 
   return (
@@ -99,6 +117,7 @@ export default function PersonEditPage() {
         <p className="muted">Loading…</p>
       ) : (
         <form className="card" onSubmit={handleSubmit} key={current?.id ?? 'new'}>
+          <fieldset className="opportunity-fields" disabled={!canEdit}>
           {isNew && (
             <div className="grid cols-2">
               <div className="field">
@@ -140,7 +159,7 @@ export default function PersonEditPage() {
               <label htmlFor="departmentId">Department</label>
               <select id="departmentId" name="departmentId" value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>
                 <option value="">—</option>
-                {departments.data?.map((dept) => (
+                {departments.data?.filter((dept) => admin || dept.siteId?.toLowerCase() === site?.id.toLowerCase()).map((dept) => (
                   <option key={dept.id} value={dept.id}>
                     {dept.name}
                   </option>
@@ -163,34 +182,33 @@ export default function PersonEditPage() {
             </div>
           </div>
 
-          <div className="grid cols-2">
-            <div className="field">
-              <label htmlFor="title">Job title</label>
-              <input id="title" value={title} disabled title="Sourced from Active Directory" />
-            </div>
-            <div className="field">
-              <label htmlFor="role">App roles (semicolon separated)</label>
-              <input
-                id="role"
-                name="role"
-                maxLength={100}
-                placeholder="user;portfolio_manager"
-                defaultValue={current?.role ?? ''}
-              />
-            </div>
+          <div className="field" style={{ maxWidth: 320 }}>
+            <label htmlFor="personSiteId">Site</label>
+            {canEditSite ? (
+              <select id="personSiteId" value={siteId} onChange={(event) => setSiteId(event.target.value)} required>
+                <option value="">Select site</option>
+                {sites.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+              </select>
+            ) : <input id="personSiteId" value={site?.name ?? 'Site not assigned'} readOnly />}
           </div>
 
+          <div className="field" style={{ maxWidth: 320 }}>
+            <label htmlFor="title">Job title</label>
+            <input id="title" value={title} disabled title="Sourced from Active Directory" />
+          </div>
+
+          </fieldset>
           <div className="row-actions">
-            <button className="accent-button" type="submit" disabled={save.isPending}>
+            {canEdit && <button className="accent-button" type="submit" disabled={save.isPending}>
               {save.isPending ? 'Saving…' : 'Save person'}
-            </button>
-            <button type="button" onClick={() => navigate('/admin/people')}>
+            </button>}
+            <button type="button" onClick={() => navigate(inAdminPortal ? '/admin/people' : '/people')}>
               Cancel
             </button>
           </div>
         </form>
       )}
-      {!isNew && current && (
+      {inAdminPortal && !isNew && current && (
         <SkillsCard personId={current.id} canEdit={canEditSkills} subtitle="Skills recorded on this person's profile." />
       )}
     </AccentSection>

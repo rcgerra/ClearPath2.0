@@ -1,0 +1,27 @@
+[
+  {
+    "siteId": "746c473f-995d-f011-bec1-7c1e527d2157",
+    "leadPersonId": "8eb74c59-eb8f-f011-b4cc-7c1e527d2157",
+    "sponsorPersonId": "",
+    "assistantLeadPersonIds": [],
+    "missionStatement": "",
+    "table": "functions",
+    "id": "dd1f6fba-a15d-f011-bec1-7c1e527d2157"
+  },
+  {
+    "siteId": "746c473f-995d-f011-bec1-7c1e527d2157",
+    "leadPersonId": "8eb74c59-eb8f-f011-b4cc-7c1e527d2157",
+    "sponsorPersonId": "",
+    "assistantLeadPersonIds": [
+      "7423ab65-eb8f-f011-b4cc-7c1e527d2157"
+    ],
+    "missionStatement": "",
+    "table": "functions",
+    "id": "013097c6-a15d-f011-bec1-002248271486"
+  },
+  {
+    "siteId": "746c473f-995d-f011-bec1-7c1e527d2157",
+    "table": "requests",
+    "id": "05b53ae6-6196-f111-8076-7ced8d1ca135"
+  }
+]

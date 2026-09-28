@@ -3,6 +3,8 @@ import { z } from 'zod';
 import * as dv from '../dataverse/client';
 import { COLUMNS, formatted } from '../dataverse/fields';
 import { authenticate, requireRole } from '../middleware/auth';
+import { viewSiteForRequest } from '../services/siteScope';
+import { listReferenceMetadata } from '../services/referenceMetadata';
 import { asyncHandler } from '../middleware/errorHandler';
 import { combineParentScores, getPrioritizationModel, updatePrioritizationModel } from '../services/prioritizationModel';
 
@@ -270,6 +272,7 @@ router.get(
   '/requests',
   asyncHandler(async (req, res) => {
     const isAdmin = req.user?.roles.includes('admin');
+    const siteId = await viewSiteForRequest(req);
     const records = await dv.list('requests', {
       select: [R.id, R.title, R.name, R.shortTitle, R.spotId, R.sponsorPersonId, R.requesterPersonId, R.delegatePersonId, R.disposition, R.priorityScore, R.phase],
       orderBy: `${R.title} asc`, top: 500,
@@ -278,7 +281,11 @@ router.get(
       dv.list('questions', { select: [Q.id], filter: `${Q.isActive} eq true`, top: 500, includeFormattedValues: false }),
       dv.list('answers', { select: [A.requestId, A.questionId, A.score, A.comment], top: 5000, includeFormattedValues: false }),
     ]);
-    res.json(records.map((record) => {
+    const siteMetadata = siteId ? await listReferenceMetadata('requests') : new Map();
+    const peopleSites = siteId ? new Map((await dv.list('people', { select: [COLUMNS.people.id, COLUMNS.people.siteId], top: 2000 }))
+      .map((person) => [String(person[COLUMNS.people.id]).toLowerCase(), String(person[COLUMNS.people.siteId] ?? '')])) : new Map<string, string>();
+    res.json(records.filter((record) => !siteId || (siteMetadata.get(String(record[R.id]).toLowerCase())?.siteId
+      ?? peopleSites.get(String(record[R.requesterPersonId] ?? '').toLowerCase()))?.toLowerCase() === siteId.toLowerCase()).map((record) => {
       const requestId = String(record[R.id]);
       const requestAnswers = answers.filter((answer) => String(answer[A.requestId]).toLowerCase() === requestId.toLowerCase());
       const prioritizationComplete = questions.length > 0 && questions.every((question) => requestAnswers.some((answer) =>
@@ -425,7 +432,8 @@ router.post(
 router.get(
   '/ranking',
   requireRole('admin'),
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const siteId = await viewSiteForRequest(req);
     const [records, answers, questions, categories] = await Promise.all([dv.list('requests', {
       select: [R.id, R.title, R.name, R.status, R.priorityScore, R.departmentId, R.categoryId],
       filter: `${R.isActive} eq 0`,
@@ -434,8 +442,10 @@ router.get(
     }), dv.list('answers', { select: [A.requestId, A.questionId, A.score], top: 5000, includeFormattedValues: false }),
     dv.list('questions', { select: [Q.id, Q.categoryId, Q.weight], top: 500, includeFormattedValues: false }),
     dv.list('categories', { select: [C.id, C.type, C.weight], top: 100, includeFormattedValues: false })]);
+    const metadata = siteId ? await listReferenceMetadata('requests') : new Map();
     res.json(
-      records.map((r, index) => ({
+      records.filter((record) => !siteId || metadata.get(String(record[R.id]).toLowerCase())?.siteId?.toLowerCase() === siteId.toLowerCase())
+        .map((r, index) => ({
         ...calculateBreakdown(String(r[R.id]), answers, questions, categories),
         rank: index + 1,
         id: r[R.id],

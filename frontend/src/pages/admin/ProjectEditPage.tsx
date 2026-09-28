@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { departmentsApi, errorMessage, lookupsApi, projectsApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
 import UserSelect from '../../components/admin/UserSelect';
+import { useSiteAccess } from '../../utils/useSiteAccess';
 
 const STATUSES = ['Intake', 'Planning', 'Active', 'On hold', 'Complete', 'Cancelled'];
 
@@ -18,6 +19,7 @@ export default function ProjectEditPage() {
   const isNew = !id || id === 'new';
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { admin, site } = useSiteAccess();
   const [error, setError] = useState<string | null>(null);
   // Shared by the admin and front-end routes; return to whichever view we came from.
   const inAdmin = useLocation().pathname.startsWith('/admin');
@@ -57,7 +59,7 @@ export default function ProjectEditPage() {
       delegatePersonId: text('delegatePersonId'),
       isActive: form.get('isActive') === 'on',
       departmentId: text('departmentId'),
-      siteId: String(form.get('siteId') ?? ''),
+      ...(admin ? { siteId: String(form.get('siteId') ?? '') } : {}),
       lastCheckIn: text('lastCheckIn'),
       startDate: text('startDate'),
       endDate: text('endDate'),
@@ -98,19 +100,19 @@ export default function ProjectEditPage() {
             <UserSelect id="sponsorPersonId" name="sponsorPersonId" label="Project sponsor" personValue defaultValue={current?.sponsorPersonId} />
           </div>
 
-          <div className="field" style={{ maxWidth: 320 }}>
+          {admin ? <div className="field" style={{ maxWidth: 320 }}>
             <label htmlFor="siteId">Site</label>
             <select id="siteId" name="siteId" defaultValue={current?.siteId ?? ''}>
               <option value="">Unassigned</option>
               {sites.data?.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
             </select>
-          </div>
+          </div> : isNew && <div className="field" style={{ maxWidth: 320 }}><label>Site</label><span>{site?.name ?? 'Site not assigned'}</span></div>}
 
           <div className="grid cols-3">
             <div className="field">
               <label htmlFor="departmentId">Department</label>              <select id="departmentId" name="departmentId" defaultValue={current?.departmentId ?? ''}>
                 <option value="">—</option>
-                {departments.data?.map((dept) => (
+                {departments.data?.filter((dept) => admin || !isNew || dept.siteId?.toLowerCase() === site?.id.toLowerCase()).map((dept) => (
                   <option key={dept.id} value={dept.id}>
                     {dept.name}
                   </option>

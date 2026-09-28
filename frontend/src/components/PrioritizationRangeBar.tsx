@@ -26,10 +26,13 @@ function percentWithin(score: number, band: Band): number {
 }
 
 function Marker({ band, score, placement }: { band: Band; score: number; placement: 'top' | 'bottom' }) {
+  const position = percentWithin(score, band);
+  const labelAlignment = position <= 35 ? 'start' : position >= 65 ? 'end' : 'center';
+
   return (
-    <span className={`priority-range-marker priority-range-marker-${placement}`} style={{ left: `${percentWithin(score, band)}%` }}>
+    <span className={`priority-range-marker priority-range-marker-${placement}`} style={{ left: `${position}%` }}>
       {placement === 'bottom' && <span className="priority-range-arrow" aria-hidden="true">▲</span>}
-      <span className="priority-range-marker-label">
+      <span className={`priority-range-marker-label priority-range-marker-label-${labelAlignment}`}>
         {band.label} · {band.rank === null ? 'unranked' : `#${band.rank} of ${band.total}`}
       </span>
       {placement === 'top' && <span className="priority-range-arrow" aria-hidden="true">▼</span>}

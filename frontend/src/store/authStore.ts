@@ -9,6 +9,8 @@ interface AuthState {
   originalUser: AuthUser | null;
   viewingAs: boolean;
   viewAsToken: string | null;
+  selectedSiteId: string | null;
+  setSelectedSiteId: (siteId: string | null) => void;
   setSession: (token: string, user: AuthUser) => void;
   startViewingAs: (viewAsToken: string, user: AuthUser) => void;
   stopViewingAs: () => void;
@@ -25,7 +27,11 @@ export const useAuthStore = create<AuthState>()(
       originalUser: null,
       viewingAs: false,
       viewAsToken: null,
-      setSession: (token, user) => set({ token, user, originalToken: token, originalUser: user, viewingAs: false, viewAsToken: null }),
+      selectedSiteId: null,
+      setSelectedSiteId: (selectedSiteId) => set({ selectedSiteId }),
+      setSession: (token, user) => set((state) => ({ token, user, originalToken: token, originalUser: user,
+        viewingAs: false, viewAsToken: null,
+        selectedSiteId: !state.viewingAs && state.user?.userId === user.userId ? state.selectedSiteId : null })),
       startViewingAs: (viewAsToken, user) => set((state) => ({
         originalToken: state.originalToken ?? state.token,
         originalUser: state.originalUser ?? state.user,
@@ -33,12 +39,13 @@ export const useAuthStore = create<AuthState>()(
         user,
         viewingAs: true,
         viewAsToken,
+        selectedSiteId: null,
       })),
       stopViewingAs: () => {
         const { originalToken, originalUser } = get();
-        set({ token: originalToken, user: originalUser, viewingAs: false, viewAsToken: null });
+        set({ token: originalToken, user: originalUser, viewingAs: false, viewAsToken: null, selectedSiteId: null });
       },
-      logout: () => set({ token: null, user: null, originalToken: null, originalUser: null, viewingAs: false, viewAsToken: null }),
+      logout: () => set({ token: null, user: null, originalToken: null, originalUser: null, viewingAs: false, viewAsToken: null, selectedSiteId: null }),
       hasRole: (...roles) => Boolean(get().user?.roles.some((role) => roles.includes(role))),
     }),
     { name: 'clearpath-auth' },

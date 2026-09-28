@@ -9,6 +9,7 @@ import { projectRepository } from '../repositories/sql';
 import type { ProjectView } from '../repositories/sql/ProjectRepository';
 import { assertReferenceSite, getReferenceMetadata, listReferenceMetadata, saveReferenceMetadata } from '../services/referenceMetadata';
 import { decodeArray } from '../utils/arrayParser';
+import { assertDepartmentSite, assertSiteCreator, resolveCreationSite, viewSiteForRequest } from '../services/siteScope';
 
 const router = Router();
 
@@ -77,7 +78,9 @@ router.get(
       search: req.query.search ? String(req.query.search) : undefined,
     });
     const metadata = await listReferenceMetadata('projects');
-    res.json(records.map((record) => ({ ...toProject(record), ...metadata.get(record.ProjectApiId.toLowerCase()) })));
+    const siteId = await viewSiteForRequest(req);
+    res.json(records.map((record) => ({ ...toProject(record), ...metadata.get(record.ProjectApiId.toLowerCase()) }))
+      .filter((record) => !siteId || record.siteId?.toLowerCase() === siteId.toLowerCase()));
   }),
 );
 
@@ -86,7 +89,10 @@ router.get(
   asyncHandler(async (req, res) => {
     const record = await projectRepository.findByIdentifier(req.params.id);
     if (!record) throw new HttpError(404, 'Project not found.');
-    res.json({ ...toProject(record), ...await getReferenceMetadata('projects', record.ProjectApiId) });
+    const project = { ...toProject(record), ...await getReferenceMetadata('projects', record.ProjectApiId) };
+    const siteId = await viewSiteForRequest(req);
+    if (siteId && project.siteId?.toLowerCase() !== siteId.toLowerCase()) throw new HttpError(404, 'Project not found.');
+    res.json(project);
   }),
 );
 
@@ -95,6 +101,9 @@ router.get(
   '/:id/team',
   asyncHandler(async (req, res) => {
     const project = await projectRepository.findByIdentifier(req.params.id);
+    const siteId = await viewSiteForRequest(req);
+    if (siteId && (await getReferenceMetadata('projects', project?.ProjectApiId ?? '')).siteId?.toLowerCase() !== siteId.toLowerCase()
+      && project?.SiteApiId?.toLowerCase() !== siteId.toLowerCase()) throw new HttpError(404, 'Project not found.');
     if (!project?.LegacyDataverseId) throw new HttpError(404, 'Project is not linked to a Dataverse record.');
     const projectId = dv.encodeGuid(project.LegacyDataverseId);
     const DM = COLUMNS.demand;
@@ -123,16 +132,17 @@ router.get(
 
 router.post(
   '/',
-  requireRole('admin'),
   asyncHandler(async (req, res) => {
+    await assertSiteCreator(req.user);
     const input = schema.parse(req.body);
     const name = input.name;
     if (!name) throw new HttpError(400, 'Project name is required.');
-    await assertReferenceSite(input.siteId);
-    const id = await projectRepository.create(await projectRepository.resolveInput({ ...input, name }));
+    const siteId = await resolveCreationSite(req.user, input.siteId);
+    await assertDepartmentSite(input.departmentId, siteId, req.user);
+    const id = await projectRepository.create(await projectRepository.resolveInput({ ...input, name, siteId }));
     const created = await projectRepository.findById(id);
     if (!created) throw new HttpError(500, 'Created project could not be retrieved.');
-    if (input.siteId !== undefined) await saveReferenceMetadata('projects', created.ProjectApiId, { siteId: input.siteId });
+    await saveReferenceMetadata('projects', created.ProjectApiId, { siteId });
     res.status(201).json({ id: created.ProjectApiId });
   }),
 );
@@ -142,6 +152,7 @@ router.patch(
   asyncHandler(async (req, res) => {
     await assertProjectEditable(req.user, req.params.id);
     const input = schema.parse(req.body);
+    if (input.siteId !== undefined && !req.user?.roles.includes('admin')) throw new HttpError(403, 'Only admins can reassign a record to another site.');
     await assertReferenceSite(input.siteId);
     const current = await projectRepository.findByIdentifier(req.params.id);
     if (!current) throw new HttpError(404, 'Project not found.');

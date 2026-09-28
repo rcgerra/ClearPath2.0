@@ -7,6 +7,10 @@ import { canAssignRequestDelegate, canEditRequest } from '../demo/demoPermission
 import { assertReferenceSite, getReferenceMetadata, listReferenceMetadata, saveReferenceMetadata } from '../services/referenceMetadata';
 import { opportunitySubmissionSchema } from '../services/opportunitySubmission';
 import { requestStageIndex } from '../services/requestWorkflow';
+import { resolveCreationSite } from '../services/siteScope';
+import { personSiteId, viewSiteForRequest } from '../services/siteScope';
+import * as dv from '../dataverse/client';
+import { COLUMNS } from '../dataverse/fields';
 
 const router = Router();
 
@@ -45,7 +49,7 @@ function toRequest(record: Awaited<ReturnType<typeof requestRepository.findById>
     name: record.Name,
     title: record.Title ?? record.Name,
     shortTitle: record.ShortTitle,
-    spotId: record.SpotId,
+    spotId: record.ProjectApiId ? record.ProjectSpotId : record.SpotId,
     phase: record.Phase,
     disposition: record.Disposition,
     location: undefined,
@@ -110,19 +114,26 @@ router.get('/', asyncHandler(async (req, res) => {
     status: req.query.status ? String(req.query.status) : undefined,
   });
   const metadata = await listReferenceMetadata('requests');
-  res.json(records.map((record) => ({ ...toRequest(record), ...metadata.get(record.RequestApiId.toLowerCase()) })));
+  const siteId = await viewSiteForRequest(req);
+  const peopleSites = siteId ? new Map((await dv.list('people', { select: [COLUMNS.people.id, COLUMNS.people.siteId], top: 2000 }))
+    .map((person) => [String(person[COLUMNS.people.id]).toLowerCase(), String(person[COLUMNS.people.siteId] ?? '')])) : new Map<string, string>();
+  res.json(records.map((record) => ({ ...toRequest(record), ...metadata.get(record.RequestApiId.toLowerCase()) }))
+    .filter((request) => !siteId || (request.siteId ?? peopleSites.get(String(request.requesterPersonId ?? '').toLowerCase()))?.toLowerCase() === siteId.toLowerCase()));
 }));
 
 router.get('/:id', asyncHandler(async (req, res) => {
   const record = await requestRepository.findByIdentifier(req.params.id);
   const details = toRequest(record);
-  res.json({ ...details, ...await getReferenceMetadata('requests', details.id), workflowCompletedAt: await requestRepository.workflowCompletedAt(record!.RequestId) });
+  const metadata = await getReferenceMetadata('requests', details.id);
+  const siteId = await viewSiteForRequest(req);
+  if (siteId && (metadata.siteId ?? await personSiteId(details.requesterPersonId))?.toLowerCase() !== siteId.toLowerCase()) throw new HttpError(404, 'Opportunity not found.');
+  res.json({ ...details, ...metadata, workflowCompletedAt: await requestRepository.workflowCompletedAt(record!.RequestId) });
 }));
 
 router.post('/', asyncHandler(async (req, res) => {
   const input = captureSchema.parse(req.body);
   if (input.phase === 'Prioritization') opportunitySubmissionSchema.parse(input);
-  await assertReferenceSite(input.siteId);
+  const siteId = await resolveCreationSite(req.user, input.siteId);
   const requesterPersonId = req.user?.personId ? await requestRepository.resolvePersonId(req.user.personId) : null;
   const id = await requestRepository.create({
     ...(await resolveInput(input)),
@@ -136,12 +147,13 @@ router.post('/', asyncHandler(async (req, res) => {
   });
   const created = await requestRepository.findById(id);
   const apiId = toRequest(created).id;
-  await saveReferenceMetadata('requests', apiId, { siteId: input.siteId, location: input.location });
+  await saveReferenceMetadata('requests', apiId, { siteId, location: input.location });
   res.status(201).json({ id: apiId });
 }));
 
 router.patch('/:id', asyncHandler(async (req, res) => {
   const input = updateSchema.parse(req.body);
+  if (input.siteId !== undefined && !req.user?.roles.includes('admin')) throw new HttpError(403, 'Only admins can reassign a record to another site.');
   await assertReferenceSite(input.siteId);
   const current = await requestRepository.findByIdentifier(req.params.id);
   if (!current) throw new HttpError(404, 'Opportunity not found.');
@@ -168,6 +180,7 @@ router.patch('/:id', asyncHandler(async (req, res) => {
 router.post('/:id/promote', requireRole('admin'), asyncHandler(async (req, res) => {
   const current = await requestRepository.findByIdentifier(req.params.id);
   if (!current) throw new HttpError(404, 'Request not found.');
+  const siteId = (await getReferenceMetadata('requests', current.RequestApiId)).siteId;
   const projectId = await projectRepository.create(await projectRepository.resolveInput({
     name: current.Title ?? current.Name,
     problemStatement: current.CurrentState,
@@ -176,9 +189,11 @@ router.post('/:id/promote', requireRole('admin'), asyncHandler(async (req, res) 
     priorityScore: current.PriorityScore ?? 0,
     requestId: String(current.RequestId),
     departmentId: current.DepartmentApiId ?? undefined,
+    siteId,
   }));
   const project = await projectRepository.findById(projectId);
   if (!project) throw new HttpError(500, 'Promoted project could not be retrieved.');
+  if (siteId) await saveReferenceMetadata('projects', project.ProjectApiId, { siteId });
   await requestRepository.update(current.RequestId, { Status: 'Approved', ProjectId: projectId });
   res.status(201).json({ projectId: project.ProjectApiId });
 }));

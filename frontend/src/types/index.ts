@@ -24,6 +24,7 @@ export interface Person {
   departmentName?: string;
   functionId?: string;
   functionName?: string;
+  siteId?: string;
   siteName?: string;
   skillsetName?: string;
 }
@@ -281,6 +282,7 @@ export interface Lookup {
   sponsorPersonId?: string;
   assistantLeadPersonIds?: string[];
   missionStatement?: string;
+  subprogram?: string;
 }
 
 /** Governance workflow stages, in the order an item moves through them. */

@@ -2,5 +2,21 @@
   {
     "id": "feba5c60-7fba-f011-bbd3-002248271486",
     "projectType": "Functional Project"
+  },
+  {
+    "id": "24d2dc12-ea47-f111-bec6-7c1e524a11a2",
+    "programId": "d0d4e650-71ab-f011-bbd3-002248271486",
+    "projectType": "Functional Project"
+  },
+  {
+    "id": "ac3e0298-dead-f111-aaac-7ced8d1ca135",
+    "programId": "f0f2799c-b6cf-f011-bbd3-7c1e527cd923",
+    "projectType": "SPOT Light Project",
+    "spotRecordCreated": false
+  },
+  {
+    "id": "9f20e6c7-4d13-f111-8406-7c1e52146908",
+    "programId": "d0d4e650-71ab-f011-bbd3-002248271486",
+    "projectType": "Functional Project"
   }
 ]

@@ -5,6 +5,7 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
 import { assertAvailabilityEditable, departmentIdForPerson } from '../middleware/recordAccess';
 import { decodeArray, encodeArray, setWeekRange, setWeekValue } from '../utils/arrayParser';
+import { personIdsAtSite, viewSiteForRequest } from '../services/siteScope';
 
 const router = Router();
 
@@ -208,7 +209,9 @@ router.get(
         ORDER BY c.Name, s.Name, d.Description`,
       { personId: personId ?? null, departmentId: departmentId ?? null },
     );
-    res.json(rows.map(toDemand));
+    const siteId = await viewSiteForRequest(req);
+    const personIds = siteId ? await personIdsAtSite(siteId) : null;
+    res.json(rows.map(toDemand).filter((row) => !personIds || personIds.has(row.personId.toLowerCase())));
   }),
 );
 

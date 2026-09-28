@@ -34,6 +34,7 @@ const ProjectManagerDashboard = lazy(() => import('./pages/ProjectManagerDashboa
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
 const ProjectTeamPage = lazy(() => import('./pages/ProjectTeamPage'));
 const RequestsPage = lazy(() => import('./pages/RequestsPage'));
+const SiteAssistantsPage = lazy(() => import('./pages/SiteAssistantsPage'));
 
 export default function App() {
   return (
@@ -80,14 +81,7 @@ export default function App() {
             }
           />
           <Route path="/departments" element={<DepartmentsPage />} />
-          <Route
-            path="/departments/new"
-            element={
-              <ProtectedRoute roles={['admin']}>
-                <DepartmentEditPage />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/departments/new" element={<DepartmentEditPage />} />
           <Route path="/departments/:id" element={<DepartmentTeamPage />} />
           <Route path="/departments/:id/edit" element={<DepartmentEditPage />} />
           <Route
@@ -99,14 +93,7 @@ export default function App() {
             }
           />
           <Route path="/projects" element={<ProjectsPage />} />
-          <Route
-            path="/projects/new"
-            element={
-              <ProtectedRoute roles={['admin']}>
-                <ProjectEditPage />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/projects/new" element={<ProjectEditPage />} />
           <Route path="/projects/:id" element={<ProjectTeamPage />} />
           <Route
             path="/projects/:id/edit"
@@ -127,6 +114,9 @@ export default function App() {
           <Route path="/me" element={<IndividualDashboard />} />
           <Route path="/portfolio" element={<ProtectedRoute roles={['admin', 'portfolio_manager']}><AdminDashboard /></ProtectedRoute>} />
           <Route path="/people" element={<PeopleListPage />} />
+          <Route path="/people/new" element={<PersonEditPage />} />
+          <Route path="/people/:id" element={<PersonEditPage />} />
+          <Route path="/site/team" element={<SiteAssistantsPage />} />
           <Route path="/skills" element={<SkillsPage />} />
           <Route path="/requests" element={<RequestsPage />} />
           <Route path="/requests/:id" element={<RequestEditPage />} />

@@ -9,12 +9,14 @@ export default function LocationChipPicker({
   label = 'Locations Impacted',
   defaultValue = '',
   required = false,
+  siteId,
 }: {
   id: string;
   name: string;
   label?: string;
   defaultValue?: string;
   required?: boolean;
+  siteId?: string | null;
 }) {
   const locations = useQuery({ queryKey: ['lookups', 'locations'], queryFn: () => lookupsApi.list('locations') });
   const [selected, setSelected] = useState<string[]>(() =>
@@ -30,7 +32,7 @@ export default function LocationChipPicker({
       <label htmlFor={id}>{label}</label>
       <input type="hidden" id={id} name={name} value={selected.join('; ')} readOnly />
       <div className="location-chip-row" role="group" aria-label={label} aria-required={required}>
-        {locations.data?.map((location) => (
+        {locations.data?.filter((location) => siteId === undefined || Boolean(siteId && location.siteId?.toLowerCase() === siteId.toLowerCase())).map((location) => (
           <button
             key={location.id}
             type="button"
@@ -42,6 +44,8 @@ export default function LocationChipPicker({
           </button>
         ))}
         {locations.isLoading && <span className="muted">Loading locations…</span>}
+        {siteId === null && <span className="muted">Assign a site to your profile to select locations.</span>}
+        {siteId && !locations.isLoading && !locations.data?.some((location) => location.siteId?.toLowerCase() === siteId.toLowerCase()) && <span className="muted">No locations assigned to your site.</span>}
       </div>
     </div>
   );

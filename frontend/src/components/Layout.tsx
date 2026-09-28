@@ -2,6 +2,7 @@ import { Suspense, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { useSiteAccess } from '../utils/useSiteAccess';
 
 const NAV_ICON_NAMES = [
   'home',
@@ -221,6 +222,9 @@ function accentForPath(pathname: string): string {
 
 export default function Layout() {
   const { user, viewingAs, stopViewingAs } = useAuthStore();
+  const selectedSiteId = useAuthStore((state) => state.selectedSiteId);
+  const setSelectedSiteId = useAuthStore((state) => state.setSelectedSiteId);
+  const { site, sites, viewSiteId } = useSiteAccess();
   const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
@@ -265,6 +269,20 @@ export default function Layout() {
             </svg>
           ))}
         </div>
+        {user && (isAdmin || site) && (
+          <div className="app-site-selector">
+            <label htmlFor="app-site-select">Site</label>
+            {isAdmin ? (
+              <select id="app-site-select" value={selectedSiteId ?? ''} onChange={(event) => {
+                setSelectedSiteId(event.target.value || null);
+                queryClient.clear();
+              }}>
+                <option value="">All sites</option>
+                {sites.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+              </select>
+            ) : <strong>{site?.name}</strong>}
+          </div>
+        )}
         {user && (
           <div className="header-identity">
             {roleLabels.length > 0 && (
@@ -344,7 +362,7 @@ export default function Layout() {
         <div className="app-content">
           <main className={['app-main', accentForPath(location.pathname), location.pathname.startsWith('/admin') ? 'admin-main' : '', ['/prioritization', '/projects', '/departments', '/people'].includes(location.pathname) || isGovernanceList ? 'flush-list-page' : '', ['/requests', '/prioritization', '/projects', '/departments'].includes(location.pathname) || isGovernanceList ? 'bottom-toolbar-page' : '', /^\/(projects|departments)\/[^/]+$/.test(location.pathname) ? 'planning-detail-page' : ''].filter(Boolean).join(' ')}>
             <Suspense fallback={<div role="status" className="muted">Loading page…</div>}>
-              <Outlet />
+              <Outlet key={viewSiteId ?? 'all'} />
             </Suspense>
           </main>
         </div>

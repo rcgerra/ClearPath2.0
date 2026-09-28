@@ -1,5 +1,5 @@
 ﻿import { randomUUID } from 'node:crypto';
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { env } from '../config/env';
 import { AuthUser, Role, ROLES, authenticate, requireRole, signToken, signViewAsToken } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
@@ -10,6 +10,7 @@ import { combineParentScores, getPrioritizationModel, updatePrioritizationModel 
 import { getReferenceMetadata, listReferenceMetadata, referenceMetadataSchema, saveReferenceMetadata } from '../services/referenceMetadata';
 import { opportunitySubmissionSchema } from '../services/opportunitySubmission';
 import { requestStageIndex } from '../services/requestWorkflow';
+import { assertDepartmentSite, assertSiteCreator, assertSiteLead, assignPersonSite, personSiteId, resolveCreationSite, resolvePersonCreationSite, viewSiteId } from '../services/siteScope';
 
 /**
  * In-memory sample data used only when DEMO_MODE=true, so the UI can be reviewed
@@ -21,6 +22,16 @@ const HEX_PREFIX: Record<string, string> = { d: 'd', p: 'a', f: 'f', j: 'b', r: 
 const id = (n: number, prefix: string) =>
   `${HEX_PREFIX[prefix] ?? 'a'}${String(n).padStart(7, '0')}-0000-4000-8000-000000000000`.slice(0, 36);
 const dataService = demoDataService;
+
+function requestWithProjectSpot<Request extends { id: string; projectId?: string; spotId?: string }>(request: Request) {
+  const project = request.projectId ? dataService.find('projects', request.projectId) : undefined;
+  return { ...request, spotId: project ? project.spotId : request.spotId };
+}
+
+function projectWithRequestLink<Project extends { id: string }>(project: Project) {
+  const request = dataService.list('requests').find((row) => row.projectId === project.id);
+  return { ...project, requestId: request?.id };
+}
 
 function seedPrioritizationSamples(): void {
   if (!env.demoMode) return;
@@ -134,6 +145,9 @@ router.get('/auth/session', (req, res) => {
 
 router.use(authenticate);
 
+const scopedSite = (req: Request) => viewSiteId(req.user, typeof req.headers['x-clearpath-site'] === 'string' ? req.headers['x-clearpath-site'] : undefined);
+const atSite = (siteId: string | undefined, visibleSite: string | undefined) => !visibleSite || siteId?.toLowerCase() === visibleSite.toLowerCase();
+
 function parsePersonRoles(raw: unknown): Role[] {
   const roles = String(raw ?? '')
     .split(/[;,]/)
@@ -166,21 +180,27 @@ function assertSite(siteId: unknown): void {
   }
 }
 
-router.get('/departments', asyncHandler(async (_req, res) => {
+router.get('/departments', asyncHandler(async (req, res) => {
+  const visibleSite = await scopedSite(req);
   const metadata = await listReferenceMetadata('departments');
-  res.json(dataService.list('departments').map((row) => ({ ...row, ...metadata.get(row.id.toLowerCase()) })));
+  res.json(dataService.list('departments').map((row) => ({ ...row, ...metadata.get(row.id.toLowerCase()) }))
+    .filter((row) => atSite(row.siteId, visibleSite)));
 }));
 router.get('/departments/:id', asyncHandler(async (req, res) => {
   const record = dataService.find('departments', req.params.id);
   if (!record) throw new HttpError(404, 'Department not found.');
-  res.json({ ...record, ...await getReferenceMetadata('departments', record.id) });
+  const detail = { ...record, ...await getReferenceMetadata('departments', record.id) };
+  if (!atSite(detail.siteId, await scopedSite(req))) throw new HttpError(404, 'Department not found.');
+  res.json(detail);
 }));
-router.post('/departments', requireRole('admin'), asyncHandler(async (req, res) => {
+router.post('/departments', asyncHandler(async (req, res) => {
+  await assertSiteCreator(req.user);
   assertSite(req.body?.siteId);
+  const siteId = await resolveCreationSite(req.user, req.body?.siteId);
   const departments = dataService.list('departments');
-  const record = { id: id(departments.length + 1, 'd'), isActive: true, ...req.body } as (typeof departments)[number];
+  const record = { id: id(departments.length + 1, 'd'), isActive: true, ...req.body, siteId } as (typeof departments)[number];
   dataService.create('departments', record);
-  if (req.body?.siteId !== undefined) await saveReferenceMetadata('departments', record.id, { siteId: req.body.siteId });
+  await saveReferenceMetadata('departments', record.id, { siteId });
   res.status(201).json({ id: record.id });
 }));
 router.patch('/departments/:id', asyncHandler(async (req, res) => {
@@ -189,12 +209,13 @@ router.patch('/departments/:id', asyncHandler(async (req, res) => {
   if (!canEditAssignedRecord(req.user, department.leadPersonId, department.delegatePersonId)) {
     throw new HttpError(403, 'Only the department lead, their delegate or an admin can change this department.');
   }
+  if (req.body?.siteId !== undefined && !req.user?.roles.includes('admin')) throw new HttpError(403, 'Only admins can reassign a record to another site.');
   assertSite(req.body?.siteId);
   if (req.body?.siteId !== undefined) await saveReferenceMetadata('departments', department.id, { siteId: req.body.siteId });
   res.json(patch('departments', req.params.id, req.body));
 }));
 
-router.get('/people', (req, res) => {
+router.get('/people', asyncHandler(async (req, res) => {
   const departmentId = req.query.departmentId ? String(req.query.departmentId) : undefined;
   const functionId = req.query.functionId ? String(req.query.functionId) : undefined;
   const search = req.query.search ? String(req.query.search).toLowerCase() : undefined;
@@ -204,19 +225,30 @@ router.get('/people', (req, res) => {
   if (functionId) rows = rows.filter((row) => row.functionId === functionId);
   if (search) rows = rows.filter((row) => row.name.toLowerCase().includes(search) || row.email.toLowerCase().includes(search));
   if (active !== undefined) rows = rows.filter((row) => row.isActive === active);
-  res.json(rows);
-});
+  const metadata = await listReferenceMetadata('people');
+  const visibleSite = await scopedSite(req);
+  res.json(rows.map((row) => ({ ...row, ...metadata.get(row.id.toLowerCase()) }))
+    .filter((row) => atSite(row.siteId, visibleSite)));
+}));
 router.get('/people/:id', asyncHandler(async (req, res) => {
   const record = dataService.find('people', req.params.id);
   if (!record) throw new HttpError(404, 'Person not found.');
-  res.json(record);
+  const detail = { ...record, ...await getReferenceMetadata('people', record.id) };
+  if (record.id.toLowerCase() !== req.user?.personId?.toLowerCase()
+    && !atSite(detail.siteId, await scopedSite(req))) throw new HttpError(404, 'Person not found.');
+  res.json(detail);
 }));
-router.post('/people', requireRole('admin'), (req, res) => {
+router.post('/people', asyncHandler(async (req, res) => {
+  await assertSiteCreator(req.user);
+  assertSite(req.body?.siteId);
+  const siteId = await resolvePersonCreationSite(req.user, req.body?.siteId);
+  await assertDepartmentSite(req.body?.departmentId, siteId, req.user);
   const people = dataService.list('people');
-  const record = { id: id(people.length + 1, 'p'), isActive: true, ...req.body } as (typeof people)[number];
+  const record = { id: id(people.length + 1, 'p'), ...req.body, isActive: true, role: 'user', siteId } as (typeof people)[number];
   dataService.create('people', record);
+  await assignPersonSite(record.id, siteId);
   res.status(201).json({ id: record.id });
-});
+}));
 router.patch('/people/:id', asyncHandler(async (req, res) => {
   const person = dataService.find('people', req.params.id);
   if (!person) throw new HttpError(404, 'Person not found.');
@@ -225,6 +257,8 @@ router.patch('/people/:id', asyncHandler(async (req, res) => {
   if (!isAdmin && Object.hasOwn(req.body ?? {}, 'role')) {
     throw new HttpError(403, 'Only admins can assign security roles.');
   }
+  if (!isAdmin && Object.hasOwn(req.body ?? {}, 'siteId')) throw new HttpError(403, 'Only admins can reassign a person to another site.');
+  if (req.body?.siteId !== undefined) assertSite(req.body.siteId);
   if (!isAdmin && !isSelf) {
     const department = person.departmentId ? dataService.find('departments', person.departmentId) : undefined;
     if (!department || !canEditAssignedRecord(req.user, department.leadPersonId, department.delegatePersonId)
@@ -232,25 +266,41 @@ router.patch('/people/:id', asyncHandler(async (req, res) => {
       throw new HttpError(403, 'Department leads and delegates may only transfer team members.');
     }
   }
-  res.json(patch('people', req.params.id, req.body));
+  const updated = patch('people', req.params.id, req.body);
+  if (req.body?.siteId) await assignPersonSite(person.id, req.body.siteId);
+  res.json(updated);
 }));
 
-router.get('/projects', asyncHandler(async (_req, res) => {
+router.get('/projects', asyncHandler(async (req, res) => {
+  const visibleSite = await scopedSite(req);
   const metadata = await listReferenceMetadata('projects');
-  res.json(dataService.list('projects').map((row) => ({ ...row, ...metadata.get(row.id.toLowerCase()) })));
+  const departments = new Map(dataService.list('departments').map((row) => [row.id, row.siteId]));
+  res.json(dataService.list('projects').map((row) => ({ ...projectWithRequestLink(row), ...metadata.get(row.id.toLowerCase()) }))
+    .filter((row) => atSite(row.siteId ?? departments.get(row.departmentId ?? ''), visibleSite)));
 }));
 router.get('/projects/:id', asyncHandler(async (req, res) => {
   const record = dataService.find('projects', req.params.id);
   if (!record) throw new HttpError(404, 'Project not found.');
-  res.json({ ...record, ...await getReferenceMetadata('projects', record.id) });
+  const detail = { ...projectWithRequestLink(record), ...await getReferenceMetadata('projects', record.id) };
+  if (!atSite(detail.siteId ?? dataService.find('departments', record.departmentId ?? '')?.siteId, await scopedSite(req))) throw new HttpError(404, 'Project not found.');
+  res.json(detail);
 }));
-router.get('/projects/:id/team', (req, res) => res.json(dataService.filterBy('demand', (row) => row.projectId === req.params.id)));
-router.post('/projects', requireRole('admin'), asyncHandler(async (req, res) => {
+router.get('/projects/:id/team', asyncHandler(async (req, res) => {
+  const project = dataService.find('projects', req.params.id);
+  const siteId = project ? (await getReferenceMetadata('projects', project.id)).siteId
+    ?? dataService.find('departments', project.departmentId ?? '')?.siteId : undefined;
+  if (!project || !atSite(siteId, await scopedSite(req))) throw new HttpError(404, 'Project not found.');
+  res.json(dataService.filterBy('demand', (row) => row.projectId === req.params.id));
+}));
+router.post('/projects', asyncHandler(async (req, res) => {
+  await assertSiteCreator(req.user);
   assertSite(req.body?.siteId);
+  const siteId = await resolveCreationSite(req.user, req.body?.siteId);
+  await assertDepartmentSite(req.body?.departmentId, siteId, req.user);
   const projects = dataService.list('projects');
-  const record = { id: id(projects.length + 1, 'j'), ...req.body } as (typeof projects)[number];
+  const record = { id: id(projects.length + 1, 'j'), ...req.body, siteId } as (typeof projects)[number];
   dataService.create('projects', record);
-  if (req.body?.siteId !== undefined) await saveReferenceMetadata('projects', record.id, { siteId: req.body.siteId });
+  await saveReferenceMetadata('projects', record.id, { siteId });
   res.status(201).json({ id: record.id });
 }));
 router.patch('/projects/:id', asyncHandler(async (req, res) => {
@@ -259,15 +309,18 @@ router.patch('/projects/:id', asyncHandler(async (req, res) => {
   if (!canEditAssignedRecord(req.user, project.managerPersonId, project.delegatePersonId)) {
     throw new HttpError(403, 'Only the project manager, their delegate or an admin can change this project.');
   }
+  if (req.body?.siteId !== undefined && !req.user?.roles.includes('admin')) throw new HttpError(403, 'Only admins can reassign a record to another site.');
   assertSite(req.body?.siteId);
   if (req.body?.siteId !== undefined) await saveReferenceMetadata('projects', project.id, { siteId: req.body.siteId });
   res.json(patch('projects', req.params.id, req.body));
 }));
 
 router.get('/requests', asyncHandler(async (req, res) => {
+  const visibleSite = await scopedSite(req);
   const requests = dataService.list('requests');
   const metadata = await listReferenceMetadata('requests');
-  const withSites = requests.map((row) => ({ ...row, ...metadata.get(row.id.toLowerCase()) }));
+  const withSites = requests.map((row) => ({ ...requestWithProjectSpot(row), ...metadata.get(row.id.toLowerCase()) }))
+    .filter((row) => atSite(row.siteId ?? dataService.find('people', row.requesterPersonId ?? '')?.siteId, visibleSite));
   if (req.query.mine !== 'true') {
     res.json(withSites);
     return;
@@ -278,11 +331,14 @@ router.get('/requests', asyncHandler(async (req, res) => {
 router.get('/requests/:id', asyncHandler(async (req, res) => {
   const record = dataService.find('requests', req.params.id);
   if (!record) throw new HttpError(404, 'Opportunity not found.');
-  res.json({ ...record, ...await getReferenceMetadata('requests', record.id), workflowCompletedAt: dataService.workflowCompletedAt(record.id) });
+  const detail = { ...requestWithProjectSpot(record), ...await getReferenceMetadata('requests', record.id) };
+  if (!atSite(detail.siteId ?? dataService.find('people', record.requesterPersonId ?? '')?.siteId, await scopedSite(req))) throw new HttpError(404, 'Opportunity not found.');
+  res.json({ ...detail, workflowCompletedAt: dataService.workflowCompletedAt(record.id) });
 }));
 /** Captures a new intake request; disposition always starts Pending and the phase starts Draft. */
 router.post('/requests', asyncHandler(async (req, res) => {
   assertSite(req.body?.siteId);
+  const siteId = await resolveCreationSite(req.user, req.body?.siteId);
   if (req.body?.phase === 'Prioritization') opportunitySubmissionSchema.parse(req.body);
   const requests = dataService.list('requests');
   const requester = dataService.find('people', req.user?.personId ?? '');
@@ -323,13 +379,14 @@ router.post('/requests', asyncHandler(async (req, res) => {
     additionalInformation: req.body?.additionalInformation ? String(req.body.additionalInformation) : '',
   } as (typeof requests)[number];
   dataService.create('requests', record);
-  if (req.body?.siteId !== undefined) await saveReferenceMetadata('requests', record.id, { siteId: req.body.siteId });
+  await saveReferenceMetadata('requests', record.id, { siteId });
   res.status(201).json({ id: record.id });
 }));
 router.patch('/requests/:id', asyncHandler(async (req, res) => {
   const current = dataService.find('requests', req.params.id);
   if (!current) throw new HttpError(404, 'Opportunity not found.');
   if (!canEditRequest(req.user, current)) throw new HttpError(403, 'You cannot edit this opportunity at its current phase.');
+  if (req.body?.siteId !== undefined && !req.user?.roles.includes('admin')) throw new HttpError(403, 'Only admins can reassign a record to another site.');
   const moderator = req.user?.roles.some((role) => role === 'admin' || role === 'intake_moderator');
   const submitting = req.body?.phase === 'Prioritization' && req.body?.status === 'Submitted' && requestStageIndex(current.phase) === 0;
   if (submitting) opportunitySubmissionSchema.parse({ ...current, ...req.body });
@@ -361,9 +418,28 @@ function lookupTable(value: string): EditableLookup {
 router.get('/lookups/:table', asyncHandler(async (req, res, next) => {
   if (!editableLookups.includes(req.params.table as EditableLookup)) return next();
   const table = lookupTable(req.params.table);
-  res.json(await Promise.all(dataService.list(table).map(async (row) => ({
-    ...row, ...await getReferenceMetadata(table, row.id),
-  }))));
+  const visibleSite = table === 'sites' && req.user?.roles.includes('admin') ? undefined : await scopedSite(req);
+  const departmentSites = new Set(dataService.list('departments').map((department) => department.siteId).filter(Boolean));
+  const legacyLocationSite = table === 'locations' && departmentSites.size === 1 ? [...departmentSites][0] : undefined;
+  const rows = await Promise.all(dataService.list(table).map(async (row) => ({
+    ...row, ...(legacyLocationSite ? { siteId: legacyLocationSite } : {}), ...await getReferenceMetadata(table, row.id),
+  })));
+  res.json(rows.filter((row) => table === 'programs' || atSite(table === 'sites' ? row.id : row.siteId, visibleSite)));
+}));
+router.patch('/lookups/sites/:id/assistants', asyncHandler(async (req, res) => {
+  if (!dataService.find('sites', req.params.id)) throw new HttpError(404, 'Site not found.');
+  await assertSiteLead(req.user, req.params.id);
+  const assistants = referenceMetadataSchema.pick({ assistantLeadPersonIds: true }).required().parse(req.body).assistantLeadPersonIds;
+  for (const personId of assistants) {
+    if (!dataService.find('people', personId)) throw new HttpError(400, 'Select an existing person as assistant site lead.');
+    const assignedSite = await personSiteId(personId);
+    if (!req.user?.roles.includes('admin') && assignedSite?.toLowerCase() !== req.params.id.toLowerCase()) {
+      throw new HttpError(403, 'Assistant site leads must already belong to your site.');
+    }
+  }
+  for (const personId of assistants) await assignPersonSite(personId, req.params.id);
+  await saveReferenceMetadata('sites', req.params.id, { assistantLeadPersonIds: assistants });
+  res.json({ id: req.params.id });
 }));
 router.post('/lookups/:table', requireRole('admin'), asyncHandler(async (req, res) => {
   const table = lookupTable(req.params.table);
@@ -371,8 +447,18 @@ router.post('/lookups/:table', requireRole('admin'), asyncHandler(async (req, re
   if (!name || name.length > 200) throw new HttpError(400, 'Name must be between 1 and 200 characters.');
   const metadata = referenceMetadataSchema.parse(req.body);
   assertSite(metadata.siteId);
+  if (table === 'sites') {
+    for (const personId of [metadata.leadPersonId, ...(metadata.assistantLeadPersonIds ?? [])].filter((personId): personId is string => Boolean(personId))) {
+      if (!dataService.find('people', personId)) throw new HttpError(400, 'Select a valid site lead.');
+    }
+  }
   const record = dataService.create(table, { id: randomUUID(), name, row: {} });
   if (Object.keys(metadata).length) await saveReferenceMetadata(table, record.id, metadata);
+  if (table === 'sites') {
+    for (const personId of [metadata.leadPersonId, ...(metadata.assistantLeadPersonIds ?? [])].filter((personId): personId is string => Boolean(personId))) {
+      await assignPersonSite(personId, record.id);
+    }
+  }
   res.status(201).json({ id: record.id });
 }));
 router.patch('/lookups/:table/:id', requireRole('admin'), asyncHandler(async (req, res) => {
@@ -381,8 +467,18 @@ router.patch('/lookups/:table/:id', requireRole('admin'), asyncHandler(async (re
   if (!name || name.length > 200) throw new HttpError(400, 'Name must be between 1 and 200 characters.');
   const metadata = referenceMetadataSchema.parse(req.body);
   assertSite(metadata.siteId);
+  if (table === 'sites') {
+    for (const personId of [metadata.leadPersonId, ...(metadata.assistantLeadPersonIds ?? [])].filter((personId): personId is string => Boolean(personId))) {
+      if (!dataService.find('people', personId)) throw new HttpError(400, 'Select a valid site lead.');
+    }
+  }
   const record = patch(table, req.params.id, { name });
   if (Object.keys(metadata).length) await saveReferenceMetadata(table, req.params.id, metadata);
+  if (table === 'sites') {
+    for (const personId of [metadata.leadPersonId, ...(metadata.assistantLeadPersonIds ?? [])].filter((personId): personId is string => Boolean(personId))) {
+      await assignPersonSite(personId, req.params.id);
+    }
+  }
   res.json(record);
 }));
 router.delete('/lookups/:table/:id', requireRole('admin'), (req, res) => {
@@ -391,14 +487,15 @@ router.delete('/lookups/:table/:id', requireRole('admin'), (req, res) => {
   res.status(204).end();
 });
 
-router.get('/capacity', (req, res) => {
+router.get('/capacity', asyncHandler(async (req, res) => {
+  const visibleSite = await scopedSite(req);
   const personId = req.query.mine === 'true' ? req.user?.personId : req.query.personId ? String(req.query.personId) : undefined;
   const departmentId = req.query.departmentId ? String(req.query.departmentId) : undefined;
   let rows = dataService.listCapacity();
   if (personId) rows = rows.filter((row) => row.personId === personId);
   if (departmentId) rows = rows.filter((row) => row.departmentId === departmentId);
-  res.json(rows);
-});
+  res.json(rows.filter((row) => atSite(dataService.find('people', row.personId)?.siteId, visibleSite)));
+}));
 
 router.get('/capacity/person/:personId/net', (req, res) => {  const availability = dataService.listCapacity().filter((row) => row.personId === req.params.personId)
     .reduce<number[]>((total, row) => row.weeks.map((value, i) => (total[i] ?? 0) + value), new Array(1333).fill(0));
@@ -470,13 +567,21 @@ router.delete('/capacity/:id', (req, res) => {
   res.status(204).end();
 });
 
-router.get('/demand', (req, res) => {
+router.get('/demand', asyncHandler(async (req, res) => {
+  const visibleSite = await scopedSite(req);
+  const projectSites = await listReferenceMetadata('projects');
   const personId = req.query.mine === 'true' ? req.user?.personId : String(req.query.personId ?? '');  const projectId = String(req.query.projectId ?? '');
   let rows = dataService.list('demand');
   if (personId) rows = rows.filter((row) => row.personId === personId);
   if (projectId) rows = rows.filter((row) => row.projectId === projectId);
-  res.json(rows);
-});
+  res.json(rows.filter((row) => {
+    const project = dataService.find('projects', row.projectId);
+    const siteId = dataService.find('people', row.personId ?? '')?.siteId
+      ?? projectSites.get(row.projectId.toLowerCase())?.siteId
+      ?? dataService.find('departments', project?.departmentId ?? '')?.siteId;
+    return atSite(siteId, visibleSite);
+  }));
+}));
 
 const prioritizationScores = [0, 1, 5, 10, 15];
 const scoreLabels: Record<number, string> = { 0: 'No impact', 1: 'Low impact', 5: 'Moderate impact', 10: 'High impact', 15: 'Critical impact' };
@@ -523,15 +628,19 @@ router.patch('/prioritization/model', requireRole('admin'), (req, res) => {
   res.json(updatePrioritizationModel({ Impact: impactWeight, Complexity: complexityWeight }));
 });
 router.get('/prioritization/categories', (_req, res) => res.json(dataService.list('categories')));
-router.get('/prioritization/requests', (_req, res) => {
+router.get('/prioritization/requests', asyncHandler(async (req, res) => {
+  const visibleSite = await scopedSite(req);
+  const metadata = await listReferenceMetadata('requests');
   const requests = [...dataService.list('requests')]
+    .filter((request) => atSite(metadata.get(request.id.toLowerCase())?.siteId
+      ?? dataService.find('people', request.requesterPersonId ?? '')?.siteId, visibleSite))
     .sort((left, right) => Number(right.shortTitle?.startsWith('SAMPLE -')) - Number(left.shortTitle?.startsWith('SAMPLE -')))
     .map((request) => ({
     ...request,
     prioritizationComplete: prioritizationComplete(request.id),
     }));
   res.json(requests);
-});
+}));
 router.post('/prioritization/categories', requireRole('admin'), (req, res) => {
   const categories = dataService.list('categories');
   const record = { id: id(categories.length + 100, 'c'), isActive: true, categoryType: req.body.parent, ...req.body } as (typeof categories)[number];
@@ -608,21 +717,49 @@ router.post('/prioritization/submit', (req, res) => {
   const quartile = ['Highest quartile', 'Upper-middle quartile', 'Lower-middle quartile', 'Lowest quartile'][Math.min(3, Math.ceil((rank / ranked.length) * 4) - 1)] ?? 'Unranked';
   res.json({ requestId: req.body.requestId, quartile, topTen: rank > 0 && rank <= 10 });
 });
-router.get('/prioritization/ranking', (_req, res) => {
-  const rows = dataService.list('requests').filter((request) => request.isActive !== false).map((request) => ({ ...request, ...prioritizationBreakdown(request.id) }))
+router.get('/prioritization/ranking', asyncHandler(async (req, res) => {
+  const siteId = await scopedSite(req);
+  const metadata = await listReferenceMetadata('requests');
+  const rows = dataService.list('requests').filter((request) => request.isActive !== false
+    && atSite(metadata.get(request.id.toLowerCase())?.siteId ?? dataService.find('people', request.requesterPersonId ?? '')?.siteId, siteId))
+    .map((request) => ({ ...request, ...prioritizationBreakdown(request.id) }))
     .sort((left, right) => right.priorityScore - left.priorityScore)
     .map((request, index, all) => ({ ...request, rank: index + 1, quartile: ['Highest quartile', 'Upper-middle quartile', 'Lower-middle quartile', 'Lowest quartile'][Math.min(3, Math.ceil(((index + 1) / all.length) * 4) - 1)], topTen: index < 10 }));
   res.json(rows);
-});
+}));
 router.get('/users', (req, res) => {
   const search = req.query.search ? String(req.query.search).toLowerCase() : '';
   const people = dataService.list('people')
     .filter((person) => !search || person.name.toLowerCase().includes(search) || person.email.toLowerCase().includes(search));
   res.json(people.map((person) => ({ id: person.id, personId: person.id, fullName: person.name, email: person.email })));
 });
-router.get('/admin/portfolio-summary', (_req, res) =>
-  res.json(dataService.getPortfolioSummary()),
-);
+router.get('/admin/portfolio-summary', asyncHandler(async (req, res) => {
+  const siteId = await scopedSite(req);
+  if (!siteId) {
+    res.json(dataService.getPortfolioSummary());
+    return;
+  }
+  const projectSites = await listReferenceMetadata('projects');
+  const requestSites = await listReferenceMetadata('requests');
+  const capacity = dataService.listCapacity().filter((row) => atSite(dataService.find('people', row.personId)?.siteId, siteId));
+  const demand = dataService.listDemand().filter((row) => atSite(dataService.find('people', row.personId ?? '')?.siteId
+    ?? projectSites.get(row.projectId.toLowerCase())?.siteId, siteId));
+  const sum = (rows: Array<{ weeks: number[] }>) => rows.reduce<number[]>((total, row) =>
+    row.weeks.map((hours, week) => (total[week] ?? 0) + hours), new Array(1333).fill(0));
+  const availability = sum(capacity);
+  const committed = sum(demand);
+  res.json({
+    projectCount: dataService.list('projects').filter((row) => atSite(projectSites.get(row.id.toLowerCase())?.siteId
+      ?? dataService.find('departments', row.departmentId ?? '')?.siteId, siteId)).length,
+    requestCount: dataService.list('requests').filter((row) => atSite(requestSites.get(row.id.toLowerCase())?.siteId
+      ?? dataService.find('people', row.requesterPersonId ?? '')?.siteId, siteId)).length,
+    peopleWithCapacity: capacity.length,
+    demandRows: demand.length,
+    availability,
+    demand: committed,
+    net: availability.map((hours, week) => hours - committed[week]),
+  });
+}));
 
 router.post('/demand', (req, res) => {
   const person = dataService.find('people', req.body?.personId);
@@ -803,13 +940,15 @@ router.patch('/non-project-demand/subcategories/:id', requireRole('admin'), (req
   res.json({ id: subcategory.id });
 });
 
-router.get('/non-project-demand', (req, res) => {
+router.get('/non-project-demand', asyncHandler(async (req, res) => {
+  const visibleSite = await scopedSite(req);
   const personId = req.query.personId ? String(req.query.personId) : undefined;
   const departmentId = req.query.departmentId ? String(req.query.departmentId) : undefined;
   res.json(
-    dataService.listNonProjectDemand(personId, departmentId),
+    dataService.listNonProjectDemand(personId, departmentId)
+      .filter((row) => atSite(dataService.find('people', row.personId)?.siteId, visibleSite)),
   );
-});
+}));
 
 router.post('/non-project-demand', (req, res) => {
   const person = dataService.find('people', String(req.body?.personId ?? ''));

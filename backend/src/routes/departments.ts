@@ -6,6 +6,8 @@ import { assertDepartmentEditable } from '../middleware/recordAccess';
 import { departmentRepository } from '../repositories/sql/DepartmentRepository';
 import type { DepartmentInput } from '../repositories/interfaces';
 import { assertReferenceSite, getReferenceMetadata, listReferenceMetadata, saveReferenceMetadata } from '../services/referenceMetadata';
+import { assertSiteCreator, departmentSiteId, resolveCreationSite, viewSiteForRequest } from '../services/siteScope';
+import { siteRepository } from '../repositories/sql/SiteRepository';
 
 const router = Router();
 const schema = z.object({
@@ -49,10 +51,16 @@ router.use(authenticate);
 
 router.get(
   '/',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
     const records = await departmentRepository.list(true);
     const metadata = await listReferenceMetadata('departments');
-    res.json(records.map((record) => ({ ...toDepartment(record), ...metadata.get(record.DepartmentApiId.toLowerCase()) })));
+    const siteId = await viewSiteForRequest(req);
+    const sites = siteId ? await siteRepository.list() : [];
+    res.json(records.map((record) => {
+      const legacySite = sites.find((site) => site.Name.toLowerCase() === record.SiteName?.toLowerCase());
+      return { ...toDepartment(record), ...metadata.get(record.DepartmentApiId.toLowerCase()),
+        siteId: metadata.get(record.DepartmentApiId.toLowerCase())?.siteId ?? legacySite?.LegacyDataverseId ?? (legacySite ? String(legacySite.SiteId) : undefined) };
+    }).filter((record) => !siteId || record.siteId?.toLowerCase() === siteId.toLowerCase()));
   }),
 );
 
@@ -60,7 +68,11 @@ router.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const record = toDepartment(await departmentRepository.findByIdentifier(req.params.id));
-    res.json({ ...record, ...await getReferenceMetadata('departments', record.id) });
+    const metadata = await getReferenceMetadata('departments', record.id);
+    const siteId = await viewSiteForRequest(req);
+    const departmentSite = metadata.siteId ?? await departmentSiteId(record.id);
+    if (siteId && departmentSite?.toLowerCase() !== siteId.toLowerCase()) throw new HttpError(404, 'Department not found.');
+    res.json({ ...record, ...metadata, siteId: departmentSite });
   }),
 );
 
@@ -68,21 +80,23 @@ router.get(
 router.get(
   '/:id/team',
   asyncHandler(async (req, res) => {
+    const siteId = await viewSiteForRequest(req);
+    if (siteId && (await departmentSiteId(req.params.id))?.toLowerCase() !== siteId.toLowerCase()) throw new HttpError(404, 'Department not found.');
     res.json(await departmentRepository.listTeam(req.params.id));
   }),
 );
 
 router.post(
   '/',
-  requireRole('admin'),
   asyncHandler(async (req, res) => {
+    await assertSiteCreator(req.user);
     const input = schema.parse(req.body);
     if (!input.name) throw new HttpError(400, 'Department name is required.');
-    await assertReferenceSite(input.siteId);
+    const siteId = await resolveCreationSite(req.user, input.siteId);
     const id = await departmentRepository.create({ ...(await toSqlInput(input)), Name: input.name });
     const created = await departmentRepository.findById(id);
     const apiId = toDepartment(created).id;
-    if (input.siteId !== undefined) await saveReferenceMetadata('departments', apiId, { siteId: input.siteId });
+    await saveReferenceMetadata('departments', apiId, { siteId });
     res.status(201).json({ id: apiId });
   }),
 );
@@ -92,6 +106,7 @@ router.patch(
   asyncHandler(async (req, res) => {
     await assertDepartmentEditable(req.user, req.params.id);
     const input = schema.parse(req.body);
+    if (input.siteId !== undefined && !req.user?.roles.includes('admin')) throw new HttpError(403, 'Only admins can reassign a record to another site.');
     await assertReferenceSite(input.siteId);
     const department = await departmentRepository.findByIdentifier(req.params.id);
     if (!department) throw new HttpError(404, 'Department not found.');

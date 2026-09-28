@@ -5,6 +5,9 @@ import { canAssignRequestDelegate, canEditAssignedRecord, canEditAvailability, c
 import { completedStagesOnTransition } from '../services/requestWorkflow';
 import { CsvDataService, type DemoData } from './csvData';
 import { opportunitySubmissionSchema } from '../services/opportunitySubmission';
+import { env } from '../config/env';
+import { demoDataService } from './demoDataService';
+import { assertDepartmentSite, personSiteId, resolveCreationSite, resolvePersonCreationSite, siteLeadershipRole, viewSiteId } from '../services/siteScope';
 
 const user = (personId: string, roles: Role[] = ['user']): AuthUser => ({
   userId: personId,
@@ -108,4 +111,36 @@ test('submission requires all opportunity intake fields', () => {
   for (const field of Object.keys(complete)) {
     assert.equal(opportunitySubmissionSchema.safeParse({ ...complete, [field]: '' }).success, false, `${field} must be required`);
   }
+});
+
+test('creator site comes from the person record and cannot be spoofed', { skip: !env.demoMode }, async () => {
+  const person = demoDataService.list('people').find((row) => row.siteId);
+  const anotherSite = demoDataService.list('sites').find((row) => row.id !== person?.siteId);
+  assert.ok(person?.siteId && anotherSite);
+  assert.equal(await personSiteId(person.id), person.siteId);
+  assert.equal(await resolveCreationSite(user(person.id)), person.siteId);
+  await assert.rejects(resolveCreationSite(user(person.id), anotherSite.id), { status: 403 });
+  assert.equal(await resolveCreationSite(user(person.id, ['admin']), anotherSite.id), anotherSite.id);
+  assert.equal(await resolvePersonCreationSite(user(person.id, ['admin'])), person.siteId);
+  await assert.rejects(resolvePersonCreationSite(user(person.id, ['admin']), anotherSite.id), { status: 403 });
+  await assert.rejects(resolvePersonCreationSite(user('missing', ['admin']), person.siteId), { status: 403 });
+  assert.equal(await viewSiteId(user(person.id, ['admin'])), undefined);
+  assert.equal(await viewSiteId(user(person.id, ['admin']), anotherSite.id), anotherSite.id);
+  assert.equal(await viewSiteId(user(person.id), anotherSite.id), person.siteId);
+});
+
+test('site leads cannot assign new records to another site department', { skip: !env.demoMode }, async () => {
+  const home = demoDataService.list('departments').find((row) => row.siteId);
+  const otherSite = demoDataService.list('sites').find((row) => row.id !== home?.siteId);
+  assert.ok(home?.siteId && otherSite);
+  await assertDepartmentSite(home.id, home.siteId, user('lead'));
+  await assert.rejects(assertDepartmentSite(home.id, otherSite.id, user('lead')), { status: 403 });
+});
+
+test('site lead and assistant assignments are case-insensitive and scoped', () => {
+  const site = { leadPersonId: 'LEAD', assistantLeadPersonIds: ['ASSISTANT'] };
+  assert.equal(siteLeadershipRole(site, 'lead'), 'lead');
+  assert.equal(siteLeadershipRole(site, 'assistant'), 'assistant');
+  assert.equal(siteLeadershipRole(site, 'other'), null);
+  assert.equal(siteLeadershipRole(site), null);
 });

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { capacityApi, demandApi, nonProjectDemandApi, peopleApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
@@ -7,6 +7,7 @@ import DataTable, { Column } from '../../components/admin/DataTable';
 import ListToolbar from '../../components/admin/ListToolbar';
 import { useAuthStore } from '../../store/authStore';
 import { isAdmin } from '../../utils/permissions';
+import { useSiteAccess } from '../../utils/useSiteAccess';
 import { formatCount } from '../../utils/format';
 import type { Person } from '../../types';
 
@@ -35,6 +36,8 @@ const EMPTY_KPIS: PersonKpis = { assignments: 0, totalDemand: 0, totalAvailabili
 
 export default function PeopleListPage() {
   const canManagePeople = isAdmin(useAuthStore((state) => state.user));
+  const inAdminPortal = useLocation().pathname.startsWith('/admin');
+  const { canCreatePerson, isLead, sites } = useSiteAccess();
   const [search, setSearch] = useState('');
   const [hideInactive, setHideInactive] = useState(true);
   const people = useQuery({ queryKey: ['people'], queryFn: () => peopleApi.list() });
@@ -112,12 +115,13 @@ export default function PeopleListPage() {
       value: (row) => row.name,
       render: (row) => (
         <span className="name-cell">
-          {canManagePeople ? <Link to={`/admin/people/${row.id}`} className="record-link">{row.name}</Link> : <span>{row.name}</span>}
+          <Link to={`${inAdminPortal ? '/admin' : ''}/people/${row.id}`} className="record-link">{row.name}</Link>
           {row.employmentType?.toLowerCase() === 'contractor' && <span className="pill pill-contractor">Ext</span>}
         </span>
       ),
     },
     { key: 'department', label: 'Department', value: (row) => row.departmentName },
+    { key: 'site', label: 'Site', value: (row) => sites.find((site) => site.id.toLowerCase() === row.siteId?.toLowerCase())?.name ?? row.siteName ?? '—' },
     {
       key: 'assignments',
       label: 'Assignments',
@@ -175,7 +179,7 @@ export default function PeopleListPage() {
       width: '64px',
       value: () => '',
       render: (row) => canManagePeople ? (
-        <Link to={`/admin/people/${row.id}`} className="icon-button" title={`Edit ${row.name}`}>
+        <Link to={`${inAdminPortal ? '/admin' : ''}/people/${row.id}`} className="icon-button" title={`Edit ${row.name}`}>
           ✎
         </Link>
       ) : null,
@@ -187,10 +191,11 @@ export default function PeopleListPage() {
       accent="people"
       title="People"
       subtitle="Everyone available to staff projects."
-      actions={canManagePeople ? (
-        <Link to="/admin/people/new">
-          <button className="accent-button">+ New person</button>
-        </Link>
+      actions={canCreatePerson ? (
+        <div className="row-actions">
+          {isLead && <Link to="/site/team">Site assistants</Link>}
+          <Link className="accent-button" to={inAdminPortal ? '/admin/people/new' : '/people/new'}>+ New person</Link>
+        </div>
       ) : undefined}
     >
       <div className="card table-card">

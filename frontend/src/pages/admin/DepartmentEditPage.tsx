@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { departmentsApi, errorMessage, lookupsApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
 import UserSelect from '../../components/admin/UserSelect';
+import { useSiteAccess } from '../../utils/useSiteAccess';
 
 function dateInputValue(value?: string): string {
   if (!value) return '';
@@ -16,6 +17,7 @@ export default function DepartmentEditPage() {
   const isNew = !id || id === 'new';
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { admin, site } = useSiteAccess();
   const [error, setError] = useState<string | null>(null);
   // Shared by the admin and front-end routes; return to whichever view we came from.
   const inAdmin = useLocation().pathname.startsWith('/admin');
@@ -47,7 +49,7 @@ export default function DepartmentEditPage() {
       leadPersonId: text('leadPersonId'),
       delegatePersonId: text('delegatePersonId'),
       functionId: text('functionId'),
-      siteId: String(form.get('siteId') ?? ''),
+      ...(admin ? { siteId: String(form.get('siteId') ?? '') } : {}),
       lastCheckIn: isNew ? undefined : text('lastCheckIn'),
       isActive: form.get('isActive') === 'on',
     });
@@ -66,13 +68,13 @@ export default function DepartmentEditPage() {
           <input id="name" name="name" required maxLength={200} defaultValue={current?.name ?? ''} />
         </div>
 
-        <div className="field" style={{ maxWidth: 320 }}>
+        {admin ? <div className="field" style={{ maxWidth: 320 }}>
           <label htmlFor="siteId">Site</label>
           <select id="siteId" name="siteId" defaultValue={current?.siteId ?? ''}>
             <option value="">Unassigned</option>
             {sites.data?.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
           </select>
-        </div>
+        </div> : isNew && <div className="field" style={{ maxWidth: 320 }}><label>Site</label><span>{site?.name ?? 'Site not assigned'}</span></div>}
 
         <div className={isNew ? 'grid cols-2' : 'grid cols-3'}>
           <UserSelect id="leadPersonId" name="leadPersonId" label="Department lead" personValue defaultValue={current?.leadPersonId} />

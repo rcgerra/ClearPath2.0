@@ -13,6 +13,7 @@
     "import:users": "tsx src/jobs/importTemporaryUsers.ts",
     "validate:csv": "tsx src/jobs/validateDataverseCsvImport.ts",
     "sync:users": "tsx src/jobs/syncUsers.ts",
+    "backfill:person-sites": "tsx src/jobs/backfillPersonSites.ts",
     "seed:dataverse": "tsx src/jobs/seedReferenceData.ts",
     "typecheck": "tsc --noEmit"
   },

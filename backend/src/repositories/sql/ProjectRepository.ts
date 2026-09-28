@@ -60,7 +60,13 @@ export class ProjectRepository extends BaseRepository<Project> implements Projec
   }
 
   public async listByRequest(requestId: number, includeInactive = false): Promise<ProjectView[]> {
-    return this.listWithParentFilter('RequestId', requestId, includeInactive);
+    return this.query<ProjectView>(
+      `${this.projectionSql()}
+       WHERE (requestRecord.[RequestId] = @requestId OR p.[RequestId] = @requestId)
+         AND (@includeInactive = 1 OR p.[IsActive] = 1)
+       ORDER BY p.[PriorityScore] DESC, p.[Name] ASC`,
+      { requestId, includeInactive },
+    );
   }
 
   public async listBySite(siteId: number, includeInactive = false): Promise<ProjectView[]> {
@@ -287,7 +293,8 @@ export class ProjectRepository extends BaseRepository<Project> implements Projec
               LEFT JOIN dbo.[Programs] program ON program.[ProgramId] = p.[ProgramId]
               LEFT JOIN dbo.[Departments] d ON d.[DepartmentId] = p.[DepartmentId]
               LEFT JOIN dbo.[Sites] site ON site.[SiteId] = p.[SiteId]
-              LEFT JOIN dbo.[Requests] requestRecord ON requestRecord.[RequestId] = p.[RequestId]`;
+              LEFT JOIN dbo.[Requests] requestRecord
+                ON requestRecord.[ProjectId] = p.[ProjectId] OR requestRecord.[RequestId] = p.[RequestId]`;
   }
 }
 

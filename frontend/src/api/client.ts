@@ -32,9 +32,10 @@ import type {
 export const api = axios.create({ baseURL: '/api' });
 
 api.interceptors.request.use((config) => {
-  const { token, viewAsToken } = useAuthStore.getState();
+  const { token, viewAsToken, selectedSiteId, user } = useAuthStore.getState();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   if (viewAsToken) config.headers['X-ClearPath-View-As'] = viewAsToken;
+  if (selectedSiteId && user?.roles.includes('admin')) config.headers['X-ClearPath-Site'] = selectedSiteId;
   return config;
 });
 
@@ -194,6 +195,8 @@ export const prioritizationApi = {
 export const lookupsApi = {
   list: (table: 'functions' | 'sites' | 'skillsets' | 'programs' | 'locations' | 'adm' | 'categories') =>
     api.get<Lookup[]>(`/lookups/${table}`).then((r) => r.data),
+  setSiteAssistants: (siteId: string, assistantLeadPersonIds: string[]) =>
+    api.patch(`/lookups/sites/${siteId}/assistants`, { assistantLeadPersonIds }).then((r) => r.data),
   create: (table: string, body: Omit<Lookup, 'id'>) => api.post<{ id: string }>(`/lookups/${table}`, body).then((r) => r.data),
   update: (table: string, id: string, body: Omit<Lookup, 'id'>) => api.patch<{ id: string }>(`/lookups/${table}/${id}`, body).then((r) => r.data),
   remove: (table: string, id: string) => api.delete(`/lookups/${table}/${id}`),

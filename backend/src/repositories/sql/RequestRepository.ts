@@ -17,6 +17,7 @@ export interface RequestView extends Request {
   ProgramApiId: string | null;
   ProgramName: string | null;
   ProjectApiId: string | null;
+  ProjectSpotId: string | null;
 }
 
 export interface RequestListFilters {
@@ -206,7 +207,8 @@ export class RequestRepository extends BaseRepository<Request> implements Reques
                    COALESCE(CONVERT(varchar(36), d.[LegacyDataverseId]), CONVERT(varchar(20), d.[DepartmentId])) AS DepartmentApiId, d.[Name] AS DepartmentName,
                    COALESCE(CONVERT(varchar(36), c.[LegacyDataverseId]), CONVERT(varchar(20), c.[CategoryId])) AS CategoryApiId, c.[Name] AS CategoryName,
                    COALESCE(CONVERT(varchar(36), program.[LegacyDataverseId]), CONVERT(varchar(20), program.[ProgramId])) AS ProgramApiId, program.[Name] AS ProgramName,
-                   COALESCE(CONVERT(varchar(36), project.[LegacyDataverseId]), CONVERT(varchar(20), project.[ProjectId])) AS ProjectApiId
+                   COALESCE(CONVERT(varchar(36), project.[LegacyDataverseId]), CONVERT(varchar(20), project.[ProjectId])) AS ProjectApiId,
+                   project.[SpotId] AS ProjectSpotId
               FROM dbo.[Requests] r
               LEFT JOIN dbo.[People] requester ON requester.[PersonId] = r.[RequesterPersonId]
               LEFT JOIN dbo.[People] delegatePerson ON delegatePerson.[PersonId] = r.[DelegatePersonId]

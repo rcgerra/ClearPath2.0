@@ -208,6 +208,8 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
   for (const record of requestRecords) requestsIndex.add(value(record.row, 'cr714__requestsid'), record.name, record.id);
 
   const departmentById = new Map(departmentRecords.map((record) => [record.id, record]));
+  const departmentSiteById = new Map(departmentRecords.map((record) =>
+    [record.id, sitesIndex.get(value(record.row, 'new_site1', 'new_siteid', '_new_siteid_value'))]));
   /** Departments carry their function as free text (e.g. "Engineering"); people inherit it from their department. */
   const departmentFunctionById = new Map<string, { functionId?: string; functionName?: string }>();
   for (const record of departmentRecords) {
@@ -229,6 +231,7 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
       isActive: booleanValue(row, 'new_isactive', 'statuscode'),
       departmentId,
       departmentName: departmentId ? departmentById.get(departmentId)?.name : undefined,
+      siteId: sitesIndex.get(value(row, 'new_siteid', '_new_siteid_value')) ?? (departmentId ? departmentSiteById.get(departmentId) : undefined),
       functionId: departmentFunction?.functionId,
       functionName: departmentFunction?.functionName,
     };
@@ -256,6 +259,7 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
     return {
       id,
       name: name ?? 'Unnamed department',
+      siteId: departmentSiteById.get(id),
       code: value(row, 'new_code', 'new_departmentcode'),
       leadPersonId,
       leadName: personName(leadPersonId),
@@ -318,7 +322,7 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
     departmentId: departmentsIndex.get(value(row, 'cr714_departmentid', '_cr714_departmentid_value')),
     departmentName: undefined as string | undefined,
     submittedOn: value(row, 'createdon', 'cr714_submittedon', 'cr714_timestamp_submitted') ?? '',
-    projectId: projectsIndex.get(value(row, 'cr714_projectid', '_cr714_projectid_value', 'cr714_businesscaseid')),
+    projectId: projectsIndex.get(value(row, 'clearpath_projectid', 'cr714_projectid', '_cr714_projectid_value', 'cr714_businesscaseid')),
     neededBy: dateValue(row, 'cr714_whenneeded'),
     neededByJustification: value(row, 'cr714_whenneededjustification') ?? '',
     currentState: value(row, 'cr714_currentstate') ?? '',
@@ -416,7 +420,11 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
     })),
     capacity,
     demand,
-    programs: programRecords.map((record) => ({ ...record, missionStatement: value(record.row, 'cr714_purpose') })),
+    programs: programRecords.map((record) => ({
+      ...record,
+      subprogram: value(record.row, 'cr714_subprogram'),
+      missionStatement: value(record.row, 'cr714_purpose'),
+    })),
     locations: locationRecords,
     sites: siteRecords,
     skillsets: skillsetRecords,
@@ -849,6 +857,9 @@ export class CsvDataService {
       const template = rows[0] ?? {};
       const row = binding?.row ?? Object.fromEntries(Object.keys(template).map((header) => [header, '']));
       if (isNew || !binding) rows.push(row);
+      if (collection === 'requests' && 'projectId' in (record as Record<string, unknown>)) {
+        for (const sourceRow of rows) sourceRow.clearpath_projectid ??= '';
+      }
       this.writeRecord(collection, record as Record<string, unknown>, row);
       if (!binding) this.recordRows.set(record as object, { file, row });
       this.sourceRows.set(file, rows);
@@ -924,6 +935,7 @@ export class CsvDataService {
         additionalInformation: ['cr714_additionalinformation'],
         sponsorNameFlat: ['cr714_sponsornameflat'],
         departmentId: ['cr714_departmentid', '_cr714_departmentid_value'],
+        projectId: ['clearpath_projectid'],
       },
       capacity: { id: ['new_capacityid'], weeklyBaseline: ['new_weeklybaseline', 'cr714_weeklybaseline'], notes: ['new_notes', 'cr714_notes'], weeks: ['cr714_availabilityhours', 'new_availabilityhours'] },
       demand: { id: ['new_demandid'], status: ['new_status'], weeks: ['cr714_demandhours', 'new_demandhours'] },

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { env } from '../config/env';
 import { query } from '../database/connection';
 import { demoDataService } from '../demo/demoDataService';
-import { requestRepository } from '../repositories/sql';
+import { projectRepository, requestRepository } from '../repositories/sql';
 import { REQUEST_STAGES, requestStageIndex } from './requestWorkflow';
 
 /** Historic data stores phases as "3. DQ Check"; governance works in canonical stage names. */
@@ -168,14 +168,18 @@ function fromDemoRequest(row: DemoRequest): GovernanceItem {
 /** Reads intake requests from whichever backing store this deployment uses. */
 export async function listRequestsForGovernance(): Promise<GovernanceItem[]> {
   if (env.demoMode) {
-    return (demoDataService.list('requests') as unknown as DemoRequest[]).map(fromDemoRequest);
+    return (demoDataService.list('requests') as unknown as DemoRequest[]).map((request) => {
+      const item = fromDemoRequest(request);
+      const project = item.projectId ? demoDataService.find('projects', item.projectId) : undefined;
+      return { ...item, spotId: project ? project.spotId : item.spotId };
+    });
   }
   const records = await requestRepository.listFiltered({ includeInactive: true });
   return records.map((record) => ({
     id: record.RequestApiId,
     title: record.Title ?? record.Name,
     shortTitle: record.ShortTitle ?? undefined,
-    spotId: record.SpotId ?? undefined,
+    spotId: record.ProjectApiId ? record.ProjectSpotId ?? undefined : record.SpotId ?? undefined,
     phase: canonicalPhase(record.Phase),
     disposition: record.Disposition ?? undefined,
     status: record.Status ?? undefined,
@@ -201,21 +205,31 @@ export async function listRequestsForGovernance(): Promise<GovernanceItem[]> {
 export interface RequestFieldChanges {
   phase?: string;
   disposition?: string;
-  spotId?: string;
+  spotId?: string | null;
   projectId?: string;
 }
 
 export async function updateRequestFields(id: string, changes: RequestFieldChanges): Promise<void> {
   if (env.demoMode) {
+    const request = demoDataService.find('requests', id);
+    if (!request) throw Object.assign(new Error('Opportunity not found.'), { status: 404 });
+    if (changes.spotId !== undefined && request.projectId) {
+      demoDataService.update('projects', request.projectId, { spotId: changes.spotId });
+      demoDataService.update('requests', id, { ...changes, spotId: null });
+      return;
+    }
     demoDataService.update('requests', id, { ...changes });
     return;
   }
   const record = await requestRepository.findByIdentifier(id);
   if (!record) throw Object.assign(new Error('Opportunity not found.'), { status: 404 });
+  if (changes.spotId !== undefined && changes.spotId !== null && record.ProjectId) {
+    await projectRepository.update(record.ProjectId, { SpotId: changes.spotId });
+  }
   await requestRepository.update(record.RequestId, {
     Phase: changes.phase,
     Disposition: changes.disposition,
-    SpotId: changes.spotId,
+    SpotId: record.ProjectId ? (changes.spotId === undefined ? undefined : null) : changes.spotId,
     ProjectId: changes.projectId === undefined
       ? undefined
       : await requestRepository.resolveId('Projects', 'ProjectId', changes.projectId),

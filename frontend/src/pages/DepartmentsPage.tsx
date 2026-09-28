@@ -15,7 +15,8 @@ import PersonCell from '../components/admin/PersonCell';
 import RowLegend from '../components/admin/RowLegend';
 import { useAuthStore } from '../store/authStore';
 import { filterByScope, OwnershipScope, rowClassName } from '../utils/ownership';
-import { canEditDepartment, isAdmin } from '../utils/permissions';
+import { canEditDepartment } from '../utils/permissions';
+import { useSiteAccess } from '../utils/useSiteAccess';
 import { formatDate } from '../utils/dates';
 import type { Department, Person } from '../types';
 
@@ -34,6 +35,7 @@ function addInto(target: number[], source: number[] | undefined): number[] {
 export default function DepartmentsPage() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
+  const { canCreate } = useSiteAccess();
   const personId = user?.personId;
   const [search, setSearch] = useState('');
   const [scope, setScope] = useState<OwnershipScope>(personId ? 'mine' : 'all');
@@ -203,7 +205,7 @@ export default function DepartmentsPage() {
             <p className="page-subtitle">Departments you lead, support or belong to.</p>
           </div>
         </div>
-        {isAdmin(user) && (
+        {canCreate && (
           <Link to="/departments/new">
             <button className="accent-button">+ New department</button>
           </Link>

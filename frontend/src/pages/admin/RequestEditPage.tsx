@@ -57,7 +57,7 @@ export default function RequestEditPage() {
     const changes = {
       shortTitle: text('shortTitle'),
       title: text('shortTitle'),
-      siteId: String(form.get('siteId') ?? ''),
+      ...(user?.roles.includes('admin') ? { siteId: String(form.get('siteId') ?? '') } : {}),
       location: text('location'),
       neededBy: text('neededBy'),
       neededByJustification: text('neededByJustification'),
@@ -156,16 +156,16 @@ export default function RequestEditPage() {
             </div>
           </div>
 
-          <div className="field" style={{ maxWidth: 320 }}>
+          {user?.roles.includes('admin') && <div className="field" style={{ maxWidth: 320 }}>
             <label htmlFor="siteId">Site</label>
             <select id="siteId" name="siteId" defaultValue={current?.siteId ?? ''}>
               <option value="">Unassigned</option>
               {sites.data?.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
             </select>
-          </div>
+          </div>}
 
           <div className="field">
-            <LocationChipPicker id="location" name="location" defaultValue={current?.location ?? ''} required />
+            <LocationChipPicker id="location" name="location" defaultValue={current?.location ?? ''} siteId={user?.roles.includes('admin') ? undefined : current?.siteId ?? null} required />
           </div>
 
           <div className="grid cols-2">

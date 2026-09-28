@@ -1,17 +1,19 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { errorMessage, lookupsApi, requestsApi } from '../api/client';
+import { errorMessage, peopleApi, requestsApi } from '../api/client';
 import UserSelect from '../components/admin/UserSelect';
 import LocationChipPicker from '../components/LocationChipPicker';
+import { useAuthStore } from '../store/authStore';
 import { sixMonthsFromToday } from '../utils/dates';
 
 /** Intake capture form: problem statement first, questionnaire second. Fields mirror the "New Business Case" form. */
 export default function ProjectCapturePage() {
   const navigate = useNavigate();
+  const personId = useAuthStore((state) => state.user?.personId);
+  const person = useQuery({ queryKey: ['person', personId], queryFn: () => peopleApi.get(personId!), enabled: Boolean(personId) });
   const [error, setError] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
-  const sites = useQuery({ queryKey: ['lookups', 'sites'], queryFn: () => lookupsApi.list('sites') });
 
   const submit = useMutation({
     mutationFn: (body: Parameters<typeof requestsApi.create>[0]) => requestsApi.create(body),
@@ -34,7 +36,7 @@ export default function ProjectCapturePage() {
       phase: 'Prioritization',
       status: 'Submitted',
       sponsorPersonId: optional('sponsorPersonId'),
-      siteId: optional('siteId'),
+      delegatePersonId: optional('delegatePersonId'),
       location: optional('location'),
       neededBy: optional('neededBy'),
       neededByJustification: optional('neededByJustification'),
@@ -71,27 +73,17 @@ export default function ProjectCapturePage() {
       {error && <div className="alert error">{error}</div>}
 
       <form className="card" onSubmit={handleSubmit}>
-        <div className="grid cols-2">
+        <div className="grid cols-4 opportunity-intake-top-row">
           <div className="field">
             <label htmlFor="shortTitle">Short Title</label>
             <input id="shortTitle" name="shortTitle" required minLength={3} maxLength={100} />
           </div>
           <UserSelect id="sponsorPersonId" name="sponsorPersonId" label="Proposed Sponsor" personValue required />
+          <LocationChipPicker id="location" name="location" siteId={person.data?.siteId ?? null} required />
+          <UserSelect id="delegatePersonId" name="delegatePersonId" label="Additional editor" personValue />
         </div>
 
-        <div className="field" style={{ maxWidth: 320 }}>
-          <label htmlFor="siteId">Site</label>
-          <select id="siteId" name="siteId">
-            <option value="">Unassigned</option>
-            {sites.data?.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
-          </select>
-        </div>
-
-        <div className="field">
-          <LocationChipPicker id="location" name="location" required />
-        </div>
-
-        <div className="grid cols-2 opportunity-date-row">
+        <div className="grid cols-2 opportunity-date-row opportunity-intake-date-row">
           <div className="field">
             <label htmlFor="neededBy">Needed By</label>
             <input id="neededBy" name="neededBy" type="date" defaultValue={sixMonthsFromToday()} required />

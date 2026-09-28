@@ -17,6 +17,8 @@ import {
   type GovernanceItem,
 } from '../services/governance';
 import { listProjectTypes } from '../services/projectTypes';
+import { getReferenceMetadata, saveReferenceMetadata } from '../services/referenceMetadata';
+import { personSiteId, viewSiteForRequest } from '../services/siteScope';
 
 const router = Router();
 
@@ -73,12 +75,20 @@ router.get('/project-types', asyncHandler(async (_req, res) => {
   res.json(await listProjectTypes());
 }));
 
-router.get('/', asyncHandler(async (_req, res) => {
-  res.json(await loadItems());
+router.get('/', asyncHandler(async (req, res) => {
+  const siteId = await viewSiteForRequest(req);
+  const items = await loadItems();
+  res.json(siteId ? (await Promise.all(items.map(async (item) => ({ item, assignedSite: (await getReferenceMetadata('requests', item.id)).siteId
+    ?? await personSiteId(item.requesterPersonId) })))).filter(({ assignedSite }) => assignedSite?.toLowerCase() === siteId.toLowerCase()).map(({ item }) => item) : items);
 }));
 
 router.get('/:id', asyncHandler(async (req, res) => {
-  res.json(await loadItem(req.params.id));
+  const item = await loadItem(req.params.id);
+  const siteId = await viewSiteForRequest(req);
+  if (siteId && ((await getReferenceMetadata('requests', item.id)).siteId ?? await personSiteId(item.requesterPersonId))?.toLowerCase() !== siteId.toLowerCase()) {
+    throw new HttpError(404, 'Governance item not found.');
+  }
+  res.json(item);
 }));
 
 router.patch('/:id', writeRoles, asyncHandler(async (req, res) => {
@@ -136,6 +146,7 @@ router.post('/:id/staffing-plan', writeRoles, asyncHandler(async (req, res) => {
   if (item.projectId) throw new HttpError(409, 'A staffing plan already exists for this item.');
 
   const name = item.shortTitle ?? item.title ?? 'Untitled project';
+  const siteId = (await getReferenceMetadata('requests', item.id)).siteId;
   let projectId: string;
 
   if (env.demoMode) {
@@ -156,7 +167,7 @@ router.post('/:id/staffing-plan', writeRoles, asyncHandler(async (req, res) => {
       departmentId: item.departmentId,
       departmentName: item.departmentName,
       spotId: item.spotId,
-      requestId: item.id,
+      siteId,
     };
     demoDataService.create('projects', record as never);
     projectId = record.id;
@@ -171,14 +182,15 @@ router.post('/:id/staffing-plan', writeRoles, asyncHandler(async (req, res) => {
       sponsorPersonId: input.sponsorPersonId,
       departmentId: item.departmentId,
       spotId: item.spotId,
-      requestId: item.id,
+      siteId,
     }));
     const created = await projectRepository.findById(id);
     if (!created) throw new HttpError(500, 'Created project could not be retrieved.');
     projectId = created.ProjectApiId;
   }
 
-  await updateRequestFields(item.id, { projectId });
+  if (siteId) await saveReferenceMetadata('projects', projectId, { siteId });
+  await updateRequestFields(item.id, { projectId, spotId: null });
   res.status(201).json({ projectId, item: await loadItem(item.id) });
 }));
 

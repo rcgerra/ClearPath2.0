@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { weekLabel, weekLabelShort } from '../utils/arrayParser';
 
 interface Props {
   weeks: number;
+  height?: number;
+  fillHeight?: boolean;
   /** Total demand per week across every assignment. */
   demand: number[];
   /** Total availability per week. */
@@ -10,32 +12,48 @@ interface Props {
 }
 
 const FALLBACK_BAR_WIDTH = 16;
-const HEIGHT = 260;
 const PAD_TOP = 24;
 const PAD_BOTTOM = 44;
 const PAD_LEFT = 44;
 
 /** Demand columns (Sorairo blue) against a stepped availability line (Matsuba green). */
-export default function CapacityChart({ weeks, demand, availability }: Props) {
+export default function CapacityChart({ weeks, demand, availability, height = 260, fillHeight = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const legendRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = containerRef.current;
     if (!element) return;
-    const observer = new ResizeObserver((entries) => setContainerWidth(entries[0].contentRect.width));
+    const measure = () => {
+      setContainerWidth(element.clientWidth);
+      if (fillHeight) setContainerHeight(window.matchMedia('(min-width: 901px)').matches ? element.clientHeight : 0);
+    };
+    measure();
+    const observer = new ResizeObserver(([entry]) => {
+      setContainerWidth(entry.contentRect.width);
+      if (fillHeight) setContainerHeight(window.matchMedia('(min-width: 901px)').matches ? entry.contentRect.height : 0);
+    });
     observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [fillHeight]);
 
+  const chartHeight = fillHeight && containerHeight > 0 && window.matchMedia('(min-width: 901px)').matches
+    ? Math.max(height, Math.floor(containerHeight - (legendRef.current?.offsetHeight ?? 0) - 12))
+    : height;
   const barWidth = containerWidth > 0 ? Math.max(18, (containerWidth - PAD_LEFT - 12) / weeks) : FALLBACK_BAR_WIDTH;
   const width = PAD_LEFT + weeks * barWidth + 12;
-  const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
+  const plotHeight = chartHeight - PAD_TOP - PAD_BOTTOM;
   const peak = Math.max(1, ...demand.slice(0, weeks), ...availability.slice(0, weeks));
   const scale = (value: number) => plotHeight - (value / peak) * plotHeight;
   const y = (value: number) => PAD_TOP + scale(value);
 
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((fraction) => Math.round(peak * fraction));
+  const ticks = [...new Set([0, 0.25, 0.5, 0.75, 1].map((fraction) => Math.round(peak * fraction)))];
 
   // Two points per week give the availability line its square steps.
   const stepPoints = Array.from({ length: weeks }, (_, index) => {
@@ -47,8 +65,8 @@ export default function CapacityChart({ weeks, demand, availability }: Props) {
   const labelEvery = weeks > 78 ? 8 : weeks > 40 ? 4 : 2;
 
   return (
-    <div className="chart-scroll" ref={containerRef}>
-      <svg style={{ minWidth: width }} width={width} height={HEIGHT} role="img" aria-label="Weekly demand against availability">
+    <div className={`chart-scroll${fillHeight ? ' home-work-chart' : ''}`} ref={containerRef}>
+      <svg style={{ minWidth: width }} width={width} height={chartHeight} role="img" aria-label="Weekly demand against availability">
         {ticks.map((tick) => (
           <g key={tick}>
             <line x1={PAD_LEFT} x2={width - 6} y1={y(tick)} y2={y(tick)} className="chart-gridline" />
@@ -99,7 +117,7 @@ export default function CapacityChart({ weeks, demand, availability }: Props) {
               {index % labelEvery === 0 && (
                 <text
                   x={x + barWidth / 2}
-                  y={HEIGHT - PAD_BOTTOM + 18}
+                  y={chartHeight - PAD_BOTTOM + 18}
                   className="chart-axis-label"
                   textAnchor="middle"
                 >
@@ -120,7 +138,7 @@ export default function CapacityChart({ weeks, demand, availability }: Props) {
         />
       </svg>
 
-      <div className="chart-legend">
+      <div className="chart-legend" ref={legendRef}>
         <span className="legend-swatch demand" /> Demand
         <span className="legend-swatch availability" /> Availability
         <span className="legend-swatch over" /> Over-allocated week

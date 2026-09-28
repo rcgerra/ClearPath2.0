@@ -95,6 +95,7 @@ Operational planning responsibilities are record assignments managed by administ
 - Project manager and project demand delegate manage demand for their assigned project.
 - Department lead and department delegate manage roster and availability for their assigned department.
 - Opportunity owner, sponsor and delegate can edit intake content through Prioritization; after that only admins and intake moderators can edit. The owner can assign a delegate during early intake.
+- Site leads and assistant site leads may create people, departments and projects in their assigned site. Every new person inherits the creator's saved People-site assignment, including when created by an admin; users without a People record and saved site cannot add people. New opportunities inherit the creator's site; only admins may reassign a record's site later.
 
 ## Jobs
 
@@ -102,6 +103,8 @@ Operational planning responsibilities are record assignments managed by administ
 cd backend
 npm run sync:users        # copy active systemuser rows into _People (add --dry-run to preview)
 npm run seed:dataverse    # seed categories, functions and prioritization questions
+npm run backfill:person-sites         # preview missing _People site lookups
+npm run backfill:person-sites -- --apply  # assign inferable missing site lookups
 ```
 
 The user sync is one-way and never writes to `systemuser`. Department, function and role
@@ -130,6 +133,14 @@ Reference-table leads, assistant leads, program mission statements, and site lin
 the imported lookup columns. Apply `database/09_reference_metadata.sql` to existing SQL installations before
 using reference editing or Site-linked departments, projects, and opportunities. Demo mode stores these fields
 in `backend/demo-data/reference-metadata.json` when edited.
+
+Before using site-scoped intake, assign each site lead in Admin > Reference > Sites and associate locations
+with their site in Admin > Reference > Locations. A site lead may appoint assistants already assigned to
+that site from the People page. The admin-only site selector in the shared header scopes planning, intake,
+prioritization, governance and People views across both portals; site leads and assistants stay on their
+assigned site. Admins can change an existing person's site in the admin People editor. The backfill
+uses department site assignments or site-lead assignments; review the unresolved count and assign those
+people manually. It never runs in demo mode, where legacy people inherit their department's site.
 
 ## Security notes
 

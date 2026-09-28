@@ -7,6 +7,7 @@ import SlideOverPanel from '../../components/SlideOverPanel';
 import { formatDate } from '../../utils/dates';
 import {
   GOVERNANCE_COMPLETE_PHASE,
+  GOVERNANCE_STAGES,
   SG1_DISPOSITIONS,
   type GovernanceItem,
 } from '../../types';
@@ -157,10 +158,31 @@ export default function GovernanceDetailPage() {
 
   const busy = update.isPending || advance.isPending || createStaffingPlan.isPending;
   const isComplete = record.phase === GOVERNANCE_COMPLETE_PHASE;
+  const advanceRequirementsMet = record.phase === 'PIRT Assessment'
+    ? Boolean(record.programId && record.projectType)
+    : record.phase === 'SG1 Review'
+      ? SG1_DISPOSITIONS.includes(record.disposition as never)
+      : record.phase === 'Configuration'
+        ? !record.spotRecordCreated || Boolean(spotId.trim())
+      : true;
   const stageComment = COMMENT_FIELDS[record.phase ?? ''];
   const openQuestion = (questions.data ?? []).find((question) => question.id === openQuestionId);
   const openAnswer = openQuestion ? answersByQuestion.get(String(openQuestion.id).toLowerCase()) : undefined;
+  const orderedQuestions = [...(questions.data ?? [])].sort((left, right) => {
+    const leftAnswered = (answersByQuestion.get(left.id.toLowerCase())?.score ?? 0) > 0;
+    const rightAnswered = (answersByQuestion.get(right.id.toLowerCase())?.score ?? 0) > 0;
+    return Number(rightAnswered) - Number(leftAnswered);
+  });
   const activePeople = (people.data ?? []).filter((person) => person.isActive !== false);
+  const workflowStageIndex = GOVERNANCE_STAGES.findIndex((stage) => stage === record.phase);
+  const workflowProgress = record.phase === GOVERNANCE_COMPLETE_PHASE
+    ? GOVERNANCE_STAGES.length
+    : Math.max(0, workflowStageIndex + 1);
+  const workflowStatus = record.phase === GOVERNANCE_COMPLETE_PHASE
+    ? 'Workflow complete'
+    : workflowStageIndex >= 0
+      ? `${record.phase}, step ${workflowStageIndex + 1} of ${GOVERNANCE_STAGES.length}`
+      : `Workflow stage: ${record.phase ?? 'Unknown'}`;
 
   return (
     <section className="accent-section accent-governance governance-detail">
@@ -172,6 +194,16 @@ export default function GovernanceDetailPage() {
           </div>
         </div>
         <div className="governance-header-actions">
+          <div className="governance-workflow-indicator" role="img" aria-label={workflowStatus} title={workflowStatus}>
+            <span className="governance-workflow-step-name" aria-hidden="true">
+              {record.phase === GOVERNANCE_COMPLETE_PHASE ? 'Complete' : record.phase ?? 'Unknown'}
+            </span>
+            <span className="governance-workflow-bars" aria-hidden="true">
+              {GOVERNANCE_STAGES.map((stage, index) => (
+                <span key={stage} className={`governance-workflow-segment${index < workflowProgress ? ' is-active' : ''}`} />
+              ))}
+            </span>
+          </div>
           <button
             type="button"
             className={`governance-cancel-button${record.cancelled ? ' is-cancelled' : ''}`}
@@ -182,9 +214,6 @@ export default function GovernanceDetailPage() {
           >
             {record.cancelled ? '↺' : '⊘'}
           </button>
-          {standing && (
-            <PrioritizationStanding rank={standing.portfolio.rank} quartile={standing.quartile} topTen={standing.topTen} />
-          )}
         </div>
       </div>
 
@@ -193,23 +222,33 @@ export default function GovernanceDetailPage() {
       <div className="governance-detail-layout">
         <div className="governance-detail-main">
           <div className="card governance-detail-card">
-            <h2>Project details</h2>
+            <h2 className="governance-card-heading">Opportunity</h2>
             <dl className="governance-definition-list">
-              <dt>Submitted by</dt><dd>{record.requesterName ?? '—'}</dd>
+              <dt>Submitted by / on</dt>
+              <dd className="governance-submission-value">
+                <span>{record.requesterName ?? '—'}</span>
+                <time>{record.submittedOn ? formatDate(record.submittedOn) : '—'}</time>
+              </dd>
               <dt>Sponsor</dt><dd>{record.sponsorName ?? '—'}</dd>
-              <dt>Department</dt><dd>{record.departmentName ?? '—'}</dd>
-              <dt>Submitted on</dt><dd>{record.submittedOn ? formatDate(record.submittedOn) : '—'}</dd>
-              <dt>Needed by</dt><dd>{record.neededBy ?? '—'}</dd>
-              <dt>SPOT ID</dt><dd>{record.spotId ?? '—'}</dd>
-              <dt>Current state</dt><dd>{record.currentState ?? '—'}</dd>
-              <dt>Desired future state</dt><dd>{record.desiredFutureState ?? '—'}</dd>
-              <dt>Impact to operations</dt><dd>{record.impactToOperations ?? '—'}</dd>
-              <dt>Additional information</dt><dd>{record.additionalInformation ?? '—'}</dd>
+              <dt>Needed by</dt><dd>{record.neededBy ? formatDate(record.neededBy) : '—'}</dd>
+              <dt className="governance-opportunity-stacked-label">Current state</dt>
+              <dd className="governance-opportunity-stacked-value">{record.currentState ?? '—'}</dd>
+              <dt className="governance-opportunity-stacked-label">Desired future state</dt>
+              <dd className="governance-opportunity-stacked-value">{record.desiredFutureState ?? '—'}</dd>
+              <dt className="governance-opportunity-stacked-label">Impact to operations</dt>
+              <dd className="governance-opportunity-stacked-value">{record.impactToOperations ?? '—'}</dd>
+              <dt className="governance-opportunity-stacked-label">Additional information</dt>
+              <dd className="governance-opportunity-stacked-value">{record.additionalInformation ?? '—'}</dd>
             </dl>
           </div>
 
           <div className="card governance-detail-card">
-            <h2>Prioritization details</h2>
+            <div className="governance-card-heading governance-prioritization-heading">
+              <h2>Prioritization</h2>
+              {standing && (
+                <PrioritizationStanding rank={standing.portfolio.rank} quartile={standing.quartile} topTen={standing.topTen} />
+              )}
+            </div>
             {answers.isLoading || questions.isLoading ? <p className="muted">Loading assessment…</p> : (
               <div className="governance-score-list">
                 {standing && (
@@ -219,8 +258,22 @@ export default function GovernanceDetailPage() {
                     program={standing.program}
                   />
                 )}
-                {(questions.data ?? []).map((question) => {
+                {orderedQuestions.map((question) => {
                   const answer = answersByQuestion.get(String(question.id).toLowerCase());
+                  const hasImpact = answer?.score !== undefined && answer.score !== 0;
+                  if (!hasImpact) {
+                    return (
+                      <button
+                        type="button"
+                        className="governance-score-row governance-score-row-unanswered"
+                        key={question.id}
+                        onClick={() => setOpenQuestionId(question.id)}
+                      >
+                        <strong>{question.text}</strong>
+                        <span className="governance-score-add" aria-hidden="true">+</span>
+                      </button>
+                    );
+                  }
                   return (
                     <button
                       type="button"
@@ -231,16 +284,18 @@ export default function GovernanceDetailPage() {
                       <strong>{question.text}</strong>
                       <AnswerStars score={answer?.score} />
                       <p className="muted">{answer?.justification || 'No justification recorded.'}</p>
+                      {answer?.methodology && <p className="muted">{answer.methodology}</p>}
                     </button>
                   );
                 })}
-                {(questions.data ?? []).length === 0 && <p className="muted">No prioritization questions are configured.</p>}
+                {orderedQuestions.length === 0 && <p className="muted">No prioritization questions are configured.</p>}
               </div>
             )}
           </div>
         </div>
 
         <aside className="card governance-detail-actions">
+          <h2 className="governance-card-heading">Actions</h2>
           {record.phase === 'PIRT Assessment' && (
             <div className="governance-field-grid">
               <label>
@@ -251,7 +306,9 @@ export default function GovernanceDetailPage() {
                   onChange={(event) => update.mutate({ programId: event.target.value || null })}
                 >
                   <option value="">Not assigned</option>
-                  {(programs.data ?? []).map((program) => <option key={program.id} value={program.id}>{program.name}</option>)}
+                  {(programs.data ?? []).map((program) => (
+                    <option key={program.id} value={program.id}>{program.subprogram || program.name}</option>
+                  ))}
                 </select>
               </label>
               <label>
@@ -287,7 +344,10 @@ export default function GovernanceDetailPage() {
           {record.phase === 'Configuration' && (
             <div className="governance-checklist">
               <div className="governance-checklist-step">
-                <h3>1 · Staffing plan</h3>
+                <h3>
+                  1 · Staffing plan
+                  {record.projectId && <span className="governance-checklist-complete" role="img" aria-label="Staffing plan created">✓</span>}
+                </h3>
                 {record.projectId ? (
                   <p>
                     Created. <Link className="record-link" to={`/projects/${record.projectId}`}>Open the staffing plan</Link>
@@ -381,7 +441,7 @@ export default function GovernanceDetailPage() {
           {!isComplete && (
             <div className="governance-advance">
               {record.cancelled && <span className="muted">Reinstate this item before advancing it.</span>}
-              <button type="button" className="primary" disabled={busy || Boolean(record.cancelled)} onClick={() => advance.mutate()}>
+              <button type="button" className="primary" disabled={busy || Boolean(record.cancelled) || !advanceRequirementsMet} onClick={() => advance.mutate()}>
                 {advanceLabel(record.phase)}
               </button>
             </div>
@@ -392,24 +452,31 @@ export default function GovernanceDetailPage() {
       <SlideOverPanel
         open={Boolean(openQuestion)}
         onClose={() => setOpenQuestionId(null)}
-        title="Prioritization answer"
-        subtitle={openQuestion?.categoryName}
+        title={<span className="governance-answer-question">{openQuestion?.text}</span>}
+        subtitle={(
+          <span className="governance-answer-subtitle">
+            <span>{openQuestion?.categoryName}</span>
+            <AnswerStars score={openAnswer?.score} />
+          </span>
+        )}
       >
         {openQuestion && (
           <div className="governance-answer-detail">
-            <h3>{openQuestion.text}</h3>
             {openQuestion.subtitle && <p className="muted">{openQuestion.subtitle}</p>}
 
             <dl className="governance-definition-list">
-              <dt>Score</dt>
-              <dd><AnswerStars score={openAnswer?.score} /> {openAnswer?.score ?? '—'} of 15</dd>
-              <dt>Rating</dt><dd>{openAnswer?.value ?? '—'}</dd>
               <dt>Category</dt><dd>{openQuestion.categoryName ?? '—'}</dd>
-              <dt>Weight</dt><dd>{openQuestion.weight}</dd>
-              <dt>Metric</dt><dd>{openQuestion.metric || '—'}</dd>
-              <dt>Justification</dt><dd>{openAnswer?.justification || 'No justification recorded.'}</dd>
-              <dt>Methodology</dt><dd>{openAnswer?.methodology || '—'}</dd>
             </dl>
+
+            <section className="governance-answer-text-section">
+              <h4>Strategy</h4>
+              <p>{openAnswer?.justification || 'No strategy recorded.'}</p>
+            </section>
+
+            <section className="governance-answer-text-section">
+              <h4>Calculation Methodology</h4>
+              <p>{openAnswer?.methodology || 'No calculation methodology recorded.'}</p>
+            </section>
 
             {openQuestion.helpText && (
               <>

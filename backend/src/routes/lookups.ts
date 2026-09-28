@@ -6,6 +6,7 @@ import { assertWritable, requireTable } from '../dataverse/tables';
 import { authenticate, requireRole } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
 import { assertReferenceSite, listReferenceMetadata, referenceMetadataSchema, saveReferenceMetadata } from '../services/referenceMetadata';
+import { assertSiteLead, assignPersonSite, personSiteId, viewSiteForRequest } from '../services/siteScope';
 import {
   categoryRepository,
   functionRepository,
@@ -73,13 +74,15 @@ router.get(
   asyncHandler(async (req, res) => {
     const key = assertSimpleTable(req.params.table);
     if (isSqlTable(key)) {
+      const siteId = key === 'sites' && req.user?.roles.includes('admin') ? undefined : await viewSiteForRequest(req);
       const [records, metadata] = await Promise.all([SQL_REPOSITORIES[key].list(), listReferenceMetadata(key)]);
       res.json(records.map((record) => {
         const raw = record as unknown as Record<string, unknown>;
         const lookup = toLookup(key, raw);
         return { ...lookup, ...(key === 'programs' && raw.Purpose ? { missionStatement: raw.Purpose } : {}),
+          ...(key === 'programs' && raw.Subprogram ? { subprogram: raw.Subprogram } : {}),
           ...metadata.get(lookup.id.toLowerCase()) };
-      }));
+      }).filter((record) => key === 'programs' || !siteId || (key === 'sites' ? record.id : record.siteId)?.toLowerCase() === siteId.toLowerCase()));
       return;
     }
     const cols = columnsFor(key);
@@ -88,6 +91,23 @@ router.get(
   }),
 );
 
+router.patch('/sites/:id/assistants', asyncHandler(async (req, res) => {
+  const site = await siteRepository.findByIdentifier(req.params.id);
+  if (!site) throw new HttpError(404, 'Site not found.');
+  await assertSiteLead(req.user, req.params.id);
+  const assistants = referenceMetadataSchema.pick({ assistantLeadPersonIds: true }).required().parse(req.body).assistantLeadPersonIds;
+  for (const personId of assistants) {
+    await dv.retrieve('people', personId, { select: [COLUMNS.people.id] });
+    const assignedSite = await personSiteId(personId);
+    if (!req.user?.roles.includes('admin') && assignedSite?.toLowerCase() !== req.params.id.toLowerCase()) {
+      throw new HttpError(403, 'Assistant site leads must already belong to your site.');
+    }
+  }
+  for (const personId of assistants) await assignPersonSite(personId, req.params.id);
+  await saveReferenceMetadata('sites', req.params.id, { assistantLeadPersonIds: assistants });
+  res.json({ id: req.params.id });
+}));
+
 router.post(
   '/:table',
   requireRole('admin'),
@@ -95,6 +115,11 @@ router.post(
     const key = assertSimpleTable(req.params.table);
     const metadata = referenceMetadataSchema.parse(req.body);
     await assertReferenceSite(metadata.siteId);
+    if (key === 'sites') {
+      for (const personId of [metadata.leadPersonId, ...(metadata.assistantLeadPersonIds ?? [])].filter((id): id is string => Boolean(id))) {
+        await dv.retrieve('people', personId, { select: [COLUMNS.people.id] });
+      }
+    }
     if (isSqlTable(key)) {
       const { name } = bodySchema.parse(req.body);
       const input = key === 'categories'
@@ -105,6 +130,11 @@ router.post(
       if (!record) throw new HttpError(500, 'Created lookup record could not be retrieved.');
       const lookupId = toLookup(key, record as unknown as Record<string, unknown>).id;
       if (Object.keys(metadata).length) await saveReferenceMetadata(key, lookupId, metadata);
+      if (key === 'sites') {
+        for (const personId of [metadata.leadPersonId, ...(metadata.assistantLeadPersonIds ?? [])].filter((id): id is string => Boolean(id))) {
+          await assignPersonSite(personId, lookupId);
+        }
+      }
       res.status(201).json({ id: lookupId });
       return;
     }
@@ -124,6 +154,11 @@ router.patch(
     const key = assertSimpleTable(req.params.table);
     const metadata = referenceMetadataSchema.parse(req.body);
     await assertReferenceSite(metadata.siteId);
+    if (key === 'sites') {
+      for (const personId of [metadata.leadPersonId, ...(metadata.assistantLeadPersonIds ?? [])].filter((id): id is string => Boolean(id))) {
+        await dv.retrieve('people', personId, { select: [COLUMNS.people.id] });
+      }
+    }
     if (isSqlTable(key)) {
       const { name } = bodySchema.parse(req.body);
       const record = await SQL_REPOSITORIES[key].findByIdentifier(req.params.id);
@@ -131,6 +166,11 @@ router.patch(
       const sqlRecord = record as unknown as Record<string, unknown>;
       await SQL_REPOSITORIES[key].update(sqlRecord[SQL_ID_COLUMNS[key]] as number, { Name: name } as never);
       if (Object.keys(metadata).length) await saveReferenceMetadata(key, req.params.id, metadata);
+      if (key === 'sites') {
+        for (const personId of [metadata.leadPersonId, ...(metadata.assistantLeadPersonIds ?? [])].filter((id): id is string => Boolean(id))) {
+          await assignPersonSite(personId, req.params.id);
+        }
+      }
       res.json({ id: req.params.id });
       return;
     }

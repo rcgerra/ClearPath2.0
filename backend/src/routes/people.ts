@@ -5,6 +5,7 @@ import { COLUMNS, formatted } from '../dataverse/fields';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertDepartmentEditable } from '../middleware/recordAccess';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
+import { assertDepartmentSite, assertSiteCreator, resolvePersonCreationSite, viewSiteForRequest } from '../services/siteScope';
 
 const router = Router();
 const P = COLUMNS.people;
@@ -42,7 +43,7 @@ function toPerson(record: Record<string, unknown>) {
     departmentName: formatted(record, P.departmentId),
     functionId: record[P.functionId],
     functionName: formatted(record, P.functionId),
-    siteId: record[P.siteId],
+    siteId: record[P.siteId] as string | undefined,
     siteName: formatted(record, P.siteId),
     skillsetId: record[P.skillsetId],
     skillsetName: formatted(record, P.skillsetId),
@@ -105,7 +106,8 @@ router.get(
       orderBy: `${P.name} asc`,
       top: 2000,
     });
-    res.json(records.map(toPerson));
+    const siteId = await viewSiteForRequest(req);
+    res.json(records.map(toPerson).filter((person) => !siteId || person.siteId?.toLowerCase() === siteId.toLowerCase()));
   }),
 );
 
@@ -113,16 +115,21 @@ router.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const record = await dv.retrieve('people', req.params.id, { select });
-    res.json(toPerson(record));
+    const person = toPerson(record);
+    const siteId = await viewSiteForRequest(req);
+    if (person.id !== req.user?.personId && siteId && person.siteId?.toLowerCase() !== siteId.toLowerCase()) throw new HttpError(404, 'Person not found.');
+    res.json(person);
   }),
 );
 
 router.post(
   '/',
-  requireRole('admin'),
   asyncHandler(async (req, res) => {
+    await assertSiteCreator(req.user);
     const input = upsertSchema.parse(req.body);
-    const id = await dv.create('people', await toRecord(input));
+    const siteId = await resolvePersonCreationSite(req.user, input.siteId);
+    await assertDepartmentSite(input.departmentId, siteId, req.user);
+    const id = await dv.create('people', await toRecord({ ...input, siteId, role: 'user' }));
     res.status(201).json({ id });
   }),
 );
@@ -136,6 +143,7 @@ router.patch(
     if (!isAdmin && input.role !== undefined) {
       throw new HttpError(403, 'Only admins can assign security roles.');
     }
+    if (!isAdmin && input.siteId !== undefined) throw new HttpError(403, 'Only admins can reassign a person to another site.');
     if (!isAdmin && !isSelf) {
       const current = await dv.retrieve('people', req.params.id, { select: [P.id, P.departmentId] }) as Record<string, unknown>;
       const currentDepartmentId = current[P.departmentId] ? String(current[P.departmentId]) : undefined;
