@@ -1,5 +1,6 @@
 import { BaseRepository } from '../../database/BaseRepository';
 import { Request, RequestInput, RequestRepository as RequestRepositoryContract } from '../interfaces';
+import { completedStagesOnTransition } from '../../services/requestWorkflow';
 
 export interface RequestView extends Request {
   RequestApiId: string;
@@ -7,6 +8,8 @@ export interface RequestView extends Request {
   RequesterName: string | null;
   DelegatePersonApiId: string | null;
   DelegateName: string | null;
+  SponsorPersonApiId: string | null;
+  SponsorPersonName: string | null;
   DepartmentApiId: string | null;
   DepartmentName: string | null;
   CategoryApiId: string | null;
@@ -107,7 +110,8 @@ export class RequestRepository extends BaseRepository<Request> implements Reques
   }
 
   public async update(requestId: number, input: Partial<RequestInput>): Promise<boolean> {
-    const fields = Object.keys(input) as Array<keyof RequestInput>;
+    const previous = input.Phase !== undefined ? await this.findById(requestId) : null;
+    const fields = (Object.keys(input) as Array<keyof RequestInput>).filter((column) => input[column] !== undefined);
     const parameters: Record<string, unknown> = { requestId };
     const assignments = fields.map((column) => {
       const name = String(column).replace(/^[A-Z]/, (character) => character.toLowerCase());
@@ -116,11 +120,38 @@ export class RequestRepository extends BaseRepository<Request> implements Reques
     });
     if (!assignments.length) return false;
     assignments.push('[ModifiedDate] = SYSUTCDATETIME()');
-    const result = await this.execute(
-      `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE [RequestId] = @requestId AND [IsActive] = 1`,
+    const statement = `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE [RequestId] = @requestId AND [IsActive] = 1`;
+    const stages = completedStagesOnTransition(previous?.Phase, input.Phase);
+    if (!stages.length) {
+      const result = await this.execute(statement, parameters);
+      return (result.rowsAffected[0] ?? 0) > 0;
+    }
+    parameters.completedAt = new Date();
+    const inserts = stages.map((stage, index) => {
+      const key = `stage${index}`;
+      parameters[key] = stage;
+      return `IF NOT EXISTS (SELECT 1 FROM dbo.[RequestWorkflowCompletions] WHERE [RequestId] = @requestId AND [Stage] = @${key})
+        INSERT INTO dbo.[RequestWorkflowCompletions] ([RequestId], [Stage], [CompletedAt]) VALUES (@requestId, @${key}, @completedAt);`;
+    });
+    const rows = await this.query<{ Updated: boolean }>(
+      `SET XACT_ABORT ON;
+       BEGIN TRAN;
+       ${statement};
+       DECLARE @updated BIT = CASE WHEN @@ROWCOUNT > 0 THEN 1 ELSE 0 END;
+       IF @updated = 1 BEGIN ${inserts.join('\n')} END;
+       COMMIT;
+       SELECT @updated AS Updated;`,
       parameters,
     );
-    return (result.rowsAffected[0] ?? 0) > 0;
+    return Boolean(rows[0]?.Updated);
+  }
+
+  public async workflowCompletedAt(requestId: number): Promise<Record<string, string>> {
+    const rows = await this.query<{ Stage: string; CompletedAt: Date }>(
+      'SELECT [Stage], [CompletedAt] FROM dbo.[RequestWorkflowCompletions] WHERE [RequestId] = @requestId',
+      { requestId },
+    );
+    return Object.fromEntries(rows.map((row) => [row.Stage, row.CompletedAt.toISOString()]));
   }
 
   public async deactivate(requestId: number): Promise<boolean> {
@@ -171,6 +202,7 @@ export class RequestRepository extends BaseRepository<Request> implements Reques
                    COALESCE(CONVERT(varchar(36), r.[LegacyDataverseId]), CONVERT(varchar(20), r.[RequestId])) AS RequestApiId,
                    requester.[LegacyDataverseId] AS RequesterPersonApiId, requester.[Name] AS RequesterName,
                    delegatePerson.[LegacyDataverseId] AS DelegatePersonApiId, delegatePerson.[Name] AS DelegateName,
+                   sponsorPerson.[LegacyDataverseId] AS SponsorPersonApiId, sponsorPerson.[Name] AS SponsorPersonName,
                    COALESCE(CONVERT(varchar(36), d.[LegacyDataverseId]), CONVERT(varchar(20), d.[DepartmentId])) AS DepartmentApiId, d.[Name] AS DepartmentName,
                    COALESCE(CONVERT(varchar(36), c.[LegacyDataverseId]), CONVERT(varchar(20), c.[CategoryId])) AS CategoryApiId, c.[Name] AS CategoryName,
                    COALESCE(CONVERT(varchar(36), program.[LegacyDataverseId]), CONVERT(varchar(20), program.[ProgramId])) AS ProgramApiId, program.[Name] AS ProgramName,
@@ -178,6 +210,7 @@ export class RequestRepository extends BaseRepository<Request> implements Reques
               FROM dbo.[Requests] r
               LEFT JOIN dbo.[People] requester ON requester.[PersonId] = r.[RequesterPersonId]
               LEFT JOIN dbo.[People] delegatePerson ON delegatePerson.[PersonId] = r.[DelegatePersonId]
+              LEFT JOIN dbo.[People] sponsorPerson ON sponsorPerson.[DirectoryUserId] = r.[SponsorUserId]
               LEFT JOIN dbo.[Departments] d ON d.[DepartmentId] = r.[DepartmentId]
               LEFT JOIN dbo.[ScoringCategories] c ON c.[CategoryId] = r.[CategoryId]
               LEFT JOIN dbo.[Programs] program ON program.[ProgramId] = r.[ProgramId]

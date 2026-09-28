@@ -23,6 +23,7 @@ export default function DepartmentEditPage() {
 
   const departments = useQuery({ queryKey: ['departments'], queryFn: departmentsApi.list });
   const functions = useQuery({ queryKey: ['lookups', 'functions'], queryFn: () => lookupsApi.list('functions') });
+  const sites = useQuery({ queryKey: ['lookups', 'sites'], queryFn: () => lookupsApi.list('sites') });
 
   const current = isNew ? undefined : departments.data?.find((dept) => dept.id === id);
 
@@ -46,6 +47,7 @@ export default function DepartmentEditPage() {
       leadPersonId: text('leadPersonId'),
       delegatePersonId: text('delegatePersonId'),
       functionId: text('functionId'),
+      siteId: String(form.get('siteId') ?? ''),
       lastCheckIn: isNew ? undefined : text('lastCheckIn'),
       isActive: form.get('isActive') === 'on',
     });
@@ -62,6 +64,14 @@ export default function DepartmentEditPage() {
         <div className="field">
           <label htmlFor="name">Department name</label>
           <input id="name" name="name" required maxLength={200} defaultValue={current?.name ?? ''} />
+        </div>
+
+        <div className="field" style={{ maxWidth: 320 }}>
+          <label htmlFor="siteId">Site</label>
+          <select id="siteId" name="siteId" defaultValue={current?.siteId ?? ''}>
+            <option value="">Unassigned</option>
+            {sites.data?.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+          </select>
         </div>
 
         <div className={isNew ? 'grid cols-2' : 'grid cols-3'}>

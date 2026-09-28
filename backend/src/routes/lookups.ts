@@ -5,6 +5,7 @@ import { COLUMNS } from '../dataverse/fields';
 import { assertWritable, requireTable } from '../dataverse/tables';
 import { authenticate, requireRole } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
+import { assertReferenceSite, listReferenceMetadata, referenceMetadataSchema, saveReferenceMetadata } from '../services/referenceMetadata';
 import {
   categoryRepository,
   functionRepository,
@@ -72,8 +73,13 @@ router.get(
   asyncHandler(async (req, res) => {
     const key = assertSimpleTable(req.params.table);
     if (isSqlTable(key)) {
-      const records = await SQL_REPOSITORIES[key].list(true);
-      res.json(records.map((record) => toLookup(key, record as unknown as Record<string, unknown>)));
+      const [records, metadata] = await Promise.all([SQL_REPOSITORIES[key].list(), listReferenceMetadata(key)]);
+      res.json(records.map((record) => {
+        const raw = record as unknown as Record<string, unknown>;
+        const lookup = toLookup(key, raw);
+        return { ...lookup, ...(key === 'programs' && raw.Purpose ? { missionStatement: raw.Purpose } : {}),
+          ...metadata.get(lookup.id.toLowerCase()) };
+      }));
       return;
     }
     const cols = columnsFor(key);
@@ -87,6 +93,8 @@ router.post(
   requireRole('admin'),
   asyncHandler(async (req, res) => {
     const key = assertSimpleTable(req.params.table);
+    const metadata = referenceMetadataSchema.parse(req.body);
+    await assertReferenceSite(metadata.siteId);
     if (isSqlTable(key)) {
       const { name } = bodySchema.parse(req.body);
       const input = key === 'categories'
@@ -95,13 +103,17 @@ router.post(
       const id = await SQL_REPOSITORIES[key].create(input as never);
       const record = await SQL_REPOSITORIES[key].findById(id);
       if (!record) throw new HttpError(500, 'Created lookup record could not be retrieved.');
-      res.status(201).json({ id: toLookup(key, record as unknown as Record<string, unknown>).id });
+      const lookupId = toLookup(key, record as unknown as Record<string, unknown>).id;
+      if (Object.keys(metadata).length) await saveReferenceMetadata(key, lookupId, metadata);
+      res.status(201).json({ id: lookupId });
       return;
     }
     assertWritable(requireTable(key));
     const cols = columnsFor(key);
     const { name } = bodySchema.parse(req.body);
-    res.status(201).json({ id: await dv.create(key, { [cols.name]: name }) });
+    const id = await dv.create(key, { [cols.name]: name });
+    if (Object.keys(metadata).length) await saveReferenceMetadata(key, id, metadata);
+    res.status(201).json({ id });
   }),
 );
 
@@ -110,12 +122,15 @@ router.patch(
   requireRole('admin'),
   asyncHandler(async (req, res) => {
     const key = assertSimpleTable(req.params.table);
+    const metadata = referenceMetadataSchema.parse(req.body);
+    await assertReferenceSite(metadata.siteId);
     if (isSqlTable(key)) {
       const { name } = bodySchema.parse(req.body);
       const record = await SQL_REPOSITORIES[key].findByIdentifier(req.params.id);
       if (!record) throw new HttpError(404, 'Lookup record not found.');
       const sqlRecord = record as unknown as Record<string, unknown>;
       await SQL_REPOSITORIES[key].update(sqlRecord[SQL_ID_COLUMNS[key]] as number, { Name: name } as never);
+      if (Object.keys(metadata).length) await saveReferenceMetadata(key, req.params.id, metadata);
       res.json({ id: req.params.id });
       return;
     }
@@ -123,6 +138,7 @@ router.patch(
     const cols = columnsFor(key);
     const { name } = bodySchema.parse(req.body);
     await dv.update(key, req.params.id, { [cols.name]: name });
+    if (Object.keys(metadata).length) await saveReferenceMetadata(key, req.params.id, metadata);
     res.json({ id: req.params.id });
   }),
 );

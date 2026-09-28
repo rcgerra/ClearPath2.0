@@ -193,12 +193,6 @@ export default function PeopleListPage() {
         </Link>
       ) : undefined}
     >
-      <ListToolbar
-        search={search}
-        onSearch={setSearch}
-        placeholder="Search people or departments…"
-        toggles={[{ label: 'Hide inactive', checked: hideInactive, onChange: setHideInactive }]}
-      />
       <div className="card table-card">
         <DataTable
           rows={rows}
@@ -211,6 +205,12 @@ export default function PeopleListPage() {
           emptyMessage="No people found."
         />
       </div>
+      <ListToolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search people or departments…"
+        toggles={[{ label: 'Hide inactive', checked: hideInactive, onChange: setHideInactive }]}
+      />
     </AccentSection>
   );
 }

@@ -284,13 +284,6 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      <ListToolbar
-        search={search}
-        onSearch={setSearch}
-        placeholder="Search projects, managers or sponsors…"
-        scope={{ value: scope, onChange: setScope, disabled: !personId }}
-        toggles={[{ label: 'Hide inactive', checked: hideInactive, onChange: setHideInactive }]}
-      />
       <div className="card table-card projects-table-card">
         <DataTable
           rows={rows}
@@ -304,6 +297,13 @@ export default function ProjectsPage() {
         />
       </div>
       <RowLegend />
+      <ListToolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search projects, managers or sponsors…"
+        scope={{ value: scope, onChange: setScope, disabled: !personId }}
+        toggles={[{ label: 'Hide inactive', checked: hideInactive, onChange: setHideInactive }]}
+      />
     </section>
   );
 }

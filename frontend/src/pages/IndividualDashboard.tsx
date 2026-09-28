@@ -131,10 +131,11 @@ export default function IndividualDashboard() {
   const setNonProjectDemandActive = useMutation({
     mutationFn: ({ demandId, isActive }: { demandId: string; isActive: boolean }) =>
       nonProjectDemandApi.update(demandId, { isActive }),
-    onSuccess: (_result, variables) => {
+    onSuccess: (result, variables) => {
       queryClient.setQueryData<NonProjectDemandRow[]>(['non-project-demand', 'mine', personId], (current) =>
-        current?.map((row) => (row.id === variables.demandId ? { ...row, isActive: variables.isActive } : row)),
+        current?.map((row) => (row.id === variables.demandId ? { ...row, isActive: result.isActive, weeks: result.weeks } : row)),
       );
+      queryClient.invalidateQueries({ queryKey: ['non-project-demand'] });
     },
     onError: (cause) => setError(errorMessage(cause)),
   });

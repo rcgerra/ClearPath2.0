@@ -94,7 +94,7 @@ export default function RequestsListPage() {
       width: '64px',
       value: () => '',
       render: (row) => (
-        <Link to={`/admin/requests/${row.id}`} className="icon-button" title="Edit request">
+        <Link to={`/admin/requests/${row.id}`} className="icon-button" title="Edit opportunity">
           ✎
         </Link>
       ),
@@ -104,18 +104,18 @@ export default function RequestsListPage() {
   return (
     <AccentSection
       accent="requests"
-      title="Requests"
+      title="Opportunities"
       subtitle="Incoming demand waiting to be shaped into projects."
       actions={
         <Link to="/capture">
-          <button className="accent-button">+ New request</button>
+          <button className="accent-button">+ New opportunity</button>
         </Link>
       }
     >
       <ListToolbar
         search={search}
         onSearch={setSearch}
-        placeholder="Search requests or requesters…"
+        placeholder="Search opportunities or requesters…"
         toggles={[{ label: 'Hide inactive', checked: hideInactive, onChange: setHideInactive }]}
       />
       <div className="card table-card">
@@ -127,7 +127,7 @@ export default function RequestsListPage() {
           search={search}
           initialSortKey="shortTitle"
           isLoading={requests.isLoading}
-          emptyMessage="No requests match the current filters."
+          emptyMessage="No opportunities match the current filters."
         />
       </div>
       <RowLegend />

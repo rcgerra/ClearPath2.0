@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { authenticate, requireRole } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
 import { projectRepository, requestRepository } from '../repositories/sql';
+import { canAssignRequestDelegate, canEditRequest } from '../demo/demoPermissions';
+import { assertReferenceSite, getReferenceMetadata, listReferenceMetadata, saveReferenceMetadata } from '../services/referenceMetadata';
+import { opportunitySubmissionSchema } from '../services/opportunitySubmission';
+import { requestStageIndex } from '../services/requestWorkflow';
 
 const router = Router();
 
@@ -13,6 +17,7 @@ const captureSchema = z.object({
   phase: z.string().max(100).optional(),
   disposition: z.string().max(50).optional(),
   location: z.string().max(200).optional(),
+  siteId: z.string().max(36).optional(),
   neededBy: z.string().max(50).optional(),
   neededByJustification: z.string().max(4000).optional(),
   currentState: z.string().min(10).max(4000),
@@ -34,7 +39,7 @@ const updateSchema = captureSchema.partial().extend({
 });
 
 function toRequest(record: Awaited<ReturnType<typeof requestRepository.findById>>) {
-  if (!record) throw new HttpError(404, 'Request not found.');
+  if (!record) throw new HttpError(404, 'Opportunity not found.');
   return {
     id: record.RequestApiId,
     name: record.Name,
@@ -57,8 +62,8 @@ function toRequest(record: Awaited<ReturnType<typeof requestRepository.findById>
     requesterName: record.RequesterName ?? undefined,
     delegatePersonId: record.DelegatePersonApiId ?? undefined,
     delegateName: record.DelegateName ?? undefined,
-    sponsorPersonId: undefined,
-    sponsorName: record.SponsorNameFlat ?? undefined,
+    sponsorPersonId: record.SponsorPersonApiId ?? undefined,
+    sponsorName: record.SponsorPersonName ?? record.SponsorNameFlat ?? undefined,
     isActive: record.IsActive,
     departmentId: record.DepartmentApiId ?? undefined,
     departmentName: record.DepartmentName ?? undefined,
@@ -104,15 +109,20 @@ router.get('/', asyncHandler(async (req, res) => {
     departmentId: req.query.departmentId ? String(req.query.departmentId) : undefined,
     status: req.query.status ? String(req.query.status) : undefined,
   });
-  res.json(records.map(toRequest));
+  const metadata = await listReferenceMetadata('requests');
+  res.json(records.map((record) => ({ ...toRequest(record), ...metadata.get(record.RequestApiId.toLowerCase()) })));
 }));
 
 router.get('/:id', asyncHandler(async (req, res) => {
-  res.json(toRequest(await requestRepository.findByIdentifier(req.params.id)));
+  const record = await requestRepository.findByIdentifier(req.params.id);
+  const details = toRequest(record);
+  res.json({ ...details, ...await getReferenceMetadata('requests', details.id), workflowCompletedAt: await requestRepository.workflowCompletedAt(record!.RequestId) });
 }));
 
 router.post('/', asyncHandler(async (req, res) => {
   const input = captureSchema.parse(req.body);
+  if (input.phase === 'Prioritization') opportunitySubmissionSchema.parse(input);
+  await assertReferenceSite(input.siteId);
   const requesterPersonId = req.user?.personId ? await requestRepository.resolvePersonId(req.user.personId) : null;
   const id = await requestRepository.create({
     ...(await resolveInput(input)),
@@ -125,14 +135,33 @@ router.post('/', asyncHandler(async (req, res) => {
     IsActive: true,
   });
   const created = await requestRepository.findById(id);
-  res.status(201).json({ id: toRequest(created).id });
+  const apiId = toRequest(created).id;
+  await saveReferenceMetadata('requests', apiId, { siteId: input.siteId, location: input.location });
+  res.status(201).json({ id: apiId });
 }));
 
-router.patch('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
+router.patch('/:id', asyncHandler(async (req, res) => {
   const input = updateSchema.parse(req.body);
+  await assertReferenceSite(input.siteId);
   const current = await requestRepository.findByIdentifier(req.params.id);
-  if (!current) throw new HttpError(404, 'Request not found.');
+  if (!current) throw new HttpError(404, 'Opportunity not found.');
+  if (!canEditRequest(req.user, toRequest(current))) throw new HttpError(403, 'You cannot edit this opportunity at its current phase.');
+  const moderator = req.user?.roles.some((role) => role === 'admin' || role === 'intake_moderator');
+  const submitting = input.phase === 'Prioritization' && input.status === 'Submitted' && requestStageIndex(current.Phase) === 0;
+  if (submitting) opportunitySubmissionSchema.parse({ ...toRequest(current), ...req.body });
+  if (!moderator && (['disposition', 'isActive', 'priorityScore', 'projectId'].some((key) => key in input)
+    || (('phase' in input || 'status' in input) && !submitting)
+    || ('sponsorPersonId' in input && !canAssignRequestDelegate(req.user, toRequest(current)))
+    || ('delegatePersonId' in input && !canAssignRequestDelegate(req.user, toRequest(current))))) {
+    throw new HttpError(403, 'Only intake moderators and admins can change lifecycle or assignments.');
+  }
   await requestRepository.update(current.RequestId, await resolveInput(input));
+  if (input.siteId !== undefined || input.location !== undefined) {
+    await saveReferenceMetadata('requests', current.RequestApiId, {
+      ...(input.siteId !== undefined ? { siteId: input.siteId } : {}),
+      ...(input.location !== undefined ? { location: input.location } : {}),
+    });
+  }
   res.json({ id: req.params.id });
 }));
 

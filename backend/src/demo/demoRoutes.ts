@@ -1,10 +1,15 @@
-﻿import { Router } from 'express';
+﻿import { randomUUID } from 'node:crypto';
+import { Router } from 'express';
 import { env } from '../config/env';
 import { AuthUser, Role, ROLES, authenticate, requireRole, signToken, signViewAsToken } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
 import { CsvDataService } from './csvData';
-import { canEditAssignedRecord, canEditAvailability, canEditDemand } from './demoPermissions';
+import { demoDataService } from './demoDataService';
+import { canAssignRequestDelegate, canEditAssignedRecord, canEditAvailability, canEditDemand, canEditRequest } from './demoPermissions';
 import { combineParentScores, getPrioritizationModel, updatePrioritizationModel } from '../services/prioritizationModel';
+import { getReferenceMetadata, listReferenceMetadata, referenceMetadataSchema, saveReferenceMetadata } from '../services/referenceMetadata';
+import { opportunitySubmissionSchema } from '../services/opportunitySubmission';
+import { requestStageIndex } from '../services/requestWorkflow';
 
 /**
  * In-memory sample data used only when DEMO_MODE=true, so the UI can be reviewed
@@ -15,7 +20,7 @@ const HEX_PREFIX: Record<string, string> = { d: 'd', p: 'a', f: 'f', j: 'b', r: 
 
 const id = (n: number, prefix: string) =>
   `${HEX_PREFIX[prefix] ?? 'a'}${String(n).padStart(7, '0')}-0000-4000-8000-000000000000`.slice(0, 36);
-const dataService = env.demoMode ? new CsvDataService() : CsvDataService.empty();
+const dataService = demoDataService;
 
 function seedPrioritizationSamples(): void {
   if (!env.demoMode) return;
@@ -155,24 +160,37 @@ router.post('/auth/view-as', requireRole('admin'), (req, res) => {
   res.json({ viewAsToken: signViewAsToken(user), user });
 });
 
-router.get('/departments', (_req, res) => res.json(dataService.list('departments')));
+function assertSite(siteId: unknown): void {
+  if (siteId !== undefined && siteId !== '' && (typeof siteId !== 'string' || !dataService.find('sites', siteId))) {
+    throw new HttpError(400, 'Select a valid site.');
+  }
+}
+
+router.get('/departments', asyncHandler(async (_req, res) => {
+  const metadata = await listReferenceMetadata('departments');
+  res.json(dataService.list('departments').map((row) => ({ ...row, ...metadata.get(row.id.toLowerCase()) })));
+}));
 router.get('/departments/:id', asyncHandler(async (req, res) => {
   const record = dataService.find('departments', req.params.id);
   if (!record) throw new HttpError(404, 'Department not found.');
-  res.json(record);
+  res.json({ ...record, ...await getReferenceMetadata('departments', record.id) });
 }));
-router.post('/departments', requireRole('admin'), (req, res) => {
+router.post('/departments', requireRole('admin'), asyncHandler(async (req, res) => {
+  assertSite(req.body?.siteId);
   const departments = dataService.list('departments');
   const record = { id: id(departments.length + 1, 'd'), isActive: true, ...req.body } as (typeof departments)[number];
   dataService.create('departments', record);
+  if (req.body?.siteId !== undefined) await saveReferenceMetadata('departments', record.id, { siteId: req.body.siteId });
   res.status(201).json({ id: record.id });
-});
+}));
 router.patch('/departments/:id', asyncHandler(async (req, res) => {
   const department = dataService.find('departments', req.params.id);
   if (!department) throw new HttpError(404, 'Department not found.');
   if (!canEditAssignedRecord(req.user, department.leadPersonId, department.delegatePersonId)) {
     throw new HttpError(403, 'Only the department lead, their delegate or an admin can change this department.');
   }
+  assertSite(req.body?.siteId);
+  if (req.body?.siteId !== undefined) await saveReferenceMetadata('departments', department.id, { siteId: req.body.siteId });
   res.json(patch('departments', req.params.id, req.body));
 }));
 
@@ -217,58 +235,69 @@ router.patch('/people/:id', asyncHandler(async (req, res) => {
   res.json(patch('people', req.params.id, req.body));
 }));
 
-router.get('/projects', (_req, res) => res.json(dataService.list('projects')));
+router.get('/projects', asyncHandler(async (_req, res) => {
+  const metadata = await listReferenceMetadata('projects');
+  res.json(dataService.list('projects').map((row) => ({ ...row, ...metadata.get(row.id.toLowerCase()) })));
+}));
 router.get('/projects/:id', asyncHandler(async (req, res) => {
   const record = dataService.find('projects', req.params.id);
   if (!record) throw new HttpError(404, 'Project not found.');
-  res.json(record);
+  res.json({ ...record, ...await getReferenceMetadata('projects', record.id) });
 }));
 router.get('/projects/:id/team', (req, res) => res.json(dataService.filterBy('demand', (row) => row.projectId === req.params.id)));
-router.post('/projects', requireRole('admin'), (req, res) => {
+router.post('/projects', requireRole('admin'), asyncHandler(async (req, res) => {
+  assertSite(req.body?.siteId);
   const projects = dataService.list('projects');
   const record = { id: id(projects.length + 1, 'j'), ...req.body } as (typeof projects)[number];
   dataService.create('projects', record);
+  if (req.body?.siteId !== undefined) await saveReferenceMetadata('projects', record.id, { siteId: req.body.siteId });
   res.status(201).json({ id: record.id });
-});
+}));
 router.patch('/projects/:id', asyncHandler(async (req, res) => {
   const project = dataService.find('projects', req.params.id);
   if (!project) throw new HttpError(404, 'Project not found.');
   if (!canEditAssignedRecord(req.user, project.managerPersonId, project.delegatePersonId)) {
     throw new HttpError(403, 'Only the project manager, their delegate or an admin can change this project.');
   }
+  assertSite(req.body?.siteId);
+  if (req.body?.siteId !== undefined) await saveReferenceMetadata('projects', project.id, { siteId: req.body.siteId });
   res.json(patch('projects', req.params.id, req.body));
 }));
 
-router.get('/requests', (req, res) => {
+router.get('/requests', asyncHandler(async (req, res) => {
   const requests = dataService.list('requests');
+  const metadata = await listReferenceMetadata('requests');
+  const withSites = requests.map((row) => ({ ...row, ...metadata.get(row.id.toLowerCase()) }));
   if (req.query.mine !== 'true') {
-    res.json(requests);
+    res.json(withSites);
     return;
   }
   const me = req.user?.personId;
-  res.json(dataService.filterBy('requests', (row) => row.requesterPersonId === me || row.delegatePersonId === me));
-});
+  res.json(withSites.filter((row) => row.requesterPersonId === me || row.delegatePersonId === me));
+}));
 router.get('/requests/:id', asyncHandler(async (req, res) => {
   const record = dataService.find('requests', req.params.id);
-  if (!record) throw new HttpError(404, 'Request not found.');
-  res.json(record);
+  if (!record) throw new HttpError(404, 'Opportunity not found.');
+  res.json({ ...record, ...await getReferenceMetadata('requests', record.id), workflowCompletedAt: dataService.workflowCompletedAt(record.id) });
 }));
 /** Captures a new intake request; disposition always starts Pending and the phase starts Draft. */
-router.post('/requests', (req, res) => {
+router.post('/requests', asyncHandler(async (req, res) => {
+  assertSite(req.body?.siteId);
+  if (req.body?.phase === 'Prioritization') opportunitySubmissionSchema.parse(req.body);
   const requests = dataService.list('requests');
   const requester = dataService.find('people', req.user?.personId ?? '');
   const sponsor = req.body?.sponsorPersonId ? dataService.find('people', String(req.body.sponsorPersonId)) : undefined;
   const delegate = req.body?.delegatePersonId ? dataService.find('people', String(req.body.delegatePersonId)) : undefined;
   const department = req.body?.departmentId ? dataService.find('departments', String(req.body.departmentId)) : undefined;
-  const shortTitle = String(req.body?.shortTitle ?? '').trim() || 'Untitled request';
+  const shortTitle = String(req.body?.shortTitle ?? '').trim() || 'Untitled opportunity';
   const record = {
     id: id(requests.length + 1, 'r'),
     shortTitle,
     title: shortTitle,
     name: shortTitle,
     spotId: undefined,
-    phase: 'Draft',
-    status: 'Submitted',
+    phase: req.body?.phase === 'Prioritization' ? 'Prioritization' : 'Draft',
+    status: req.body?.phase === 'Prioritization' ? 'Submitted' : 'Draft',
     disposition: 'Pending',
     location: req.body?.location ? String(req.body.location) : '',
     isActive: true,
@@ -294,14 +323,73 @@ router.post('/requests', (req, res) => {
     additionalInformation: req.body?.additionalInformation ? String(req.body.additionalInformation) : '',
   } as (typeof requests)[number];
   dataService.create('requests', record);
+  if (req.body?.siteId !== undefined) await saveReferenceMetadata('requests', record.id, { siteId: req.body.siteId });
   res.status(201).json({ id: record.id });
-});
-router.patch('/requests/:id', requireRole('admin'), asyncHandler(async (req, res) => {
-  res.json(patch('requests', req.params.id, req.body));
+}));
+router.patch('/requests/:id', asyncHandler(async (req, res) => {
+  const current = dataService.find('requests', req.params.id);
+  if (!current) throw new HttpError(404, 'Opportunity not found.');
+  if (!canEditRequest(req.user, current)) throw new HttpError(403, 'You cannot edit this opportunity at its current phase.');
+  const moderator = req.user?.roles.some((role) => role === 'admin' || role === 'intake_moderator');
+  const submitting = req.body?.phase === 'Prioritization' && req.body?.status === 'Submitted' && requestStageIndex(current.phase) === 0;
+  if (submitting) opportunitySubmissionSchema.parse({ ...current, ...req.body });
+  const editableFields = ['title', 'shortTitle', 'spotId', 'siteId', 'location', 'neededBy', 'neededByJustification', 'currentState', 'discoveryMethod', 'impactToOperations', 'desiredFutureState', 'additionalInformation'];
+  if (canAssignRequestDelegate(req.user, current)) editableFields.push('sponsorPersonId', 'delegatePersonId');
+  if (submitting) editableFields.push('phase', 'status');
+  if (!moderator && Object.keys(req.body).some((key) => !editableFields.includes(key))) {
+    throw new HttpError(403, 'Only intake moderators and admins can change lifecycle or assignments.');
+  }
+  assertSite(req.body?.siteId);
+  if (req.body?.siteId !== undefined) await saveReferenceMetadata('requests', current.id, { siteId: req.body.siteId });
+  const sponsor = req.body?.sponsorPersonId ? dataService.find('people', String(req.body.sponsorPersonId)) : undefined;
+  const delegate = req.body?.delegatePersonId ? dataService.find('people', String(req.body.delegatePersonId)) : undefined;
+  res.json(patch('requests', req.params.id, {
+    ...req.body,
+    ...(req.body?.sponsorPersonId !== undefined ? { sponsorName: sponsor?.name, sponsorNameFlat: sponsor?.name ?? '' } : {}),
+    ...(req.body?.delegatePersonId !== undefined ? { delegateName: delegate?.name } : {}),
+  }));
 }));
 
-router.get('/lookups/functions', (_req, res) => res.json(dataService.list('functions')));
-router.get('/lookups/locations', (_req, res) => res.json(dataService.list('locations')));
+const editableLookups = ['functions', 'locations', 'programs', 'sites'] as const;
+type EditableLookup = (typeof editableLookups)[number];
+
+function lookupTable(value: string): EditableLookup {
+  if (!editableLookups.includes(value as EditableLookup)) throw new HttpError(404, 'Reference table not found.');
+  return value as EditableLookup;
+}
+
+router.get('/lookups/:table', asyncHandler(async (req, res, next) => {
+  if (!editableLookups.includes(req.params.table as EditableLookup)) return next();
+  const table = lookupTable(req.params.table);
+  res.json(await Promise.all(dataService.list(table).map(async (row) => ({
+    ...row, ...await getReferenceMetadata(table, row.id),
+  }))));
+}));
+router.post('/lookups/:table', requireRole('admin'), asyncHandler(async (req, res) => {
+  const table = lookupTable(req.params.table);
+  const name = String(req.body?.name ?? '').trim();
+  if (!name || name.length > 200) throw new HttpError(400, 'Name must be between 1 and 200 characters.');
+  const metadata = referenceMetadataSchema.parse(req.body);
+  assertSite(metadata.siteId);
+  const record = dataService.create(table, { id: randomUUID(), name, row: {} });
+  if (Object.keys(metadata).length) await saveReferenceMetadata(table, record.id, metadata);
+  res.status(201).json({ id: record.id });
+}));
+router.patch('/lookups/:table/:id', requireRole('admin'), asyncHandler(async (req, res) => {
+  const table = lookupTable(req.params.table);
+  const name = String(req.body?.name ?? '').trim();
+  if (!name || name.length > 200) throw new HttpError(400, 'Name must be between 1 and 200 characters.');
+  const metadata = referenceMetadataSchema.parse(req.body);
+  assertSite(metadata.siteId);
+  const record = patch(table, req.params.id, { name });
+  if (Object.keys(metadata).length) await saveReferenceMetadata(table, req.params.id, metadata);
+  res.json(record);
+}));
+router.delete('/lookups/:table/:id', requireRole('admin'), (req, res) => {
+  const table = lookupTable(req.params.table);
+  if (!dataService.remove(table, req.params.id)) throw new HttpError(404, 'Reference record not found.');
+  res.status(204).end();
+});
 
 router.get('/capacity', (req, res) => {
   const personId = req.query.mine === 'true' ? req.user?.personId : req.query.personId ? String(req.query.personId) : undefined;
@@ -486,6 +574,13 @@ router.get('/prioritization/requests/:requestId/answers', (req, res) => {
   res.json(dataService.list('answers').filter((answer) => answer.requestId.toLowerCase() === req.params.requestId.toLowerCase()));
 });
 router.post('/prioritization/submit', (req, res) => {
+  const request = dataService.find('requests', String(req.body.requestId ?? ''));
+  if (!request) throw new HttpError(404, 'Request not found.');
+  const moderator = req.user?.roles.some((role) => role === 'admin' || role === 'intake_moderator');
+  if (!moderator && (request.phase && request.phase !== 'Draft' && request.phase !== 'Prioritization'
+    || !req.user?.personId || req.user.personId.toLowerCase() !== request.sponsorPersonId?.toLowerCase())) {
+    throw new HttpError(403, 'Only the sponsor can prioritize this opportunity before it moves past prioritization.');
+  }
   const questions = dataService.list('questions').filter((question) => question.isActive);
   const submitted = Array.isArray(req.body.answers) ? req.body.answers : [];
   if (submitted.length !== questions.length || submitted.some((answer: { score?: number; justification?: string }) => !prioritizationScores.includes(Number(answer.score)) || (Number(answer.score) !== 0 && !String(answer.justification ?? '').trim())) || questions.some((question) => question.required !== false && submitted.find((answer: { questionId?: string }) => answer.questionId === question.id)?.score === 0)) {
@@ -755,7 +850,7 @@ router.patch('/non-project-demand/:id', (req, res) => {
     description: typeof req.body?.description === 'string' ? req.body.description : undefined,
   });
   if (!row) throw new HttpError(404, 'Non-project demand row not found.');
-  res.json({ id: row.id });
+  res.json({ id: row.id, weeks: row.weeks, isActive: row.isActive });
 });
 
 router.delete('/non-project-demand/:id', (req, res) => {

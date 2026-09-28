@@ -13,6 +13,8 @@ export interface ProjectView extends Project {
   ProgramName: string | null;
   DepartmentApiId: string | null;
   DepartmentName: string | null;
+  SiteApiId: string | null;
+  SiteName: string | null;
   RequestApiId: string | null;
 }
 
@@ -275,6 +277,8 @@ export class ProjectRepository extends BaseRepository<Project> implements Projec
                    program.[Name] AS ProgramName,
                    COALESCE(CONVERT(varchar(36), d.[LegacyDataverseId]), CONVERT(varchar(20), d.[DepartmentId])) AS DepartmentApiId,
                    d.[Name] AS DepartmentName,
+                   COALESCE(CONVERT(varchar(36), site.[LegacyDataverseId]), CONVERT(varchar(20), site.[SiteId])) AS SiteApiId,
+                   site.[Name] AS SiteName,
                    COALESCE(CONVERT(varchar(36), requestRecord.[LegacyDataverseId]), CONVERT(varchar(20), requestRecord.[RequestId])) AS RequestApiId
               FROM dbo.[Projects] p
               LEFT JOIN dbo.[People] managerPerson ON managerPerson.[DirectoryUserId] = p.[ProjectManagerUserId]
@@ -282,6 +286,7 @@ export class ProjectRepository extends BaseRepository<Project> implements Projec
               LEFT JOIN dbo.[People] delegatePerson ON delegatePerson.[DirectoryUserId] = p.[DelegateUserId]
               LEFT JOIN dbo.[Programs] program ON program.[ProgramId] = p.[ProgramId]
               LEFT JOIN dbo.[Departments] d ON d.[DepartmentId] = p.[DepartmentId]
+              LEFT JOIN dbo.[Sites] site ON site.[SiteId] = p.[SiteId]
               LEFT JOIN dbo.[Requests] requestRecord ON requestRecord.[RequestId] = p.[RequestId]`;
   }
 }

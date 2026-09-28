@@ -8,6 +8,7 @@ const NAV_ICON_NAMES = [
   'work',
   'requests',
   'prioritization',
+  'governance',
   'projects',
   'departments',
   'people',
@@ -63,6 +64,13 @@ function NavIcon({ name }: { name: NavIconName }) {
         <svg {...commonProps}>
           <path d="M3 12.5V8.6M8 12.5V3.5M13 12.5v-6.1" />
           <path d="M1.9 12.5h12.2" />
+        </svg>
+      );
+    case 'governance':
+      return (
+        <svg {...commonProps}>
+          <path d="M8 2.2 13 4.3v3.2c0 2.7-2 5.1-5 6.3-3-1.2-5-3.6-5-6.3V4.3L8 2.2Z" />
+          <path d="M6.2 7.9 7.5 9.2l2.4-2.7" />
         </svg>
       );
     case 'projects':
@@ -134,6 +142,7 @@ const VIEW_ROLE_LABELS: Array<[string, string]> = [
   ['portfolio_manager', 'Portfolio Manager'],
   ['availability_moderator', 'Availability Moderator'],
   ['demand_moderator', 'Demand Moderator'],
+  ['intake_moderator', 'Intake Moderator'],
 ];
 
 const HEADER_CHEVRONS = [
@@ -168,8 +177,9 @@ const HEADER_CHEVRONS = [
 const USER_NAV = [
   { to: '/', label: 'Home', end: true, accent: '', icon: 'home' as const },
   { to: '/me', label: 'My Work', end: true, accent: '', icon: 'work' as const },
-  { to: '/requests', label: 'Requests', end: false, accent: 'accent-requests', icon: 'requests' as const },
+  { to: '/requests', label: 'Opportunities', end: false, accent: 'accent-requests', icon: 'requests' as const },
   { to: '/prioritization', label: 'Prioritization', end: false, accent: 'accent-prioritization', icon: 'prioritization' as const },
+  { to: '/governance', label: 'Governance', end: false, accent: 'accent-governance', icon: 'governance' as const },
   { to: '/projects', label: 'Project Planning', end: false, accent: 'accent-projects', icon: 'projects' as const },
   { to: '/departments', label: 'Department Planning', end: false, accent: 'accent-departments', icon: 'departments' as const },
   { to: '/people', label: 'People', end: false, accent: 'accent-people', icon: 'people' as const },
@@ -178,20 +188,22 @@ const USER_NAV = [
 /** Areas shown while inside the admin portal (/admin/*). */
 const ADMIN_NAV = [
   { to: '/admin', label: 'Admin Dashboard', end: true, accent: 'accent-access', icon: 'admin' as const },
-  { to: '/admin/requests', label: 'Requests', end: false, accent: 'accent-requests', icon: 'requests' as const },
+  { to: '/admin/requests', label: 'Opportunities', end: false, accent: 'accent-requests', icon: 'requests' as const },
   { to: '/admin/projects', label: 'Projects', end: false, accent: 'accent-projects', icon: 'projects' as const },
   { to: '/admin/other-work', label: 'Run the Business', end: false, accent: 'accent-projects', icon: 'business' as const },
   { to: '/admin/departments', label: 'Departments', end: false, accent: 'accent-departments', icon: 'departments' as const },
+  { to: '/admin/reference/locations', label: 'Reference Data', end: false, accent: 'accent-access', icon: 'business' as const },
   { to: '/admin/people', label: 'People', end: false, accent: 'accent-people', icon: 'people' as const },
   { to: '/admin/skills', label: 'Skills', end: false, accent: 'accent-people', icon: 'skills' as const },
   { to: '/admin/prioritization-model', label: 'Prioritization', end: false, accent: 'accent-prioritization', icon: 'prioritization' as const },
   { to: '/admin/access', label: 'Security Roles', end: false, accent: 'accent-access', icon: 'security' as const },
-  { to: '/admin/controls', label: 'Admin Controls', end: false, accent: 'accent-access', icon: 'security' as const },
+  { to: '/admin/controls', label: 'Developer', end: false, accent: 'accent-access', icon: 'security' as const },
 ] as const;
 
 /** Accent to color the back button by, matching the section the current page belongs to. */
 function accentForPath(pathname: string): string {
   if (pathname === '/') return 'accent-access';
+  if (pathname.startsWith('/governance')) return 'accent-governance';
   if (pathname.startsWith('/admin/prioritization-model') || pathname.startsWith('/prioritization')) return 'accent-prioritization';
   if (pathname.startsWith('/admin/requests') || pathname.startsWith('/requests') || pathname.startsWith('/capture')) return 'accent-requests';
   if (pathname.startsWith('/admin/projects') || pathname.startsWith('/projects')) return 'accent-projects';
@@ -213,22 +225,21 @@ export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const onHome = location.pathname === '/';
   const isAdmin = Boolean(user?.roles.includes('admin'));
   const inAdminPortal = isAdmin && location.pathname.startsWith('/admin');
   const isPortfolioManager = Boolean(user?.roles.includes('portfolio_manager'));
-  const roleLabels = VIEW_ROLE_LABELS
-    .filter(([value]) => user?.roles.includes(value as never))
-    .map(([, label]) => label);
+  const roleLabels = (user?.roles ?? [])
+    .filter((role) => role !== 'user')
+    .map((role) => VIEW_ROLE_LABELS.find(([value]) => value === role)?.[1] ?? role.replaceAll('_', ' '));
+  const isGovernanceList = location.pathname === '/governance'
+    || (location.pathname.startsWith('/governance/') && !location.pathname.startsWith('/governance/item/'));
   const links = inAdminPortal
     ? ADMIN_NAV
-    : isAdmin
-      ? [...USER_NAV, { to: '/admin', label: 'Admin', end: false, accent: 'accent-access', icon: 'admin' as const }]
-      : isPortfolioManager
-        ? [...USER_NAV, { to: '/portfolio', label: 'Portfolio', end: true, accent: 'accent-access', icon: 'portfolio' as const }]
-        : USER_NAV;
+    : isPortfolioManager && !isAdmin
+      ? [...USER_NAV, { to: '/portfolio', label: 'Portfolio', end: true, accent: 'accent-access', icon: 'portfolio' as const }]
+      : USER_NAV;
 
-  const navigationGroups = [{ title: inAdminPortal ? 'Admin' : 'Workspace', items: links }];
+  const navigationGroups = [{ title: inAdminPortal ? 'Admin' : '', items: links }];
 
   function stopViewing() {
     queryClient.clear();
@@ -240,15 +251,7 @@ export default function Layout() {
     <div className={location.pathname === '/me' ? 'app-shell my-work-shell' : 'app-shell'}>
       <header className="app-header">
         <NavLink to="/" className="brand" aria-label="ClearPath home">
-          <span className="brand-copy">
-            <span className="brand-wordmark"><span className="brand-clear">Clear</span><span className="brand-path">Path</span></span>
-            <span className="brand-caption">Right People, Right Work, Right Time</span>
-          </span>
-          <svg className="brand-chevron-mark" viewBox="0 0 68 28" aria-hidden="true">
-            <path className="brand-chevron-dark" d="M2 2 17 14 2 26h10l15-12L12 2H2Z" />
-            <path className="brand-chevron-dark" d="M22 2 37 14 22 26h10l15-12L32 2H22Z" />
-            <path className="brand-chevron-red" d="M42 2 57 14 42 26h10l15-12L52 2H42Z" />
-          </svg>
+          <img className="brand-logo" src="/clearpath-logo.png" alt="ClearPath — Right People, Right Work, Right Time" />
         </NavLink>
         <div className="header-chevron-pattern" aria-hidden="true">
           {HEADER_CHEVRONS.map((chevron, index) => (
@@ -266,49 +269,44 @@ export default function Layout() {
           <div className="header-identity">
             {roleLabels.length > 0 && (
               <div className="header-identity-roles" aria-label="My roles">
-                <span className="header-identity-label">{onHome ? user.name : 'My Roles:'}</span>
+                <span className="header-identity-label">{user.name}</span>
                 {roleLabels.map((label) => <span key={label} className="pill pill-role">{label}</span>)}
               </div>
             )}
-            {(!onHome || roleLabels.length === 0) && <strong className="header-identity-name">{user.name}</strong>}
+            {roleLabels.length === 0 && <strong className="header-identity-name">{user.name}</strong>}
           </div>
         )}
       </header>
 
-      {inAdminPortal && (
-        <div className="admin-portal-banner">
-          <span>Admin Portal</span>
-          <span className="admin-portal-hint">Admin Controls available in the Admin navigation.</span>
-          <button
-            type="button"
-            className="admin-portal-exit"
-            onClick={() => navigate('/')}
-            aria-label="Exit admin portal"
-            title="Exit admin portal"
-          >
-            ×
-          </button>
-        </div>
-      )}
-
       {viewingAs && user && (
-        <div className="view-as-banner" role="status">
-          <div className="view-as-person">
+        <div className="app-banner view-as-banner" role="status">
+          <div className="app-banner-identity">
             <span>Viewing as</span>
             <strong>{user.name}</strong>
           </div>
-          {roleLabels.length > 0 && (
-            <div className="view-as-roles" aria-label={`${user.name} security roles`}>
-              {roleLabels.map((label) => <span key={label} className="pill view-as-role-badge">{label}</span>)}
-            </div>
-          )}
-          <button type="button" className="view-as-stop" onClick={stopViewing} aria-label="Stop viewing as this person" title="Stop viewing as this person">×</button>
+          <div className="app-banner-detail" aria-label={`${user.name} security roles`}>
+            {roleLabels.map((label) => <span key={label} className="pill app-banner-badge">{label}</span>)}
+          </div>
+          <button type="button" className="app-banner-close" onClick={stopViewing} aria-label="Stop viewing as this person" title="Stop viewing as this person">×</button>
         </div>
       )}
 
       <div className={['app-body', sidebarCollapsed ? 'sidebar-collapsed' : ''].filter(Boolean).join(' ')}>
-        <aside className="app-sidebar" aria-label="Primary navigation">
+        <aside className={['app-sidebar', inAdminPortal ? 'app-sidebar-admin' : ''].filter(Boolean).join(' ')} aria-label="Primary navigation">
           <div className="app-sidebar-topbar">
+            {isAdmin && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={inAdminPortal}
+                className={['admin-mode-toggle', inAdminPortal ? 'is-on' : ''].filter(Boolean).join(' ')}
+                onClick={() => navigate(inAdminPortal ? '/' : '/admin')}
+                title={inAdminPortal ? 'Leave admin mode' : 'Enter admin mode'}
+              >
+                <span className="admin-mode-toggle-label">Admin mode</span>
+                <span className="admin-mode-toggle-track" aria-hidden="true"><span className="admin-mode-toggle-thumb" /></span>
+              </button>
+            )}
             <button
               type="button"
               className="sidebar-toggle"
@@ -323,13 +321,13 @@ export default function Layout() {
           <nav className="app-nav">
             {navigationGroups.map((group) => (
               <div key={group.title} className="nav-group">
-                {!sidebarCollapsed && <span className="nav-group-label">{group.title}</span>}
+                {!sidebarCollapsed && group.title && <span className="nav-group-label">{group.title}</span>}
                 {group.items.map((item) => (
                   <NavLink
                     key={item.to}
                     to={item.to}
                     end={item.end}
-                    className={({ isActive }) => [item.accent, isActive ? 'active' : ''].filter(Boolean).join(' ')}
+                    className={({ isActive }) => [item.accent, item.to === '/admin' && !inAdminPortal ? 'nav-admin-link' : '', isActive ? 'active' : ''].filter(Boolean).join(' ')}
                     title={item.label}
                   >
                     <span className="nav-item-icon" aria-hidden="true">
@@ -344,15 +342,11 @@ export default function Layout() {
         </aside>
 
         <div className="app-content">
-          <main className={['app-main', accentForPath(location.pathname)].filter(Boolean).join(' ')}>
+          <main className={['app-main', accentForPath(location.pathname), location.pathname.startsWith('/admin') ? 'admin-main' : '', ['/prioritization', '/projects', '/departments', '/people'].includes(location.pathname) || isGovernanceList ? 'flush-list-page' : '', ['/requests', '/prioritization', '/projects', '/departments'].includes(location.pathname) || isGovernanceList ? 'bottom-toolbar-page' : '', /^\/(projects|departments)\/[^/]+$/.test(location.pathname) ? 'planning-detail-page' : ''].filter(Boolean).join(' ')}>
             <Suspense fallback={<div role="status" className="muted">Loading page…</div>}>
               <Outlet />
             </Suspense>
           </main>
-          <footer className="app-footer">
-            <span>{user?.roles.join(', ')}</span>
-            <span className="app-footer-version">ClearPath 2.0</span>
-          </footer>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'portfolio_manager' | 'availability_moderator' | 'demand_moderator' | 'user';
+export type Role = 'admin' | 'portfolio_manager' | 'availability_moderator' | 'demand_moderator' | 'intake_moderator' | 'user';
 
 export interface AuthUser {
   userId: string;
@@ -31,6 +31,7 @@ export interface Person {
 export interface Department {
   id: string;
   name: string;
+  siteId?: string;
   code?: string;
   leadPersonId?: string;
   leadName?: string;
@@ -59,6 +60,8 @@ export interface TeamMember {
 export interface Project {
   id: string;
   name: string;
+  siteId?: string;
+  siteName?: string;
   code?: string;
   spotId?: string;
   description?: string;
@@ -84,6 +87,7 @@ export interface Project {
 
 export interface ProjectRequest {
   id: string;
+  siteId?: string;
   title?: string;
   name?: string;
   shortTitle?: string;
@@ -114,6 +118,7 @@ export interface ProjectRequest {
   priorityScore?: number;
   prioritizationComplete?: boolean;
   projectId?: string;
+  workflowCompletedAt?: Record<string, string>;
 }
 
 /** Disposition values captured on the intake form; new requests always start Pending. */
@@ -271,6 +276,66 @@ export interface RankedRequest {
 export interface Lookup {
   id: string;
   name: string;
+  siteId?: string;
+  leadPersonId?: string;
+  sponsorPersonId?: string;
+  assistantLeadPersonIds?: string[];
+  missionStatement?: string;
+}
+
+/** Governance workflow stages, in the order an item moves through them. */
+export const GOVERNANCE_STAGES = ['DQ Check', 'PIRT Assessment', 'SG1 Review', 'Configuration'] as const;
+export type GovernanceStage = (typeof GOVERNANCE_STAGES)[number];
+export const GOVERNANCE_COMPLETE_PHASE = 'Processed';
+
+export const GOVERNANCE_STAGE_VIEWS = [
+  { slug: 'dq-check', stage: 'DQ Check', label: 'DQ Check', blurb: 'Confirm the submission is complete, then send it to PIRT.' },
+  { slug: 'pirt', stage: 'PIRT Assessment', label: 'PIRT Assessment', blurb: 'Assign a program and project type, then send it to SG1 Review.' },
+  { slug: 'sg1', stage: 'SG1 Review', label: 'Stage Gate 1 Review', blurb: 'Record the endorsement decision, then send it to Project Creation.' },
+  { slug: 'creation', stage: 'Configuration', label: 'Project Creation', blurb: 'Create the staffing plan, fileshare and SPOT record, then complete.' },
+] as const satisfies ReadonlyArray<{ slug: string; stage: GovernanceStage; label: string; blurb: string }>;
+
+export const SG1_DISPOSITIONS = ['Endorsed', 'Not Endorsed'] as const;
+
+export interface ProjectType {
+  id: string;
+  name: string;
+  sortOrder: number;
+}
+
+export interface GovernanceItem {
+  id: string;
+  title?: string;
+  shortTitle?: string;
+  spotId?: string;
+  phase?: string;
+  disposition?: string;
+  status?: string;
+  submittedOn?: string;
+  priorityScore?: number;
+  isActive?: boolean;
+  projectId?: string;
+  departmentId?: string;
+  departmentName?: string;
+  requesterPersonId?: string;
+  requesterName?: string;
+  sponsorPersonId?: string;
+  sponsorName?: string;
+  delegatePersonId?: string;
+  currentState?: string;
+  desiredFutureState?: string;
+  impactToOperations?: string;
+  additionalInformation?: string;
+  neededBy?: string;
+  programId?: string;
+  projectType?: string;
+  dqComment?: string;
+  pirtComment?: string;
+  sg1Comment?: string;
+  creationComment?: string;
+  fileshareReady?: boolean;
+  spotRecordCreated?: boolean;
+  cancelled?: boolean;
 }
 
 export interface DirectoryUser {

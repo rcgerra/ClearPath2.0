@@ -1,4 +1,5 @@
-import type { AuthUser, Department, Project } from '../types';
+import type { AuthUser, Department, Project, ProjectRequest } from '../types';
+import { workflowStageIndex } from '../constants/phases';
 
 /**
  * Mirrors the record-level rules enforced by the API. Roles grant breadth;
@@ -38,6 +39,14 @@ export function canEditDepartment(user: AuthUser | null | undefined, department?
 /** Demand: admins everywhere, otherwise the project's assigned manager or demand delegate. */
 export function canEditDemand(user: AuthUser | null | undefined, project?: Project) {
   return isAdmin(user) || isDemandModerator(user) || ownsProject(user, project);
+}
+
+export function canEditRequest(user: AuthUser | null | undefined, request?: ProjectRequest) {
+  if (isAdmin(user) || user?.roles.includes('intake_moderator')) return true;
+  if (!request || ![0, 1].includes(workflowStageIndex(request.phase))) return false;
+  return same(user?.personId, request.requesterPersonId)
+    || same(user?.personId, request.sponsorPersonId)
+    || same(user?.personId, request.delegatePersonId);
 }
 
 /** Availability: admins everywhere, otherwise your own or an assigned lead/delegate's department. */

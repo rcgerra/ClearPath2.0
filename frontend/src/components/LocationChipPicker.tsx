@@ -8,11 +8,13 @@ export default function LocationChipPicker({
   name,
   label = 'Locations Impacted',
   defaultValue = '',
+  required = false,
 }: {
   id: string;
   name: string;
   label?: string;
   defaultValue?: string;
+  required?: boolean;
 }) {
   const locations = useQuery({ queryKey: ['lookups', 'locations'], queryFn: () => lookupsApi.list('locations') });
   const [selected, setSelected] = useState<string[]>(() =>
@@ -27,7 +29,7 @@ export default function LocationChipPicker({
     <div className="field">
       <label htmlFor={id}>{label}</label>
       <input type="hidden" id={id} name={name} value={selected.join('; ')} readOnly />
-      <div className="location-chip-row" role="group" aria-label={label}>
+      <div className="location-chip-row" role="group" aria-label={label} aria-required={required}>
         {locations.data?.map((location) => (
           <button
             key={location.id}

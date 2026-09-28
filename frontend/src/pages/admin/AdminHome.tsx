@@ -4,7 +4,7 @@ const AREAS = [
   {
     to: '/admin/requests',
     accent: 'requests',
-    title: 'Requests',
+    title: 'Opportunities',
     description: 'Intake queue — short title, requester and current phase.',
   },
   {
@@ -19,6 +19,10 @@ const AREAS = [
     title: 'Departments',
     description: 'Org structure — lead, function and last check-in.',
   },
+  { to: '/admin/reference/functions', accent: 'departments', title: 'Functions', description: 'Maintain organizational functions.' },
+  { to: '/admin/reference/locations', accent: 'requests', title: 'Locations', description: 'Maintain locations used in opportunity intake.' },
+  { to: '/admin/reference/programs', accent: 'projects', title: 'Programs', description: 'Maintain program names used in project planning.' },
+  { to: '/admin/reference/sites', accent: 'people', title: 'Sites', description: 'Maintain site reference names.' },
   {
     to: '/admin/people',
     accent: 'people',
@@ -52,7 +56,7 @@ const AREAS = [
   {
     to: '/admin/controls',
     accent: 'access',
-    title: 'Admin Controls',
+    title: 'Developer',
     description: 'Preview the application as another person without ending your admin session.',
   },
 ] as const;

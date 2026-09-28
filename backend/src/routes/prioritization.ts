@@ -270,13 +270,8 @@ router.get(
   '/requests',
   asyncHandler(async (req, res) => {
     const isAdmin = req.user?.roles.includes('admin');
-    if (!isAdmin && !req.user?.personId) {
-      res.json([]);
-      return;
-    }
     const records = await dv.list('requests', {
-      select: [R.id, R.title, R.name, R.shortTitle, R.sponsorPersonId, R.priorityScore],
-      filter: isAdmin ? undefined : `${R.sponsorPersonId} eq ${dv.encodeGuid(req.user!.personId!)}`,
+      select: [R.id, R.title, R.name, R.shortTitle, R.spotId, R.sponsorPersonId, R.requesterPersonId, R.delegatePersonId, R.disposition, R.priorityScore, R.phase],
       orderBy: `${R.title} asc`, top: 500,
     });
     const [questions, answers] = await Promise.all([
@@ -291,7 +286,8 @@ router.get(
         && answer[A.score] !== undefined && String(answer[A.comment] ?? '').trim().length > 0,
       ));
       return {
-      id: record[R.id], title: record[R.title] ?? record[R.name], shortTitle: record[R.shortTitle],
+      id: record[R.id], title: record[R.title] ?? record[R.name], shortTitle: record[R.shortTitle], spotId: record[R.spotId], phase: record[R.phase], disposition: record[R.disposition],
+      requesterPersonId: record[R.requesterPersonId], delegatePersonId: record[R.delegatePersonId],
       sponsorPersonId: record[R.sponsorPersonId], sponsorName: formatted(record as Record<string, unknown>, R.sponsorPersonId),
       ...(isAdmin ? { priorityScore: record[R.priorityScore] } : {}), prioritizationComplete,
       };
@@ -328,9 +324,11 @@ router.post(
   '/submit',
   asyncHandler(async (req, res) => {
     const input = submitSchema.parse(req.body);
-    const request = await dv.retrieve('requests', input.requestId, { select: [R.sponsorPersonId] });
-    if (!req.user?.roles.includes('admin') && String(request[R.sponsorPersonId]).toLowerCase() !== req.user?.personId?.toLowerCase()) {
-      res.status(403).json({ error: 'Only the assigned sponsor can prioritize this request.' });
+    const request = await dv.retrieve('requests', input.requestId, { select: [R.sponsorPersonId, R.phase] });
+    const moderator = req.user?.roles.some((role) => role === 'admin' || role === 'intake_moderator');
+    if (!moderator && ((request[R.phase] && request[R.phase] !== 'Draft' && request[R.phase] !== 'Prioritization')
+      || String(request[R.sponsorPersonId]).toLowerCase() !== req.user?.personId?.toLowerCase())) {
+      res.status(403).json({ error: 'Only the sponsor can prioritize this opportunity before it moves past prioritization.' });
       return;
     }
 

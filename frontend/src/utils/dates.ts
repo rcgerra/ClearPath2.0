@@ -14,3 +14,11 @@ export function formatDayMonth(value?: string | Date | null): string {
   const full = formatDate(value);
   return full === '—' ? full : full.slice(0, 6);
 }
+
+export function sixMonthsFromToday(today = new Date()): string {
+  const year = today.getFullYear();
+  const month = today.getMonth() + 6;
+  const day = Math.min(today.getDate(), new Date(year, month + 1, 0).getDate());
+  const target = new Date(year, month, day);
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+}

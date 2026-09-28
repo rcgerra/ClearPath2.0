@@ -74,6 +74,7 @@ export default function ProjectTeamPage() {
   const team = useQuery({ queryKey: ['project-team', id], queryFn: () => projectsApi.team(id), enabled: Boolean(id) });
   const people = useQuery({ queryKey: ['people'], queryFn: () => peopleApi.list() });
   const functions = useQuery({ queryKey: ['lookups', 'functions'], queryFn: () => lookupsApi.list('functions') });
+  const sites = useQuery({ queryKey: ['lookups', 'sites'], queryFn: () => lookupsApi.list('sites'), enabled: activeTab === 'details' });
   const allDemand = useQuery({ queryKey: ['demand', 'all'], queryFn: () => demandApi.list() });
   const allNonProjectDemand = useQuery({ queryKey: ['non-project-demand', 'all'], queryFn: () => nonProjectDemandApi.list() });
   const allCapacity = useQuery({ queryKey: ['capacity', 'all'], queryFn: () => capacityApi.list() });
@@ -310,9 +311,14 @@ export default function ProjectTeamPage() {
   const selectedKey = selected?.personId?.toLowerCase() ?? '';
   const selectedAvailability = totals.availabilityByPerson.get(selectedKey) ?? emptyWeeks();
   const selectedTotal = totals.demandByPerson.get(selectedKey) ?? emptyWeeks();
-  // Everything the person owes other projects, so the stack sums to their true load.
+  const selectedProject = emptyWeeks();
+  for (const row of team.data ?? []) {
+    if (row.personId?.toLowerCase() === selectedKey) {
+      addInto(selectedProject, row.weeks);
+    }
+  }
   const selectedOthers = selectedTotal.map((value, index) =>
-    Math.max(0, value - (selected?.weeks[index] ?? 0)),
+    Math.max(0, value - selectedProject[index]),
   );
 
   /** Weekly demand per function, for the stacked "demand by function" chart. */
@@ -777,10 +783,7 @@ export default function ProjectTeamPage() {
                   <tr
                     key={row.id}
                     className={selectedRow === row.id ? 'row-selected' : undefined}
-                    onClick={() => {
-                      setSelectedRow(row.id);
-                      setDetailsOpen(true);
-                    }}
+                    onClick={() => setSelectedRow(row.id)}
                   >
                     <th scope="row" className="matrix-label">
                       <span className="person-row">
@@ -907,8 +910,27 @@ export default function ProjectTeamPage() {
         </div>
         <p className="muted table-count">
           {rows.length} team {rows.length === 1 ? 'member' : 'members'} · hours per week, maximum {MAX_HOURS} · sorted by
-          over-allocated hours by default · select a row to see individual details
+          over-allocated hours by default · select a row to view demand and availability
         </p>
+        {selected?.personId && (
+          <section className="project-person-demand" aria-label={`Weekly demand and availability for ${selected.personName ?? 'selected person'}`}>
+            <div className="project-person-demand-heading">
+              <div>
+                <h3>{selected.personName ?? 'Selected person'} · demand and availability</h3>
+                <p className="muted">Next {weeksToShow} weeks</p>
+              </div>
+              <button type="button" onClick={() => setDetailsOpen(true)}>View assignments</button>
+            </div>
+            <PersonDemandChart
+              weeks={weeksToShow}
+              thisProject={selectedProject}
+              otherProjects={selectedOthers}
+              availability={selectedAvailability}
+              thisLabel="This project"
+              otherLabel="Other projects and work"
+            />
+          </section>
+        )}
         </div>
       </div>
       )}
@@ -917,21 +939,10 @@ export default function ProjectTeamPage() {
         open={detailsOpen && Boolean(selected)}
         onClose={() => setDetailsOpen(false)}
         title={<>Individual details{selected?.personName ? ` \u00b7 ${selected.personName}` : ''}</>}
-        subtitle="This project's demand compared with the person's full workload."
+        subtitle="Assignments across projects and other work."
       >
         {selected && (
-          <>
-            <PersonDemandChart
-              weeks={weeksToShow}
-              thisProject={selected.weeks}
-              otherProjects={selectedOthers}
-              availability={selectedAvailability}
-              thisLabel="This project"
-              otherLabel="All other projects"
-              thisColor="var(--asagi-blue)"
-              otherColor="var(--sorairo-blue)"
-            />
-            <div className="matrix-scroll" style={{ marginTop: '1rem' }}>
+            <div className="matrix-scroll">
               <table className="weekly-matrix demand-grid">
                 <thead>
                   <tr>
@@ -967,7 +978,6 @@ export default function ProjectTeamPage() {
                 </tbody>
               </table>
             </div>
-          </>
         )}
       </SlideOverPanel>
 
@@ -1071,6 +1081,10 @@ export default function ProjectTeamPage() {
             {details?.departmentName ?? '—'}
           </div>
           <div>
+            <span className="detail-label">Site</span>
+            {sites.data?.find((site) => site.id === details?.siteId)?.name ?? '—'}
+          </div>
+          <div>
             <span className="detail-label">Project state</span>
             <span className={`badge ${details?.isActive === false ? 'danger' : 'success'}`}>
               {details?.isActive === false ? 'Inactive' : details?.started === false ? 'Not started' : 'Active'}
@@ -1090,6 +1104,10 @@ export default function ProjectTeamPage() {
               {formatDate(details?.lastCheckIn)}
             </span>
           </div>
+        </div>
+        <div className="project-problem-statement">
+          <span className="detail-label">Problem statement</span>
+          <p>{details?.problemStatement?.trim() || '—'}</p>
         </div>
       </div>
       )}

@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { departmentsApi, errorMessage, projectsApi } from '../../api/client';
+import { departmentsApi, errorMessage, lookupsApi, projectsApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
 import UserSelect from '../../components/admin/UserSelect';
 
@@ -29,6 +29,7 @@ export default function ProjectEditPage() {
     enabled: !isNew,
   });
   const departments = useQuery({ queryKey: ['departments'], queryFn: departmentsApi.list });
+  const sites = useQuery({ queryKey: ['lookups', 'sites'], queryFn: () => lookupsApi.list('sites') });
 
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
@@ -56,6 +57,7 @@ export default function ProjectEditPage() {
       delegatePersonId: text('delegatePersonId'),
       isActive: form.get('isActive') === 'on',
       departmentId: text('departmentId'),
+      siteId: String(form.get('siteId') ?? ''),
       lastCheckIn: text('lastCheckIn'),
       startDate: text('startDate'),
       endDate: text('endDate'),
@@ -94,6 +96,14 @@ export default function ProjectEditPage() {
           <div className="grid cols-2">
             <UserSelect id="managerPersonId" name="managerPersonId" label="Project manager" personValue defaultValue={current?.managerPersonId} />
             <UserSelect id="sponsorPersonId" name="sponsorPersonId" label="Project sponsor" personValue defaultValue={current?.sponsorPersonId} />
+          </div>
+
+          <div className="field" style={{ maxWidth: 320 }}>
+            <label htmlFor="siteId">Site</label>
+            <select id="siteId" name="siteId" defaultValue={current?.siteId ?? ''}>
+              <option value="">Unassigned</option>
+              {sites.data?.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+            </select>
           </div>
 
           <div className="grid cols-3">

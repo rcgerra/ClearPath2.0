@@ -7,6 +7,7 @@ import type {
   DemandRow,
   Department,
   DirectoryUser,
+  GovernanceItem,
   Lookup,
   NetCapacity,
   NonProjectDemandCategory,
@@ -17,6 +18,7 @@ import type {
   PrioritizationModel,
   Project,
   ProjectRequest,
+  ProjectType,
   Question,
   RankedRequest,
   ScoringCategory,
@@ -137,7 +139,7 @@ export const nonProjectDemandApi = {
   setWeeks: (id: string, body: { week?: number; startWeek?: number; endWeek?: number; hours: number }) =>
     api.patch<{ id: string; weeks: number[] }>(`/non-project-demand/${id}/weeks`, body).then((response) => response.data),
   update: (id: string, body: { isActive?: boolean; description?: string }) =>
-    api.patch<{ id: string }>(`/non-project-demand/${id}`, body).then((response) => response.data),
+    api.patch<{ id: string; isActive: boolean; weeks: number[] }>(`/non-project-demand/${id}`, body).then((response) => response.data),
   remove: (id: string) => api.delete(`/non-project-demand/${id}`),
 };
 
@@ -192,7 +194,19 @@ export const prioritizationApi = {
 export const lookupsApi = {
   list: (table: 'functions' | 'sites' | 'skillsets' | 'programs' | 'locations' | 'adm' | 'categories') =>
     api.get<Lookup[]>(`/lookups/${table}`).then((r) => r.data),
-  create: (table: string, name: string) => api.post<{ id: string }>(`/lookups/${table}`, { name }).then((r) => r.data),
+  create: (table: string, body: Omit<Lookup, 'id'>) => api.post<{ id: string }>(`/lookups/${table}`, body).then((r) => r.data),
+  update: (table: string, id: string, body: Omit<Lookup, 'id'>) => api.patch<{ id: string }>(`/lookups/${table}/${id}`, body).then((r) => r.data),
+  remove: (table: string, id: string) => api.delete(`/lookups/${table}/${id}`),
+};
+
+export const governanceApi = {
+  list: () => api.get<GovernanceItem[]>('/governance').then((r) => r.data),
+  get: (id: string) => api.get<GovernanceItem>(`/governance/${id}`).then((r) => r.data),
+  update: (id: string, body: WritePayload) => api.patch<GovernanceItem>(`/governance/${id}`, body).then((r) => r.data),
+  advance: (id: string) => api.post<GovernanceItem>(`/governance/${id}/advance`).then((r) => r.data),
+  createStaffingPlan: (id: string, body: { managerPersonId: string; sponsorPersonId: string }) =>
+    api.post<{ projectId: string; item: GovernanceItem }>(`/governance/${id}/staffing-plan`, body).then((r) => r.data),
+  projectTypes: () => api.get<ProjectType[]>('/governance/project-types').then((r) => r.data),
 };
 
 export const usersApi = {

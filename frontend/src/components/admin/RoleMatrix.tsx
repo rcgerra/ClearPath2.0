@@ -6,12 +6,13 @@ export const ROLE_LABELS: Array<{ value: Role; label: string }> = [
   { value: 'portfolio_manager', label: 'Portfolio Manager' },
   { value: 'availability_moderator', label: 'Availability Moderator' },
   { value: 'demand_moderator', label: 'Demand Moderator' },
+  { value: 'intake_moderator', label: 'Intake Moderator' },
 ];
 
 type Area = 'requests' | 'projects' | 'departments' | 'people';
 
 const AREAS: Array<{ value: Area; label: string; accent: string }> = [
-  { value: 'requests', label: 'Requests', accent: 'accent-requests' },
+  { value: 'requests', label: 'Opportunities', accent: 'accent-requests' },
   { value: 'projects', label: 'Projects', accent: 'accent-projects' },
   { value: 'departments', label: 'Departments', accent: 'accent-departments' },
   { value: 'people', label: 'People', accent: 'accent-people' },
@@ -19,7 +20,9 @@ const AREAS: Array<{ value: Area; label: string; accent: string }> = [
 
 /** Mirrors the role guards and record-level rules enforced by the API. */
 const CAPABILITIES: Array<{ label: string; area: Area; roles: Role[]; note?: string }> = [
-  { label: 'New request', area: 'requests', roles: ['admin', 'portfolio_manager', 'user'] },
+  { label: 'New opportunity', area: 'requests', roles: ['admin', 'portfolio_manager', 'user'] },
+  { label: 'Edit any opportunity', area: 'requests', roles: ['admin', 'intake_moderator'] },
+  { label: 'Edit assigned opportunity through prioritization', area: 'requests', roles: ['admin', 'intake_moderator', 'user'] },
   { label: 'Add project', area: 'projects', roles: ['admin'] },
   { label: 'Edit any project', area: 'projects', roles: ['admin'] },
   { label: 'Edit assigned project', area: 'projects', roles: ['admin', 'portfolio_manager', 'user'] },
@@ -40,7 +43,7 @@ export default function RoleMatrix() {
     <div className={`card role-matrix-card ${activeAccent}`.trim()}>
       <h2>What each role can do</h2>
       <p className="muted">
-        Anyone is the baseline access level. Admin, Portfolio Manager, Availability Moderator, and Demand Moderator
+        Anyone is the baseline access level. Admin, Portfolio Manager, Availability Moderator, Demand Moderator, and Intake Moderator
         are global roles. Project Manager, Department Lead, Project Demand Delegate,
         and Department Delegate are assigned by administrators on each project or department record.
       </p>

@@ -5,6 +5,7 @@ import { asyncHandler, HttpError } from '../middleware/errorHandler';
 import { assertDepartmentEditable } from '../middleware/recordAccess';
 import { departmentRepository } from '../repositories/sql/DepartmentRepository';
 import type { DepartmentInput } from '../repositories/interfaces';
+import { assertReferenceSite, getReferenceMetadata, listReferenceMetadata, saveReferenceMetadata } from '../services/referenceMetadata';
 
 const router = Router();
 const schema = z.object({
@@ -13,6 +14,7 @@ const schema = z.object({
   leadPersonId: z.string().uuid().optional(),
   delegatePersonId: z.string().uuid().optional(),
   functionId: z.string().uuid().optional(),
+  siteId: z.string().max(36).optional(),
   lastCheckIn: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
   isActive: z.boolean().optional(),
 });
@@ -49,14 +51,16 @@ router.get(
   '/',
   asyncHandler(async (_req, res) => {
     const records = await departmentRepository.list(true);
-    res.json(records.map(toDepartment));
+    const metadata = await listReferenceMetadata('departments');
+    res.json(records.map((record) => ({ ...toDepartment(record), ...metadata.get(record.DepartmentApiId.toLowerCase()) })));
   }),
 );
 
 router.get(
   '/:id',
   asyncHandler(async (req, res) => {
-    res.json(toDepartment(await departmentRepository.findByIdentifier(req.params.id)));
+    const record = toDepartment(await departmentRepository.findByIdentifier(req.params.id));
+    res.json({ ...record, ...await getReferenceMetadata('departments', record.id) });
   }),
 );
 
@@ -74,9 +78,12 @@ router.post(
   asyncHandler(async (req, res) => {
     const input = schema.parse(req.body);
     if (!input.name) throw new HttpError(400, 'Department name is required.');
+    await assertReferenceSite(input.siteId);
     const id = await departmentRepository.create({ ...(await toSqlInput(input)), Name: input.name });
     const created = await departmentRepository.findById(id);
-    res.status(201).json({ id: toDepartment(created).id });
+    const apiId = toDepartment(created).id;
+    if (input.siteId !== undefined) await saveReferenceMetadata('departments', apiId, { siteId: input.siteId });
+    res.status(201).json({ id: apiId });
   }),
 );
 
@@ -85,9 +92,11 @@ router.patch(
   asyncHandler(async (req, res) => {
     await assertDepartmentEditable(req.user, req.params.id);
     const input = schema.parse(req.body);
+    await assertReferenceSite(input.siteId);
     const department = await departmentRepository.findByIdentifier(req.params.id);
     if (!department) throw new HttpError(404, 'Department not found.');
     await departmentRepository.update(department.DepartmentId, await toSqlInput(input));
+    if (input.siteId !== undefined) await saveReferenceMetadata('departments', department.DepartmentApiId, { siteId: input.siteId });
     if (input.isActive === false) await departmentRepository.deactivate(department.DepartmentId);
     res.json({ id: req.params.id });
   }),

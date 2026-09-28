@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { capacityApi, demandApi, departmentsApi, nonProjectDemandApi, peopleApi, prioritizationApi, projectsApi, requestsApi } from '../api/client';
+import { capacityApi, demandApi, departmentsApi, governanceApi, nonProjectDemandApi, peopleApi, prioritizationApi, projectsApi, requestsApi } from '../api/client';
 import { useAuthStore } from '../store/authStore';
 import { isMine } from '../utils/ownership';
 import { buildAllocationConflicts } from '../utils/allocationRisk';
@@ -32,6 +32,7 @@ export default function HomePage() {
   const nonProjectDemand = useQuery({ queryKey: ['non-project-demand', 'all'], queryFn: () => nonProjectDemandApi.list() });
   const myRequests = useQuery({ queryKey: ['requests', 'mine'], queryFn: () => requestsApi.list({ mine: true }) });
   const sponsorRequests = useQuery({ queryKey: ['sponsored-requests'], queryFn: prioritizationApi.requests });
+  const governance = useQuery({ queryKey: ['governance'], queryFn: governanceApi.list });
   const personId = user?.personId;
 
   const openRequests = useMemo(
@@ -102,24 +103,6 @@ export default function HomePage() {
     };
   }, [capacity.data, demand.data, nonProjectDemand.data, teamPersonIds]);
 
-  function mylinkForConflict(
-    conflict: ReturnType<typeof buildAllocationConflicts>[number],
-    peopleLookup: Map<string, any>,
-    demandRows: typeof demand.data,
-    projectIds: Set<string>,
-    departments: typeof myDepartments,
-  ) {
-    const person = peopleLookup.get(conflict.personId);
-    const department = departments.find((entry) => entry.id === person?.departmentId);
-    const projectAssignment = (demandRows ?? []).find(
-      (row) => row.personId?.toLowerCase() === conflict.personId && projectIds.has(row.projectId),
-    );
-    if (department) return `/departments/${department.id}`;
-    if (projectAssignment) return `/projects/${projectAssignment.projectId}`;
-    return '/projects';
-  }
-  const peopleById = new Map((people.data ?? []).map((person) => [person.id.toLowerCase(), person]));
-  const managedProjectIds = new Set(myProjects.map((project) => project.id));
   const scheduleHealthByProject = useMemo(() => {
     const map = new Map<string, ReturnType<typeof calculateProjectScheduleHealth>>();
     for (const project of myProjects) {
@@ -146,7 +129,80 @@ export default function HomePage() {
   const orderedProjects = [...myProjects].sort((first, second) =>
     scheduleRank[scheduleHealthByProject.get(second.id)?.status ?? 'watch'] - scheduleRank[scheduleHealthByProject.get(first.id)?.status ?? 'watch'],
   );
-  const attentionCount = needsPrioritization.length + overdueReviews.length + relevantConflicts.length;
+
+  const conflictPersonIds = useMemo(() => new Set(relevantConflicts.map((conflict) => conflict.personId)), [relevantConflicts]);
+  const projectsNeedingAttention = useMemo(
+    () => myProjects.filter((project) => {
+      const status = scheduleHealthByProject.get(project.id)?.status;
+      return reviewAge(project.lastCheckIn) > 30 || ['late', 'at-risk', 'needs-dates'].includes(status ?? '');
+    }).length,
+    [myProjects, scheduleHealthByProject],
+  );
+  const departmentsNeedingAttention = useMemo(() => {
+    const conflictedDepartmentIds = new Set(
+      (people.data ?? [])
+        .filter((person) => conflictPersonIds.has(person.id.toLowerCase()) && person.departmentId)
+        .map((person) => person.departmentId as string),
+    );
+    return myDepartments.filter(
+      (department) => reviewAge(department.lastCheckIn) > 30 || conflictedDepartmentIds.has(department.id),
+    ).length;
+  }, [conflictPersonIds, myDepartments, people.data]);
+  const governanceNeedingAttention = useMemo(
+    () => (governance.data ?? []).filter(
+      (item) => !item.cancelled && item.phase !== 'Processed' && isMine(item, personId),
+    ).length,
+    [governance.data, personId],
+  );
+
+  const attentionGroups = [
+    {
+      key: 'projects',
+      accent: 'accent-projects',
+      label: 'Projects',
+      count: projectsNeedingAttention,
+      to: '/projects',
+      hint: 'Schedule risk or review overdue',
+      emptyHint: 'All projects on track',
+    },
+    {
+      key: 'departments',
+      accent: 'accent-departments',
+      label: 'Departments',
+      count: departmentsNeedingAttention,
+      to: '/departments',
+      hint: 'Allocation risk or review overdue',
+      emptyHint: 'All departments current',
+    },
+    {
+      key: 'opportunities',
+      accent: 'accent-requests',
+      label: 'Opportunities',
+      count: openRequests.length,
+      to: '/requests',
+      hint: 'Awaiting your next step',
+      emptyHint: 'Nothing in your intake queue',
+    },
+    {
+      key: 'priority',
+      accent: 'accent-prioritization',
+      label: 'Prioritization',
+      count: needsPrioritization.length,
+      to: '/prioritization',
+      hint: 'Assessments due from you',
+      emptyHint: 'No assessments due',
+    },
+    {
+      key: 'governance',
+      accent: 'accent-governance',
+      label: 'Governance',
+      count: governanceNeedingAttention,
+      to: '/governance',
+      hint: 'Stages waiting on a decision',
+      emptyHint: 'Nothing in your governance queue',
+    },
+  ] as const;
+  const attentionCount = attentionGroups.reduce((sum, group) => sum + group.count, 0);
 
   return (
     <section className="operational-home">
@@ -245,10 +301,10 @@ export default function HomePage() {
 
             <section className="home-focus-section home-intake-section">
               <div className="home-focus-heading">
-                <div><span className="home-section-kicker">Intake</span><h2>Open requests</h2></div>
-                <Link to="/requests">All requests</Link>
+                <div><span className="home-section-kicker">Intake</span><h2>Open opportunities</h2></div>
+                <Link to="/requests">All opportunities</Link>
               </div>
-              <div className="home-intake-count"><strong>{openRequests.length}</strong><span>requests in progress</span></div>
+              <div className="home-intake-count"><strong>{openRequests.length}</strong><span>opportunities in progress</span></div>
               <div className="home-intake-feature">
                 <span>Latest in your queue</span>
                 {openRequests.length > 0 ? (
@@ -256,7 +312,7 @@ export default function HomePage() {
                     <strong>{openRequests[0].shortTitle ?? openRequests[0].title ?? openRequests[0].name}</strong>
                     <small>{openRequests[0].phase ?? 'Draft'} <span aria-hidden="true">›</span></small>
                   </Link>
-                ) : <p className="home-empty-state">No active requests in flight.</p>}
+                ) : <p className="home-empty-state">No active opportunities in flight.</p>}
               </div>
             </section>
           </div>
@@ -270,45 +326,28 @@ export default function HomePage() {
             </section>
           )}
           <aside className="home-attention" aria-label="Things needing my attention">
-          <div className="home-attention-heading">
-            <div><span className="home-section-kicker">Your queue</span><h2>Needs attention</h2></div>
-            <strong aria-label={`${attentionCount} items needing attention`}>{attentionCount}</strong>
-          </div>
+            <div className="home-attention-heading">
+              <div><span className="home-section-kicker">Your queue</span><h2>Needs attention</h2></div>
+              <strong aria-label={`${attentionCount} items needing attention`}>{attentionCount}</strong>
+            </div>
 
-          <section className="home-attention-group home-attention-priority">
-            <div className="home-attention-group-heading"><h3>Prioritization</h3><Link to="/prioritization">View queue</Link></div>
-            {needsPrioritization.slice(0, 3).map((request) => (
-              <Link className="home-attention-item" to={`/prioritization?requestId=${request.id}`} key={request.id}>
-                <small>Assessment due</small><strong>{request.shortTitle ?? request.title ?? request.name}</strong>
-              </Link>
-            ))}
-            {needsPrioritization.length === 0 && <p className="home-attention-empty">No assessments due.</p>}
-          </section>
-
-          <section className="home-attention-group home-attention-reviews">
-            <div className="home-attention-group-heading"><h3>Reviews due</h3><span>{overdueReviews.length}</span></div>
-            {overdueReviews.slice(0, 3).map((record) => (
-              <Link className="home-attention-item" to={record.to} key={record.id}>
-                <small>{reviewLabel(record.lastCheckIn)}</small><strong>{record.name}</strong>
-              </Link>
-            ))}
-            {overdueReviews.length === 0 && <p className="home-attention-empty">All plans recently reviewed.</p>}
-          </section>
-
-          <section className="home-attention-group home-attention-capacity">
-            <div className="home-attention-group-heading"><h3>Allocation risk</h3><span>{relevantConflicts.length}</span></div>
-            {relevantConflicts.slice(0, 3).map((conflict) => (
-              <Link className="home-attention-item" to={mylinkForConflict(conflict, peopleById, demand.data ?? [], managedProjectIds, myDepartments)} key={conflict.personId}>
-                <small>{conflict.totalOver} h over · {conflict.overWeeks.length} weeks</small><strong>{conflict.personName}</strong>
-              </Link>
-            ))}
-            {relevantConflicts.length === 0 && <p className="home-attention-empty">No allocation conflicts in the next 26 weeks.</p>}
-          </section>
-
-          <section className="home-attention-group home-attention-governance">
-            <div className="home-attention-group-heading"><h3>Governance</h3><span>Coming soon</span></div>
-            <p className="home-attention-empty">Policy, approvals, and operating standards.</p>
-          </section>
+            <div className="home-attention-summary">
+              {attentionGroups.map((group) => {
+                const caption = group.count === 0 ? group.emptyHint : group.hint;
+                return (
+                  <Link
+                    className={`home-attention-tile ${group.accent}`}
+                    to={group.to}
+                    key={group.key}
+                    aria-label={`${group.count} ${group.label} need attention — ${caption}`}
+                  >
+                    <span className="home-attention-tile-count">{group.count}</span>
+                    <span className="home-attention-tile-copy"><strong>{group.label}</strong><small>{caption}</small></span>
+                    <span className="home-row-arrow" aria-hidden="true">›</span>
+                  </Link>
+                );
+              })}
+            </div>
           </aside>
         </div>
       </div>

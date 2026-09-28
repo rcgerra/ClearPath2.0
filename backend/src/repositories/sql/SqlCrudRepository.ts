@@ -43,10 +43,7 @@ export abstract class SqlCrudRepository<TEntity extends object, TInput extends o
   }
 
   public async create(input: TInput): Promise<number> {
-    const values = this.columns.map((column) => {
-      if (input[column.input] === undefined) throw new Error(`Missing required field '${String(column.input)}'.`);
-      return column;
-    });
+    const values = this.columns.filter((column) => input[column.input] !== undefined);
     const parameters = values.map((column) => this.parameterName(column.input));
     const rows = await this.query<Record<string, number>>(
       `INSERT INTO ${this.table} (${values.map((column) => `[${column.column}]`).join(', ')})

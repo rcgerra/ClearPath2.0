@@ -31,6 +31,9 @@ if (!process.env.SQLCMDPASSWORD && user) {
 const steps = [
   { file: '01_schema.sql', db: 'master' },
   { file: '02_functions.sql', db: database },
+  { file: '08_request_workflow_completions.sql', db: database },
+  { file: '09_reference_metadata.sql', db: database },
+  { file: '10_governance.sql', db: database },
   ...(skipSeed ? [] : [{ file: '03_seed-data.sql', db: database }]),
 ];
 

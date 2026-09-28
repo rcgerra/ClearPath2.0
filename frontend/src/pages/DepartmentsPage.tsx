@@ -210,6 +210,19 @@ export default function DepartmentsPage() {
         )}
       </div>
 
+      <div className="card table-card departments-table-card">
+        <DataTable
+          rows={rows}
+          columns={columns}
+          getRowKey={(row) => row.id}
+          getRowClassName={(row) => rowClassName(row, personId)}
+          search={search}
+          initialSortKey="name"
+          isLoading={departments.isLoading}
+          emptyMessage="No departments match the current filters."
+        />
+      </div>
+      <RowLegend />
       <ListToolbar
         search={search}
         onSearch={setSearch}
@@ -226,19 +239,6 @@ export default function DepartmentsPage() {
         ]}
         toggles={[{ label: 'Hide inactive', checked: hideInactive, onChange: setHideInactive }]}
       />
-      <div className="card table-card departments-table-card">
-        <DataTable
-          rows={rows}
-          columns={columns}
-          getRowKey={(row) => row.id}
-          getRowClassName={(row) => rowClassName(row, personId)}
-          search={search}
-          initialSortKey="name"
-          isLoading={departments.isLoading}
-          emptyMessage="No departments match the current filters."
-        />
-      </div>
-      <RowLegend />
     </section>
   );
 }

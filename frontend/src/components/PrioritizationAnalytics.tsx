@@ -41,16 +41,16 @@ export default function PrioritizationAnalytics() {
       .some((value) => String(value ?? '').toLowerCase().includes(term));
   });
   const tableTitle = tableView === 'topTen' ? 'Top 10 priority queue' : `${QUARTILES[tableView]} priority queue`;
-  const tableSubtitle = tableView === 'topTen' ? 'Highest-ranked requests for portfolio attention.' : 'Requests in this quartile, with portfolio rank preserved.';
+  const tableSubtitle = tableView === 'topTen' ? 'Highest-ranked opportunities for portfolio attention.' : 'Opportunities in this quartile, with portfolio rank preserved.';
   const tableColumns: Column<RankedRequest>[] = [
     { key: 'rank', label: 'Rank', width: '92px', value: (row) => row.rank, render: (row) => <span className="prioritization-rank-cell">{row.topTen && <span className="prioritization-top-ten-icon" title="Top 10 priority">◆</span>}{row.rank}</span> },
-    { key: 'title', label: 'Request', value: (row) => row.title, render: (row) => <strong>{row.title ?? 'Untitled request'}</strong> },
+    { key: 'title', label: 'Opportunity', value: (row) => row.title, render: (row) => <strong>{row.title ?? 'Untitled opportunity'}</strong> },
   ];
 
   return <section className="prioritization-analytics">
     <div className="prioritization-analytics-kpis">
-      <div><strong>{rows.length}</strong><span>Ranked requests</span></div>
-      <div><strong>{topTen.length}</strong><span>Top 10 requests</span></div>
+      <div><strong>{rows.length}</strong><span>Ranked opportunities</span></div>
+      <div><strong>{topTen.length}</strong><span>Top 10 opportunities</span></div>
       <div><strong>{quartileCounts[0]?.count ?? 0}</strong><span>Highest quartile</span></div>
       <div><strong>{averageScore.toFixed(2)}</strong><span>Average score</span></div>
     </div>
@@ -62,8 +62,8 @@ export default function PrioritizationAnalytics() {
           <button type="button" role="tab" aria-selected={tableView === 'topTen'} className={tableView === 'topTen' ? 'active' : ''} onClick={() => setTableView('topTen')}>Top 10</button>
           {QUARTILES.map((quartile, index) => <button type="button" role="tab" aria-selected={tableView === index} className={tableView === index ? 'active' : ''} onClick={() => setTableView(index as 0 | 1 | 2 | 3)} key={quartile}>{quartile.replace(' quartile', '')} quartile</button>)}
         </div>
-        <ListToolbar search={search} onSearch={setSearch} placeholder="Find a request, department, category, or rank…" />
-        <DataTable rows={filteredTableRows} columns={tableColumns} getRowKey={(row) => row.id} initialSortKey="rank" isLoading={ranking.isLoading} emptyMessage="No requests match this priority band and search." onRowClick={(row) => setSelectedId(row.id)} getRowClassName={(row) => selectedId === row.id ? 'prioritization-row-selected' : undefined} />
+        <ListToolbar search={search} onSearch={setSearch} placeholder="Find an opportunity, department, category, or rank…" />
+        <DataTable rows={filteredTableRows} columns={tableColumns} getRowKey={(row) => row.id} initialSortKey="rank" isLoading={ranking.isLoading} emptyMessage="No opportunities match this priority band and search." onRowClick={(row) => setSelectedId(row.id)} getRowClassName={(row) => selectedId === row.id ? 'prioritization-row-selected' : undefined} />
       </section>
 
       <section className="analytics-chart-panel prioritization-bubble-panel">
@@ -74,13 +74,13 @@ export default function PrioritizationAnalytics() {
             <line x1={PADDING.left} x2={PADDING.left + plotWidth} y1={PADDING.top + plotHeight} y2={PADDING.top + plotHeight} className="chart-axis" />
             <line x1={PADDING.left} x2={PADDING.left} y1={PADDING.top} y2={PADDING.top + plotHeight} className="chart-axis" />
             {rows.map((request) => <circle key={request.id} cx={x(request.impactScore)} cy={y(request.complexityScore)} r={radius(request)} className={`prioritization-bubble${request.topTen ? ' top-ten' : ''}${selectedId === request.id ? ' selected' : ''}`} opacity={selectedId && selectedId !== request.id ? 0.22 : 0.78}>
-              <title>{`${request.rank}. ${request.title ?? 'Untitled request'} | Impact ${score(request.impactScore).toFixed(1)} | Complexity ${score(request.complexityScore).toFixed(1)} | Bubble value ${bubbleValue(request).toFixed(1)}`}</title>
+              <title>{`${request.rank}. ${request.title ?? 'Untitled opportunity'} | Impact ${score(request.impactScore).toFixed(1)} | Complexity ${score(request.complexityScore).toFixed(1)} | Bubble value ${bubbleValue(request).toFixed(1)}`}</title>
             </circle>)}
             <text x={PADDING.left + plotWidth / 2} y={CHART_HEIGHT - 3} className="chart-axis-title" textAnchor="middle">Impact</text>
             <text x="15" y={PADDING.top + plotHeight / 2} className="chart-axis-title" textAnchor="middle" transform={`rotate(-90 15 ${PADDING.top + plotHeight / 2})`}>Complexity</text>
           </svg>
         </div>
-        <div className="chart-legend"><span className="legend-entry"><span className="legend-swatch prioritization-legend-bubble" /> All ranked requests</span><span className="legend-entry"><span className="legend-swatch prioritization-legend-top-ten" /> Top 10</span></div>
+        <div className="chart-legend"><span className="legend-entry"><span className="legend-swatch prioritization-legend-bubble" /> All ranked opportunities</span><span className="legend-entry"><span className="legend-swatch prioritization-legend-top-ten" /> Top 10</span></div>
       </section>
     </div>
   </section>;

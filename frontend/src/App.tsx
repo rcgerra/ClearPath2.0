@@ -18,11 +18,14 @@ const PersonEditPage = lazy(() => import('./pages/admin/PersonEditPage'));
 const ProjectEditPage = lazy(() => import('./pages/admin/ProjectEditPage'));
 const ProjectsListPage = lazy(() => import('./pages/admin/ProjectsListPage'));
 const RequestEditPage = lazy(() => import('./pages/admin/RequestEditPage'));
+const ReferenceTablesPage = lazy(() => import('./pages/admin/ReferenceTablesPage'));
 const RequestsListPage = lazy(() => import('./pages/admin/RequestsListPage'));
 const SkillsPage = lazy(() => import('./pages/admin/SkillsPage'));
 const DeptLeadDashboard = lazy(() => import('./pages/DeptLeadDashboard'));
 const DepartmentsPage = lazy(() => import('./pages/DepartmentsPage'));
 const DepartmentTeamPage = lazy(() => import('./pages/DepartmentTeamPage'));
+const GovernancePage = lazy(() => import('./pages/governance/GovernancePage'));
+const GovernanceDetailPage = lazy(() => import('./pages/governance/GovernanceDetailPage'));
 const IndividualDashboard = lazy(() => import('./pages/IndividualDashboard'));
 const OtherWorkPage = lazy(() => import('./pages/OtherWorkPage'));
 const PrioritizationPage = lazy(() => import('./pages/PrioritizationPage'));
@@ -61,6 +64,7 @@ export default function App() {
                   <Route path="projects/:id" element={<ProjectEditPage />} />
                   <Route path="departments" element={<DepartmentsListPage />} />
                   <Route path="departments/:id" element={<DepartmentEditPage />} />
+                  <Route path="reference/:table" element={<ReferenceTablesPage />} />
                   <Route path="other-work" element={<OtherWorkPage />} />
                   <Route path="other-work/non-project-demand-categories" element={<NonProjectDemandCategoriesPage />} />
                   <Route
@@ -125,8 +129,12 @@ export default function App() {
           <Route path="/people" element={<PeopleListPage />} />
           <Route path="/skills" element={<SkillsPage />} />
           <Route path="/requests" element={<RequestsPage />} />
+          <Route path="/requests/:id" element={<RequestEditPage />} />
           <Route path="/capture" element={<ProjectCapturePage />} />
           <Route path="/prioritization" element={<PrioritizationPage />} />
+          <Route path="/governance" element={<GovernancePage />} />
+          <Route path="/governance/item/:id" element={<GovernanceDetailPage />} />
+          <Route path="/governance/:stage" element={<GovernancePage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

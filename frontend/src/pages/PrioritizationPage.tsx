@@ -3,8 +3,11 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { errorMessage, prioritizationApi } from '../api/client';
 import DataTable, { Column } from '../components/admin/DataTable';
+import ListToolbar from '../components/admin/ListToolbar';
 import PrioritizationAnalytics from '../components/PrioritizationAnalytics';
+import { workflowStageIndex } from '../constants/phases';
 import { useAuthStore } from '../store/authStore';
+import { isMine, type OwnershipScope } from '../utils/ownership';
 import type { ProjectRequest } from '../types';
 
 type Rating = 0 | 1 | 5 | 10 | 15;
@@ -12,16 +15,20 @@ type DraftAnswer = { score?: Rating; justification: string; methodology: string 
 const CLOSED_DISPOSITIONS = new Set(['Cancelled', 'Not Endorsed']);
 
 function prioritizationStatus(request: ProjectRequest): string {
-  if (request.phase === 'Processed' || CLOSED_DISPOSITIONS.has(request.disposition ?? '')) return 'Closed';
+  if (workflowStageIndex(request.phase) > 1 || CLOSED_DISPOSITIONS.has(request.disposition ?? '')) return 'Closed';
   return request.prioritizationComplete ? 'Completed' : 'Needs prioritization';
 }
 
 export default function PrioritizationPage() {
   const queryClient = useQueryClient();
-  const isAdmin = useAuthStore((state) => state.user?.roles.includes('admin'));
+  const user = useAuthStore((state) => state.user);
+  const isAdmin = user?.roles.includes('admin');
   const [searchParams] = useSearchParams();
   const requestId = searchParams.get('requestId') ?? '';
   const analyticsView = Boolean(isAdmin) && searchParams.get('view') === 'analytics';
+  const [queueSearch, setQueueSearch] = useState('');
+  const [scope, setScope] = useState<OwnershipScope>(user?.personId || user?.email ? 'mine' : 'all');
+  const [hideCompleted, setHideCompleted] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ quartile: string; topTen: boolean } | null>(null);
   const [answers, setAnswers] = useState<Record<string, DraftAnswer>>({});
@@ -73,7 +80,7 @@ export default function PrioritizationPage() {
     event.preventDefault();
     setError(null);
     setResult(null);
-    if (!requestId) return setError('Select a sponsored request first.');
+    if (!requestId) return setError('Select a sponsored opportunity first.');
     const incomplete = (questions.data ?? []).find((question) => {
       const answer = answers[question.id];
       return answer?.score === undefined || (answer.score !== 0 && !answer.justification.trim());
@@ -94,13 +101,20 @@ export default function PrioritizationPage() {
       .filter((category) => category.questions.length),
   ).sort((left, right) => Number(right.questions.some((question) => question.required)) - Number(left.questions.some((question) => question.required)));
   const selectedRequest = requests.data?.find((request) => request.id === requestId);
+  const moderator = Boolean(user?.roles.some((role) => role === 'admin' || role === 'intake_moderator'));
+  const isSponsor = (request: ProjectRequest) => Boolean(user?.personId && request.sponsorPersonId?.toLowerCase() === user.personId.toLowerCase());
+  const locked = Boolean(selectedRequest && ((!moderator && !isSponsor(selectedRequest)) || workflowStageIndex(selectedRequest.phase) > 1 && !moderator));
+  const queueRows = (requests.data ?? []).filter((request) =>
+    (scope === 'all' || isMine(request, user?.personId) || Boolean(user?.email && request.delegatePersonId?.toLowerCase() === user.email.toLowerCase()))
+    && (!hideCompleted || prioritizationStatus(request) === 'Needs prioritization'));
   const requestColumns: Column<ProjectRequest>[] = [
     {
       key: 'request',
-      label: 'Request',
+      label: 'Opportunity',
       value: (request) => request.shortTitle ?? request.title ?? request.name,
       render: (request) => <strong>{request.shortTitle ?? request.title ?? request.name}</strong>,
     },
+    { key: 'spotId', label: 'SPOT ID', width: '110px', value: (request) => request.spotId },
     { key: 'sponsor', label: 'Sponsor', value: (request) => request.sponsorName ?? '—' },
     {
       key: 'status',
@@ -111,25 +125,29 @@ export default function PrioritizationPage() {
     {
       key: 'action',
       label: 'Action',
-      value: (request) => request.prioritizationComplete ? 'Review' : 'Prioritize',
-      render: (request) => <Link className="table-action-link" to={`/prioritization?requestId=${request.id}`}>{request.prioritizationComplete ? 'Review assessment' : 'Start assessment'}</Link>,
+      value: (request) => moderator || isSponsor(request) ? request.prioritizationComplete ? 'Review' : 'Prioritize' : 'View',
+      render: (request) => moderator || isSponsor(request)
+        ? <Link className="table-action-link" to={`/prioritization?requestId=${request.id}`}>{request.prioritizationComplete ? 'Review assessment' : 'Start assessment'}</Link>
+        : <Link className="table-action-link" to={`/requests/${request.id}`}>View opportunity</Link>,
     },
   ];
 
   if (!requestId) {
     return <main className="prioritization-page accent-prioritization prioritization-list-page">
       <header className="prioritization-header prioritization-list-header">
-        <div><p className="eyebrow">Sponsor workflow</p><h1 className="page-title">Prioritization</h1><p className="page-subtitle">Assess sponsored requests, review completed prioritizations, and keep the decision queue moving.</p></div>
-        <div className="prioritization-list-summary"><strong>{(requests.data ?? []).filter((request) => !request.prioritizationComplete && request.phase !== 'Processed').length}</strong><span>need your assessment</span></div>
+        <div><h1 className="page-title">Prioritization</h1><p className="page-subtitle">Assess sponsored opportunities, review completed prioritizations, and keep the decision queue moving.</p></div>
+        <div className="prioritization-list-actions">
+          <nav className="prioritization-tabs" aria-label="Prioritization views">
+            <Link className={!analyticsView ? 'active' : ''} to="/prioritization" aria-current={!analyticsView ? 'page' : undefined}>Queue</Link>
+            {isAdmin && <Link className={analyticsView ? 'active' : ''} to="/prioritization?view=analytics" aria-current={analyticsView ? 'page' : undefined}>Analytics</Link>}
+          </nav>
+        </div>
       </header>
-      <nav className="prioritization-tabs" aria-label="Prioritization views">
-        <Link className={!analyticsView ? 'active' : ''} to="/prioritization">Queue</Link>
-        {isAdmin && <Link className={analyticsView ? 'active' : ''} to="/prioritization?view=analytics">Analytics</Link>}
-      </nav>
       {requests.isError && <div className="alert error">{errorMessage(requests.error)}</div>}
       {analyticsView ? <PrioritizationAnalytics /> : <section className="prioritization-table-section">
-        <div className="section-title"><div><h2>Requests to prioritize</h2><p>Open an item to complete or review its assessment.</p></div></div>
-        <div className="card table-card prioritization-table-card"><DataTable rows={requests.data ?? []} columns={requestColumns} getRowKey={(request) => request.id} search="" initialSortKey="status" isLoading={requests.isLoading} emptyMessage="No sponsored requests are available for prioritization." /></div>
+        <p className="prioritization-queue-label">{hideCompleted ? 'Open opportunities' : 'All opportunities'}</p>
+        <div className="card table-card prioritization-table-card"><DataTable rows={queueRows} columns={requestColumns} getRowKey={(request) => request.id} search={queueSearch} initialSortKey="status" isLoading={requests.isLoading} emptyMessage={queueSearch.trim() ? 'No opportunities match the current search.' : 'No opportunities match the current filters.'} /></div>
+        <ListToolbar search={queueSearch} onSearch={setQueueSearch} placeholder="Search opportunities, SPOT IDs or sponsors…" scope={{ value: scope, onChange: setScope, disabled: !user?.personId && !user?.email }} toggles={[{ label: 'Hide completed and closed', checked: hideCompleted, onChange: setHideCompleted }]} />
       </section>}
     </main>;
   }
@@ -137,12 +155,14 @@ export default function PrioritizationPage() {
   return (
     <main className="prioritization-page accent-prioritization">
       <header className="prioritization-header">
-        <div><Link className="prioritization-cancel-button" to="/prioritization">← Cancel and return to list</Link><p className="eyebrow">Sponsor assessment</p><h1 className="page-title">Prioritize the request</h1><p className="page-subtitle">Choose the best-supported response, then state the strategy for realizing it.</p></div>
+        <div><Link className="prioritization-cancel-button" to="/prioritization">← Cancel and return to list</Link><p className="eyebrow">Sponsor assessment</p><h1 className="page-title">Prioritize the opportunity</h1><p className="page-subtitle">Choose the best-supported response, then state the strategy for realizing it.</p></div>
       </header>
       {selectedRequest && <div className="prioritization-project-strip"><strong>{selectedRequest.shortTitle ?? selectedRequest.title}</strong><span>{selectedRequest.sponsorName ?? 'Sponsor'}</span></div>}
+      {locked && <p className="muted">This assessment is read-only after prioritization.</p>}
       {error && <div className="alert error">{error}</div>}
-      {result && <div className="prioritization-result" role="status"><strong>{result.quartile}</strong><span>{result.topTen ? 'Currently a top 10 request' : 'Assessment saved'}</span></div>}
+      {result && <div className="prioritization-result" role="status"><strong>{result.quartile}</strong><span>{result.topTen ? 'Currently a top 10 opportunity' : 'Assessment saved'}</span></div>}
       <form onSubmit={handleSubmit}>
+        <fieldset className="opportunity-fields" disabled={locked}>
         {categoryGroups.map((category) => <div className="prioritization-category" key={category.id}>
           <div className="category-heading"><h3>{category.name}</h3></div>
           {category.questions.map((question, questionIndex) => {
@@ -155,7 +175,8 @@ export default function PrioritizationPage() {
             </article>;
           })}
         </div>)}
-        <div className="prioritization-submit"><span>{Object.values(answers).filter((answer) => answer.score !== undefined && answer.justification.trim()).length} of {questions.data?.length ?? 0} complete</span><button className="primary" type="submit" disabled={!requestId || submit.isPending}>{submit.isPending ? 'Saving assessment…' : 'Submit prioritization'}</button></div>
+        <div className="prioritization-submit"><span>{Object.values(answers).filter((answer) => answer.score !== undefined && answer.justification.trim()).length} of {questions.data?.length ?? 0} complete</span>{!locked && <button className="primary" type="submit" disabled={!requestId || submit.isPending}>{submit.isPending ? 'Saving assessment…' : 'Submit prioritization'}</button>}</div>
+        </fieldset>
       </form>
     </main>
   );

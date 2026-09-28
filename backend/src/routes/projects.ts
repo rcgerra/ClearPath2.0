@@ -7,6 +7,7 @@ import { asyncHandler, HttpError } from '../middleware/errorHandler';
 import { assertProjectEditable } from '../middleware/recordAccess';
 import { projectRepository } from '../repositories/sql';
 import type { ProjectView } from '../repositories/sql/ProjectRepository';
+import { assertReferenceSite, getReferenceMetadata, listReferenceMetadata, saveReferenceMetadata } from '../services/referenceMetadata';
 import { decodeArray } from '../utils/arrayParser';
 
 const router = Router();
@@ -29,6 +30,7 @@ const schema = z.object({
   lastCheckIn: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
   programId: z.string().min(1).optional(),
   departmentId: z.string().min(1).optional(),
+  siteId: z.string().max(36).optional(),
   requestId: z.string().min(1).optional(),
 });
 
@@ -57,6 +59,8 @@ function toProject(record: ProjectView) {
     programName: record.ProgramName ?? undefined,
     departmentId: record.DepartmentApiId ?? undefined,
     departmentName: record.DepartmentName ?? undefined,
+    siteId: record.SiteApiId ?? undefined,
+    siteName: record.SiteName ?? undefined,
     requestId: record.RequestApiId ?? undefined,
   };
 }
@@ -72,7 +76,8 @@ router.get(
       departmentId: req.query.departmentId ? String(req.query.departmentId) : undefined,
       search: req.query.search ? String(req.query.search) : undefined,
     });
-    res.json(records.map(toProject));
+    const metadata = await listReferenceMetadata('projects');
+    res.json(records.map((record) => ({ ...toProject(record), ...metadata.get(record.ProjectApiId.toLowerCase()) })));
   }),
 );
 
@@ -81,7 +86,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const record = await projectRepository.findByIdentifier(req.params.id);
     if (!record) throw new HttpError(404, 'Project not found.');
-    res.json(toProject(record));
+    res.json({ ...toProject(record), ...await getReferenceMetadata('projects', record.ProjectApiId) });
   }),
 );
 
@@ -123,9 +128,11 @@ router.post(
     const input = schema.parse(req.body);
     const name = input.name;
     if (!name) throw new HttpError(400, 'Project name is required.');
+    await assertReferenceSite(input.siteId);
     const id = await projectRepository.create(await projectRepository.resolveInput({ ...input, name }));
     const created = await projectRepository.findById(id);
     if (!created) throw new HttpError(500, 'Created project could not be retrieved.');
+    if (input.siteId !== undefined) await saveReferenceMetadata('projects', created.ProjectApiId, { siteId: input.siteId });
     res.status(201).json({ id: created.ProjectApiId });
   }),
 );
@@ -135,9 +142,11 @@ router.patch(
   asyncHandler(async (req, res) => {
     await assertProjectEditable(req.user, req.params.id);
     const input = schema.parse(req.body);
+    await assertReferenceSite(input.siteId);
     const current = await projectRepository.findByIdentifier(req.params.id);
     if (!current) throw new HttpError(404, 'Project not found.');
     await projectRepository.update(current.ProjectId, await projectRepository.resolvePartialInput(input));
+    if (input.siteId !== undefined) await saveReferenceMetadata('projects', current.ProjectApiId, { siteId: input.siteId });
     if (input.isActive === false) await projectRepository.deactivate(current.ProjectId);
     res.json({ id: req.params.id });
   }),

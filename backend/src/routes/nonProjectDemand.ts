@@ -276,13 +276,17 @@ router.patch(
     }
     const current = await getDemand(req.params.id);
     await assertAvailabilityEditable(req.user, { personId: current.personId, departmentId: current.departmentId });
+    const clearedDemandHours = input.isActive === false ? encodeArray([]) : null;
     await query(
       `UPDATE dbo.FactNonProjectDemand
-          SET IsActive = COALESCE(@isActive, IsActive), Description = COALESCE(@description, Description), UpdatedOn = SYSUTCDATETIME()
+          SET IsActive = COALESCE(@isActive, IsActive), Description = COALESCE(@description, Description),
+              DemandHours = CASE WHEN @isActive = 0 THEN @clearedDemandHours ELSE DemandHours END,
+              UpdatedOn = SYSUTCDATETIME()
         WHERE NonProjectDemandId = @id`,
-      { id: req.params.id, isActive: input.isActive ?? null, description: input.description ?? null },
+      { id: req.params.id, isActive: input.isActive ?? null, description: input.description ?? null, clearedDemandHours },
     );
-    res.json({ id: req.params.id });
+    res.json({ id: req.params.id, isActive: input.isActive ?? current.isActive,
+      weeks: decodeArray(clearedDemandHours ?? current.demandHours) });
   }),
 );
 

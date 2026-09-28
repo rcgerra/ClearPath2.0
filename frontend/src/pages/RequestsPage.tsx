@@ -4,13 +4,15 @@ import { useQuery } from '@tanstack/react-query';
 import { requestsApi } from '../api/client';
 import DataTable, { Column } from '../components/admin/DataTable';
 import ListToolbar from '../components/admin/ListToolbar';
-import { DEFAULT_REQUEST_PHASE, phaseOrder } from '../constants/phases';
+import { phaseLabel, phaseOrder, workflowStageIndex } from '../constants/phases';
 import { formatDate } from '../utils/dates';
 import { filterByScope, OwnershipScope, rowClassName } from '../utils/ownership';
 import { useAuthStore } from '../store/authStore';
 import type { ProjectRequest } from '../types';
 
-const CLOSED_DISPOSITIONS = new Set(['Cancelled', 'Not Endorsed']);
+function isOpenOpportunity(row: ProjectRequest): boolean {
+  return row.disposition?.trim().toLowerCase() !== 'cancelled' && workflowStageIndex(row.phase) !== 6;
+}
 
 export default function RequestsPage() {
   const user = useAuthStore((state) => state.user);
@@ -21,32 +23,29 @@ export default function RequestsPage() {
   const requests = useQuery({ queryKey: ['requests'], queryFn: () => requestsApi.list() });
 
   const rows = filterByScope(requests.data ?? [], scope, personId).filter(
-    (row) => !hideClosed || (row.phase !== 'Processed' && !CLOSED_DISPOSITIONS.has(row.disposition ?? 'Pending')),
+    (row) => !hideClosed || isOpenOpportunity(row),
   );
 
   const columns: Column<ProjectRequest>[] = [
-    { key: 'shortTitle', label: 'Short title', value: (row) => row.shortTitle ?? row.title ?? row.name },
-    { key: 'spotId', label: 'SPOT ID', width: '120px', value: (row) => row.spotId },
     {
-      key: 'phase',
-      label: 'Phase',
-      value: (row) => row.phase ?? DEFAULT_REQUEST_PHASE,
-      sortValue: (row) => phaseOrder(row.phase ?? DEFAULT_REQUEST_PHASE),
-      render: (row) => <span className="badge">{row.phase ?? DEFAULT_REQUEST_PHASE}</span>,
+      key: 'shortTitle', label: 'Short title', value: (row) => row.shortTitle ?? row.title ?? row.name,
+      render: (row) => <Link className="record-link" to={`/requests/${row.id}`}>{row.shortTitle ?? row.title ?? row.name}</Link>,
     },
+    { key: 'spotId', label: 'SPOT ID', width: '120px', value: (row) => row.spotId },
+    { key: 'requesterName', label: 'Submitted By', value: (row) => row.requesterName },
     {
       key: 'submitted',
-      label: 'Submitted',
+      label: 'Submitted On',
+      width: '112px',
       value: (row) => row.submittedOn ?? '',
       render: (row) => (row.submittedOn ? formatDate(row.submittedOn) : '—'),
     },
     {
-      key: 'prioritization',
-      label: 'Prioritization',
-      value: (row) => row.prioritizationComplete ? 'Complete' : 'Needs assessment',
-      render: (row) => row.sponsorPersonId?.toLowerCase() === personId?.toLowerCase() && !row.prioritizationComplete
-        ? <Link className="table-action-link" to={`/prioritization?requestId=${row.id}`}>Prioritize</Link>
-        : row.prioritizationComplete ? 'Complete' : '—',
+      key: 'phase',
+      label: 'Phase',
+      value: (row) => phaseLabel(row.phase),
+      sortValue: (row) => phaseOrder(row.phase),
+      render: (row) => <span className="badge">{phaseLabel(row.phase)}</span>,
     },
   ];
 
@@ -54,33 +53,33 @@ export default function RequestsPage() {
     <section className="accent-section accent-requests requests-page">
       <div className="accent-section-header">
         <div>
-          <h1 className="page-title">Requests</h1>
-          <p className="page-subtitle">Requests you submitted or support, and where each sits in the process.</p>
+          <h1 className="page-title">{scope === 'mine' ? 'My' : 'All'} {hideClosed ? 'Open ' : ''}Opportunities</h1>
+          <p className="page-subtitle">Spot a problem or opportunity that points to an unmet business need? Share it and help shape what comes next.</p>
         </div>
         <Link to="/capture">
-          <button className="primary">+ New request</button>
+          <button className="primary">+ Share an opportunity</button>
         </Link>
       </div>
 
-      <ListToolbar
-        search={search}
-        onSearch={setSearch}
-        placeholder="Search requests…"
-        scope={{ value: scope, onChange: setScope, disabled: !personId }}
-        toggles={[{ label: 'Hide closed', checked: hideClosed, onChange: setHideClosed }]}
-      />
       <div className="card table-card">
         <DataTable
           rows={rows}
           columns={columns}
           getRowKey={(row) => row.id}
-          getRowClassName={(row) => rowClassName(row, personId)}
+          getRowClassName={(row) => rowClassName({ ...row, isActive: isOpenOpportunity(row) }, personId)}
           search={search}
           initialSortKey="shortTitle"
           isLoading={requests.isLoading}
-          emptyMessage="No requests match the current filters."
+          emptyMessage="No opportunities match the current filters."
         />
       </div>
+      <ListToolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search opportunities…"
+        scope={{ value: scope, onChange: setScope, disabled: !personId }}
+        toggles={[{ label: 'Hide closed', checked: hideClosed, onChange: setHideClosed }]}
+      />
     </section>
   );
 }

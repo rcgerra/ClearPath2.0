@@ -10,6 +10,7 @@ const roleLabels: Record<string, string> = {
   portfolio_manager: 'Portfolio Manager',
   availability_moderator: 'Availability Moderator',
   demand_moderator: 'Demand Moderator',
+  intake_moderator: 'Intake Moderator',
 };
 
 function rolesFor(raw?: string) {
@@ -71,7 +72,7 @@ export default function AdminControlsPage() {
   return (
     <AccentSection
       accent="access"
-      title="Admin Controls"
+      title="Developer"
       subtitle="Temporarily preview the application as another person without ending your administrator session."
     >
       <div className="card admin-controls-card">

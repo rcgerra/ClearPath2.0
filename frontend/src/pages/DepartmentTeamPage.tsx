@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { capacityApi, demandApi, departmentsApi, errorMessage, nonProjectDemandApi, peopleApi, projectsApi } from '../api/client';
+import { capacityApi, demandApi, departmentsApi, errorMessage, lookupsApi, nonProjectDemandApi, peopleApi, projectsApi } from '../api/client';
 import PersonDemandChart from '../components/PersonDemandChart';
 import TeamDemandChart from '../components/TeamDemandChart';
 import DepartmentAnalyticsInsights from '../components/DepartmentAnalyticsInsights';
@@ -86,6 +86,7 @@ export default function DepartmentTeamPage() {
     enabled: Boolean(id),
   });
   const people = useQuery({ queryKey: ['people'], queryFn: () => peopleApi.list() });
+  const sites = useQuery({ queryKey: ['lookups', 'sites'], queryFn: () => lookupsApi.list('sites'), enabled: activeTab === 'overview' });
   const departments = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.list() });
   const allDemand = useQuery({ queryKey: ['demand', 'all'], queryFn: () => demandApi.list() });
   const nonProjectDemand = useQuery({
@@ -1004,50 +1005,6 @@ export default function DepartmentTeamPage() {
         <div className="card department-team-overview">
         <div className="toolbar department-team-overview-header">
           <h2 style={{ margin: 0, flex: 1 }}>Availability planner</h2>
-          {!teamOverviewCollapsed && editable && (
-            <button
-              type="button"
-              className="icon-button icon-button-add icon-button-add-labeled"
-              title="Add new person"
-              aria-label="Add new person"
-              onClick={() => setAdding((value) => !value)}
-            >
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="9" cy="7" r="3" />
-                <path d="M3 20v-1a6 6 0 0 1 6-6h0a6 6 0 0 1 4.2 1.7" />
-                <line x1="18" y1="8" x2="21" y2="8" />
-                <line x1="19.5" y1="6.5" x2="19.5" y2="9.5" />
-              </svg>
-              <span>Add person</span>
-            </button>
-          )}
-          {!teamOverviewCollapsed && selected && canManageRoster && (
-            <>
-              <button
-                type="button"
-                disabled={selectedEqualizeDisabled}
-                title="Set the selected person's availability to match total demand"
-                onClick={() => normalizeAvailability(selected)}
-              >
-                Match availability to demand
-              </button>
-              <div className="bulk-availability-control">
-                <button
-                  type="button"
-                  className="bulk-availability-submit"
-                  aria-label={`Set all visible weeks to ${bulkAvailability} hours for ${selected.personName ?? 'this person'}`}
-                  disabled={setAllAvailability.isPending || !/^(?:[0-9]|[1-3][0-9]|40)$/.test(bulkAvailability)}
-                  onClick={() => setAllAvailability.mutate({
-                    capacityId: selected.id,
-                    weeks: selected.weeks.map((value, week) => (week < detailWeeks ? Number(bulkAvailability) : value)),
-                  })}
-                >Apply</button>
-                <span>Set selected to</span>
-                <input type="number" min={0} max={40} step={1} value={bulkAvailability} onChange={(event) => setBulkAvailability(event.target.value)} onKeyDown={blockNonIntegerKeys} />
-                <span>hours</span>
-              </div>
-            </>
-          )}
           {teamOverviewCollapsed && (
             <KpiRow
               ariaLabel="Team Overview KPIs"
@@ -1103,29 +1060,6 @@ export default function DepartmentTeamPage() {
               {transferPerson.isPending ? 'Transferring…' : 'Submit transfer'}
             </button>
             <button type="button" onClick={() => setTransferring(false)}>Cancel</button>
-          </form>
-        )}
-
-        {adding && (
-          <form
-            className="toolbar"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const form = new FormData(event.currentTarget);
-              const personId = String(form.get('personId') || '');
-              if (!personId) return;
-              addPerson.mutate({ personId });
-            }}
-          >
-            <div style={{ flex: 2 }}>
-              <UserSelect id="personId" name="personId" label="Person" personValue required />
-            </div>
-            <button className="primary" type="submit" disabled={addPerson.isPending}>
-              Add to department
-            </button>
-            <button type="button" onClick={() => setAdding(false)}>
-              Cancel
-            </button>
           </form>
         )}
 
@@ -1327,6 +1261,49 @@ export default function DepartmentTeamPage() {
       </div>
       )}
 
+      {activeTab === 'assignments' && (
+        <div className="toolbar department-assignment-actions">
+          {editable && (
+            <button type="button" className="icon-button icon-button-add icon-button-add-labeled" title="Add new person" aria-label="Add new person" onClick={() => setAdding((value) => !value)}>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="7" r="3" />
+                <path d="M3 20v-1a6 6 0 0 1 6-6h0a6 6 0 0 1 4.2 1.7" />
+                <line x1="18" y1="8" x2="21" y2="8" />
+                <line x1="19.5" y1="6.5" x2="19.5" y2="9.5" />
+              </svg>
+              <span>Add person</span>
+            </button>
+          )}
+          {selected && canManageRoster && (
+            <>
+              <button type="button" disabled={selectedEqualizeDisabled} title="Set the selected person's availability to match total demand" onClick={() => normalizeAvailability(selected)}>
+                Match availability to demand
+              </button>
+              <div className="bulk-availability-control">
+                <button type="button" className="bulk-availability-submit" aria-label={`Set all visible weeks to ${bulkAvailability} hours for ${selected.personName ?? 'this person'}`} disabled={setAllAvailability.isPending || !/^(?:[0-9]|[1-3][0-9]|40)$/.test(bulkAvailability)} onClick={() => setAllAvailability.mutate({
+                  capacityId: selected.id,
+                  weeks: selected.weeks.map((value, week) => (week < detailWeeks ? Number(bulkAvailability) : value)),
+                })}>Apply</button>
+                <span>Set selected to</span>
+                <input type="number" min={0} max={40} step={1} value={bulkAvailability} onChange={(event) => setBulkAvailability(event.target.value)} onKeyDown={blockNonIntegerKeys} />
+                <span>hours</span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      {activeTab === 'assignments' && adding && (
+        <form className="toolbar" onSubmit={(event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          const personId = String(form.get('personId') || '');
+          if (personId) addPerson.mutate({ personId });
+        }}>
+          <div style={{ flex: 2 }}><UserSelect id="personId" name="personId" label="Person" personValue required /></div>
+          <button className="primary" type="submit" disabled={addPerson.isPending}>Add to department</button>
+          <button type="button" onClick={() => setAdding(false)}>Cancel</button>
+        </form>
+      )}
       {activeTab === 'assignments' && selected && (
         <div className="card department-individual-details-card" hidden={teamOverviewCollapsed || departmentView !== 'details'}>
         <section id="department-individual-detail-section" className="department-person-detail individual-detail-section">
@@ -1994,6 +1971,10 @@ export default function DepartmentTeamPage() {
           <div>
             <span className="detail-label">Function</span>
             {details?.functionName ?? '—'}
+          </div>
+          <div>
+            <span className="detail-label">Site</span>
+            {sites.data?.find((site) => site.id === details?.siteId)?.name ?? '—'}
           </div>
           <div>
             <span className="detail-label">Status</span>

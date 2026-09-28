@@ -1,5 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { completedStagesOnTransition } from '../services/requestWorkflow';
+
+const WORKFLOW_FILE = 'request_workflow_completions.csv';
 
 export type CsvRow = Record<string, string>;
 
@@ -296,9 +299,9 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
 
   const requests = requestRecords.map(({ row, id, name }) => ({
     id,
-    shortTitle: value(row, 'cr714_shorttitle') ?? name ?? 'Untitled request',
+    shortTitle: value(row, 'cr714_shorttitle') ?? name ?? 'Untitled opportunity',
     spotId: value(row, 'new_spotid', 'cr714_spotid'),
-    title: value(row, 'cr714_title', 'cr714_name') ?? name ?? 'Untitled request',
+    title: value(row, 'cr714_title', 'cr714_name') ?? name ?? 'Untitled opportunity',
     phase: value(row, 'cr714_phase', 'cr714_workflowstep') ?? 'Draft',
     status: value(row, 'cr714_status', 'statuscode') ?? 'Submitted',
     disposition: value(row, 'cr714_disposition') ?? 'Pending',
@@ -400,7 +403,8 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
     users,
     projects,
     requests,
-    functions: functionRecords.map(({ id, name }) => ({ id, name: name ?? 'Unnamed function' })),
+    functions: functionRecords.map(({ row, id, name }) => ({ id, name: name ?? 'Unnamed function',
+      leadPersonId: peopleIndex.get(value(row, 'new_person.azureactivedirectoryobjectid')) })),
     categories: categoryRecords.map(({ row, id, name }) => ({
       id,
       name: name ?? 'Unnamed category',
@@ -412,7 +416,7 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
     })),
     capacity,
     demand,
-    programs: programRecords,
+    programs: programRecords.map((record) => ({ ...record, missionStatement: value(record.row, 'cr714_purpose') })),
     locations: locationRecords,
     sites: siteRecords,
     skillsets: skillsetRecords,
@@ -587,6 +591,8 @@ export class CsvDataService {
     this.directory = initialData ? undefined : directory ?? process.env.DEMO_CSV_DIR ?? path.resolve(process.cwd(), 'demo-data');
     if (this.directory) {
       for (const file of sourceFiles) this.sourceRows.set(file, readRows(this.directory, file));
+      const workflowPath = path.join(this.directory, WORKFLOW_FILE);
+      if (fs.existsSync(workflowPath)) this.sourceRows.set(WORKFLOW_FILE, parseCsv(fs.readFileSync(workflowPath, 'utf8')));
       this.bindSourceRows();
     }
     this.skillCategories = SKILL_CATEGORY_NAMES.map((name, index) => ({
@@ -762,11 +768,33 @@ export class CsvDataService {
   public update<Collection extends DemoCollection>(collection: Collection, recordId: string, changes: Record<string, unknown>) {
     const record = this.find(collection, recordId);
     if (!record) return undefined;
+    const completed = collection === 'requests' && typeof changes.phase === 'string'
+      ? completedStagesOnTransition((record as { phase?: string }).phase, changes.phase)
+      : [];
     Object.entries(changes).forEach(([key, value]) => {
       if (value !== undefined) (record as Record<string, unknown>)[key] = value;
     });
     this.persistRecord(collection, record);
+    if (completed.length) this.recordWorkflowCompletion(recordId, completed);
     return record;
+  }
+
+  public workflowCompletedAt(requestId: string): Record<string, string> {
+    return Object.fromEntries((this.sourceRows.get(WORKFLOW_FILE) ?? [])
+      .filter((row) => row.requestId.toLowerCase() === requestId.toLowerCase())
+      .map((row) => [row.stage, row.completedAt]));
+  }
+
+  private recordWorkflowCompletion(requestId: string, stages: string[]): void {
+    const rows = this.sourceRows.get(WORKFLOW_FILE) ?? [];
+    const completedAt = new Date().toISOString();
+    for (const stage of stages) {
+      if (!rows.some((row) => row.requestId.toLowerCase() === requestId.toLowerCase() && row.stage === stage)) {
+        rows.push({ requestId, stage, completedAt });
+      }
+    }
+    this.sourceRows.set(WORKFLOW_FILE, rows);
+    this.writeRows(WORKFLOW_FILE, rows);
   }
 
   public remove<Collection extends DemoCollection>(collection: Collection, recordId: string): boolean {
@@ -899,8 +927,8 @@ export class CsvDataService {
       },
       capacity: { id: ['new_capacityid'], weeklyBaseline: ['new_weeklybaseline', 'cr714_weeklybaseline'], notes: ['new_notes', 'cr714_notes'], weeks: ['cr714_availabilityhours', 'new_availabilityhours'] },
       demand: { id: ['new_demandid'], status: ['new_status'], weeks: ['cr714_demandhours', 'new_demandhours'] },
-      programs: { name: ['cr714_name', 'cr714_longname'] }, functions: { name: ['new_name', 'new_functionname'] },
-      locations: { name: ['cr714_name'] }, sites: { name: ['new_name', 'new_sitename'] }, skillsets: { name: ['new_name'] },
+      programs: { id: ['cr714__programsid'], name: ['cr714_name', 'cr714_longname'] }, functions: { id: ['new_functionsid'], name: ['new_name', 'new_functionname'] },
+      locations: { id: ['cr714__locationsid'], name: ['cr714_name'] }, sites: { id: ['new_sitesid'], name: ['new_name', 'new_sitename'] }, skillsets: { name: ['new_name'] },
       categories: { name: ['cr714_name'], weight: ['cr714_categoryweight'], parent: ['cr714_categorytype'], categoryType: ['cr714_categorytype'], notes: ['cr714_notes'], isActive: ['cr714_isactive'] },
       questions: {
         id: ['cr714__questionsid', 'cr714_questionsid'], text: ['cr714_name', 'cr714_questiontext'],
@@ -1144,6 +1172,7 @@ export class CsvDataService {
   public updateNonProjectDemand(recordId: string, changes: Partial<Pick<DemoNonProjectDemand, 'isActive' | 'description'>>): DemoNonProjectDemand | undefined {
     const record = this.findNonProjectDemand(recordId);
     if (!record) return undefined;
+    if (changes.isActive === false) record.weeks.fill(0);
     if (changes.isActive !== undefined) record.isActive = changes.isActive;
     if (changes.description !== undefined) record.description = changes.description;
     this.persistGenerated('demo_non_project_demand.csv', this.nonProjectDemand);

@@ -49,7 +49,7 @@ export default function AdminDashboard() {
   const promote = useMutation({
     mutationFn: (id: string) => requestsApi.promote(id),
     onSuccess: () => {
-      setMessage('Request promoted to a project.');
+      setMessage('Opportunity promoted to a project.');
       queryClient.invalidateQueries({ queryKey: ['requests'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
@@ -98,7 +98,7 @@ export default function AdminDashboard() {
           <div className="value">{portfolio.data?.projectCount ?? '—'}</div>
         </div>
         <div className="stat">
-          <div className="label">Requests</div>
+          <div className="label">Opportunities</div>
           <div className="value">{portfolio.data?.requestCount ?? '—'}</div>
         </div>
         <div className="stat">
@@ -219,7 +219,7 @@ export default function AdminDashboard() {
         <table className="portfolio-scroll-table">
           <thead>
             <tr>
-              <th>Request</th>
+              <th>Opportunity</th>
               <th>Requester</th>
               <th>Department</th>
               <th>Score</th>

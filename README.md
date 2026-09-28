@@ -87,12 +87,14 @@ Roles come from the `role` column on the person's _People record (semicolon sepa
 | --- | --- |
 | `admin` | configuration, record assignments, reference data, security roles, user sync |
 | `portfolio_manager` | read-only portfolio supply, demand and planning context |
+| `intake_moderator` | edit opportunities at any stage; manage intake phases and assignments |
 | `user` | own profile and workload; edits assigned records when named below |
 
 Operational planning responsibilities are record assignments managed by administrators, not organization-wide roles:
 
 - Project manager and project demand delegate manage demand for their assigned project.
 - Department lead and department delegate manage roster and availability for their assigned department.
+- Opportunity owner, sponsor and delegate can edit intake content through Prioritization; after that only admins and intake moderators can edit. The owner can assign a delegate during early intake.
 
 ## Jobs
 
@@ -118,6 +120,16 @@ Creates the star schema (`DimPerson`, `DimDepartment`, `DimFunction`, `DimProjec
 The schema seeds the standard category/subcategory hierarchy used by the department workload table.
 Set `SQL_ENABLED=true` in `backend/.env` to enable non-project demand and let the API open a pool
 against SQL Server.
+
+Workflow completion dates are recorded only on future stage transitions. Existing records without audit history
+show "Date not recorded" for completed stages. The SQL setup script creates `RequestWorkflowCompletions`;
+for an existing SQL installation, apply `database/08_request_workflow_completions.sql` before using opportunity details.
+Demo mode writes new completion dates to `backend/demo-data/request_workflow_completions.csv`.
+
+Reference-table leads, assistant leads, program mission statements, and site links are stored separately from
+the imported lookup columns. Apply `database/09_reference_metadata.sql` to existing SQL installations before
+using reference editing or Site-linked departments, projects, and opportunities. Demo mode stores these fields
+in `backend/demo-data/reference-metadata.json` when edited.
 
 ## Security notes
 
