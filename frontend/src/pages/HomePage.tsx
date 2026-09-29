@@ -329,12 +329,16 @@ export default function HomePage() {
                     const status = scheduleHealthByProject.get(project.id)?.status;
                     const risk = ['late', 'at-risk', 'needs-dates'].includes(status ?? '');
                     const action = [overdue && 'Review overdue', risk && 'Schedule risk'].filter(Boolean).join(', ');
+                    const rating = [0, 1, 5, 10, 15].indexOf(project.priorityScore ?? -1);
                     return (
                       <Link className={`home-team-chip${isDelegate ? ' is-delegate' : ''}`} to={`/projects/${project.id}`} key={project.id} title={project.name}>
                         <span className="home-team-chip-copy">
                           <span className="home-team-name">{project.name}</span>
                           <span className="home-team-meta">
                             {project.spotId?.trim() && <span className="home-team-spot" title={project.spotId.trim()}>{project.spotId.trim()}</span>}
+                            <span className="home-team-chip-rating" aria-label={rating >= 0 ? `Score ${project.priorityScore} of 15` : 'Not rated'} title={rating >= 0 ? `Score ${project.priorityScore} of 15` : 'Not rated'}>
+                              {[1, 2, 3, 4].map((position) => <span key={position} className={position <= rating ? 'is-filled' : ''} aria-hidden="true">★</span>)}
+                            </span>
                             <span className="home-team-chip-role">{isDelegate ? 'Delegate' : 'PM'}</span>
                           </span>
                         </span>

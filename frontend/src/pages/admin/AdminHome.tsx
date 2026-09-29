@@ -2,6 +2,12 @@ import { Link } from 'react-router-dom';
 
 const AREAS = [
   {
+    to: '/admin/portfolio',
+    accent: 'projects',
+    title: 'Portfolio Management',
+    description: 'Site capacity model and project performance issues.',
+  },
+  {
     to: '/admin/requests',
     accent: 'requests',
     title: 'Opportunities',

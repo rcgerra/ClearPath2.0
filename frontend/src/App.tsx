@@ -5,7 +5,6 @@ import ProtectedRoute from './components/ProtectedRoute';
 import SessionGate from './components/SessionGate';
 import { AuthProvider } from './contexts/AuthContext';
 import HomePage from './pages/HomePage';
-const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const AccessListPage = lazy(() => import('./pages/admin/AccessListPage'));
 const AdminControlsPage = lazy(() => import('./pages/admin/AdminControlsPage'));
 const AdminHome = lazy(() => import('./pages/admin/AdminHome'));
@@ -28,6 +27,7 @@ const GovernancePage = lazy(() => import('./pages/governance/GovernancePage'));
 const GovernanceDetailPage = lazy(() => import('./pages/governance/GovernanceDetailPage'));
 const IndividualDashboard = lazy(() => import('./pages/IndividualDashboard'));
 const OtherWorkPage = lazy(() => import('./pages/OtherWorkPage'));
+const PortfolioManagementPage = lazy(() => import('./pages/PortfolioManagementPage'));
 const PrioritizationPage = lazy(() => import('./pages/PrioritizationPage'));
 const ProjectCapturePage = lazy(() => import('./pages/ProjectCapturePage'));
 const ProjectManagerDashboard = lazy(() => import('./pages/ProjectManagerDashboard'));
@@ -56,7 +56,7 @@ export default function App() {
             element={
               <ProtectedRoute roles={['admin']}>
                 <Routes>
-                  <Route path="portfolio" element={<AdminDashboard />} />
+                  <Route path="portfolio" element={<PortfolioManagementPage />} />
                   <Route path="access" element={<AccessListPage />} />
                   <Route path="controls" element={<AdminControlsPage />} />
                   <Route path="requests" element={<RequestsListPage />} />
@@ -112,7 +112,7 @@ export default function App() {
             }
           />
           <Route path="/me" element={<IndividualDashboard />} />
-          <Route path="/portfolio" element={<ProtectedRoute roles={['admin', 'portfolio_manager']}><AdminDashboard /></ProtectedRoute>} />
+          <Route path="/portfolio" element={<ProtectedRoute roles={['admin', 'portfolio_manager']}><PortfolioManagementPage /></ProtectedRoute>} />
           <Route path="/people" element={<PeopleListPage />} />
           <Route path="/people/new" element={<PersonEditPage />} />
           <Route path="/people/:id" element={<PersonEditPage />} />

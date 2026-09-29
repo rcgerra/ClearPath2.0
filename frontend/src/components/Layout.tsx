@@ -189,6 +189,7 @@ const USER_NAV = [
 /** Areas shown while inside the admin portal (/admin/*). */
 const ADMIN_NAV = [
   { to: '/admin', label: 'Admin Dashboard', end: true, accent: 'accent-access', icon: 'admin' as const },
+  { to: '/admin/portfolio', label: 'Portfolio Management', end: false, accent: 'accent-projects', icon: 'portfolio' as const },
   { to: '/admin/requests', label: 'Opportunities', end: false, accent: 'accent-requests', icon: 'requests' as const },
   { to: '/admin/projects', label: 'Projects', end: false, accent: 'accent-projects', icon: 'projects' as const },
   { to: '/admin/other-work', label: 'Run the Business', end: false, accent: 'accent-projects', icon: 'business' as const },
@@ -215,6 +216,7 @@ function accentForPath(pathname: string): string {
   if (pathname.startsWith('/admin/people') || pathname.startsWith('/people')) return 'accent-people';
   if (pathname.startsWith('/my-skills')) return 'accent-people';
   if (pathname.startsWith('/portfolio')) return 'accent-access';
+  if (pathname.startsWith('/admin/portfolio')) return 'accent-projects';
   if (pathname.startsWith('/admin/skills') || pathname.startsWith('/skills') || pathname.startsWith('/admin/other-work')) return 'accent-people';
   if (pathname.startsWith('/admin')) return 'accent-access';
   return '';

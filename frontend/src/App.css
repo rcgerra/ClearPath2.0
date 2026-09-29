@@ -6820,6 +6820,118 @@ button.assign-me-button.primary:hover:not(:disabled) {
   font-weight: 700;
 }
 
+.home-team-chip-rating {
+  display: inline-flex;
+  flex: none;
+  gap: 0.02rem;
+  color: rgba(18, 24, 33, 0.18);
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.home-team-chip-rating .is-filled {
+  color: var(--yamabuki-yellow);
+}
+
+.portfolio-management-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.portfolio-management-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  padding: 0.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.portfolio-management-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 0.85rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.portfolio-management-tabs button:hover,
+.portfolio-management-tabs button.active {
+  border-bottom-color: var(--sorairo-blue);
+  color: var(--text);
+}
+
+.portfolio-tab-count {
+  display: inline-grid;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.25rem;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--azuki-maroon);
+  color: var(--white);
+  font-size: 0.7rem;
+}
+
+.portfolio-performance-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.portfolio-performance-summary > div {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(237, 243, 245, 0.55);
+}
+
+.portfolio-performance-summary strong {
+  font-size: 1.35rem;
+}
+
+.portfolio-performance-summary span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.portfolio-performance-table th,
+.portfolio-performance-table td {
+  vertical-align: top;
+}
+
+.portfolio-issue-list {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 720px) {
+  .portfolio-management-tabs {
+    overflow-x: auto;
+  }
+
+  .portfolio-management-tabs button {
+    flex: none;
+  }
+
+  .portfolio-performance-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
 .home-team-chip.is-delegate .home-team-chip-role {
   color: #765600;
 }

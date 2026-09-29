@@ -189,6 +189,23 @@ export default function ProjectsPage() {
       render: (row) => <span className="mono">{row.spotId ?? '—'}</span>,
     },
     {
+      key: 'priorityScore',
+      label: 'Rating',
+      width: '92px',
+      value: (row) => row.priorityScore,
+      render: (row) => {
+        const filled = [0, 1, 5, 10, 15].indexOf(row.priorityScore ?? -1);
+        if (filled < 0) return <span aria-label="Not rated">—</span>;
+        return (
+          <span className="priority-rank-stars" aria-label={`Score ${row.priorityScore} of 15`} title={`Score ${row.priorityScore} of 15`}>
+            {[1, 2, 3, 4].map((position) => (
+              <span key={position} className={position <= filled ? 'is-filled' : ''} aria-hidden="true">★</span>
+            ))}
+          </span>
+        );
+      },
+    },
+    {
       key: 'manager',
       label: 'Project manager',
       value: (row) => row.managerName,
