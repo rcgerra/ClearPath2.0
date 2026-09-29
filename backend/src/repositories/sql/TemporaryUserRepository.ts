@@ -65,6 +65,15 @@ export class TemporaryUserRepository extends BaseRepository<TemporaryUser> {
     return rows[0] ?? null;
   }
 
+  public async findActiveByEmail(email: string): Promise<TemporaryUser | null> {
+    const rows = await this.query<TemporaryUser>(
+      `SELECT TOP (1) * FROM ${this.table}
+        WHERE [IsActive] = 1 AND LOWER([Email]) = @email`,
+      { email: email.toLowerCase() },
+    );
+    return rows[0] ?? null;
+  }
+
   public async create(input: TemporaryUserInput): Promise<number> {
     const rows = await this.query<{ UserId: number }>(
       `INSERT INTO ${this.table}

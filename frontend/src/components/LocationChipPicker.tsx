@@ -29,7 +29,9 @@ export default function LocationChipPicker({
 
   return (
     <div className="field">
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id}>
+        {label}{required && <> <span className="required-marker" aria-hidden="true">*</span></>}
+      </label>
       <input type="hidden" id={id} name={name} value={selected.join('; ')} readOnly />
       <div className="location-chip-row" role="group" aria-label={label} aria-required={required}>
         {locations.data?.filter((location) => siteId === undefined || Boolean(siteId && location.siteId?.toLowerCase() === siteId.toLowerCase())).map((location) => (

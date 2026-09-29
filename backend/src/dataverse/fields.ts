@@ -193,6 +193,7 @@ export const COLUMNS = {
   },
   users: {
     id: 'systemuserid',
+    entraObjectId: 'azureactivedirectoryobjectid',
     fullName: 'fullname',
     email: 'internalemailaddress',
     domainName: 'domainname',

@@ -85,6 +85,10 @@ export class UserService {
     return temporaryUserRepository.findByIdentifier(identifier);
   }
 
+  public async findActiveByEmail(email: string): Promise<TemporaryUser | null> {
+    return temporaryUserRepository.findActiveByEmail(email);
+  }
+
   public async create(input: TemporaryUserInput): Promise<number> {
     return temporaryUserRepository.create(userSchema.parse(input));
   }

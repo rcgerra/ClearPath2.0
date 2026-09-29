@@ -34,6 +34,7 @@ app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 app.use(rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true, legacyHeaders: false }));
 app.use('/api/auth/login', rateLimit({ windowMs: 15 * 60_000, limit: 20 }));
+app.use('/api/auth/entra', rateLimit({ windowMs: 15 * 60_000, limit: 20 }));
 
 app.get('/api/health', (_req, res) => {
   res.json({

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, requireRole } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
+import { searchEntraUsers } from '../services/graphDirectory';
 import { userService } from '../services/userService';
 
 const router = Router();
@@ -35,6 +36,15 @@ function toResponse(user: Awaited<ReturnType<typeof userService.get>>) {
 }
 
 router.use(authenticate);
+
+router.get('/directory', asyncHandler(async (req, res) => {
+  const search = String(req.query.search ?? '').trim();
+  if (search.length < 3) {
+    res.json([]);
+    return;
+  }
+  res.json(await searchEntraUsers(search));
+}));
 
 router.get(
   '/',

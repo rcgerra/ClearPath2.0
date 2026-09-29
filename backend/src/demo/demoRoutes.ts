@@ -1,5 +1,6 @@
 ﻿import { randomUUID } from 'node:crypto';
 import { Router, type Request } from 'express';
+import { z } from 'zod';
 import { env } from '../config/env';
 import { AuthUser, Role, ROLES, authenticate, requireRole, signToken, signViewAsToken } from '../middleware/auth';
 import { asyncHandler, HttpError } from '../middleware/errorHandler';
@@ -10,6 +11,8 @@ import { combineParentScores, getPrioritizationModel, updatePrioritizationModel 
 import { getReferenceMetadata, listReferenceMetadata, referenceMetadataSchema, saveReferenceMetadata } from '../services/referenceMetadata';
 import { opportunitySubmissionSchema } from '../services/opportunitySubmission';
 import { requestStageIndex } from '../services/requestWorkflow';
+import { verifyEntraIdToken } from '../services/entraIdentity';
+import { searchEntraUsers } from '../services/graphDirectory';
 import { assertDepartmentSite, assertSiteCreator, assertSiteLead, assignPersonSite, personSiteId, resolveCreationSite, resolvePersonCreationSite, viewSiteId } from '../services/siteScope';
 
 /**
@@ -110,7 +113,44 @@ function assertDemoDemandEditable(user: AuthUser | undefined, projectId: string)
   throw new HttpError(403, 'Only the project manager, their delegate, a demand moderator or an admin can change this.');
 }
 
+router.get('/auth/config', (_req, res) => {
+  res.json({
+    authMode: env.authMode,
+    ...(env.authMode === 'entra' ? { tenantId: env.entraTenantId, clientId: env.entraClientId } : {}),
+  });
+});
+
+router.post('/auth/entra', asyncHandler(async (req, res) => {
+  if (env.authMode !== 'entra') throw new HttpError(404, 'Entra sign-in is not enabled.');
+  const { idToken } = z.object({ idToken: z.string().min(1).max(20000) }).parse(req.body);
+  let identity: Awaited<ReturnType<typeof verifyEntraIdToken>>;
+  try {
+    identity = await verifyEntraIdToken(idToken);
+  } catch {
+    throw new HttpError(401, 'The Entra ID token is invalid or expired.');
+  }
+  const selectedUser = dataService.listUsers().find((candidate) =>
+    candidate.Active && candidate.Email.toLowerCase() === identity.email,
+  );
+  const person = selectedUser ? dataService.find('people', selectedUser.UserId) : undefined;
+  if (!selectedUser || !person) throw new HttpError(403, 'Your Entra account is not linked to an active ClearPath user.');
+  const roles = new Set(parsePersonRoles(person.role));
+  if (env.adminEmails.includes(identity.email)) roles.add('admin');
+  if (env.portfolioManagerEmails.includes(identity.email)) roles.add('portfolio_manager');
+  const user = {
+    userId: selectedUser.UserId,
+    personId: person.id,
+    email: identity.email,
+    name: selectedUser.DisplayName || identity.name,
+    roles: [...roles],
+    departmentId: person.departmentId,
+    authProvider: 'entra' as const,
+  };
+  res.json({ token: signToken(user), user });
+}));
+
 router.get('/auth/users', (req, res) => {
+  if (env.authMode === 'entra') throw new HttpError(404, 'The temporary user directory is disabled.');
   const search = req.query.search ? String(req.query.search).toLowerCase() : '';
   const users = dataService.listUsers()
     .filter((user) => !search || user.DisplayName.toLowerCase().includes(search) || user.Email.toLowerCase().includes(search))
@@ -126,6 +166,7 @@ router.get('/auth/users', (req, res) => {
 
 /** Mirrors the real session endpoint using the selected CSV-backed user. */
 router.get('/auth/session', (req, res) => {
+  if (env.authMode === 'entra') throw new HttpError(404, 'Temporary user sign-in is disabled.');
   const selectedUser = dataService.findUser(String(req.query.userId ?? ''));
   const person = selectedUser ? dataService.find('people', selectedUser.UserId) : undefined;
   if (!selectedUser || !selectedUser.Active || !person) throw new HttpError(403, 'Select an active user.');
@@ -139,6 +180,7 @@ router.get('/auth/session', (req, res) => {
     name: selectedUser.DisplayName,
     roles: [...roles],
     departmentId: person.departmentId,
+    authProvider: 'dev' as const,
   };
   res.json({ token: signToken(user), user });
 });
@@ -170,6 +212,7 @@ router.post('/auth/view-as', requireRole('admin'), (req, res) => {
     name: person.name,
     roles: parsePersonRoles(person.role),
     departmentId: person.departmentId,
+    authProvider: req.user?.authProvider,
   };
   res.json({ viewAsToken: signViewAsToken(user), user });
 });
@@ -690,32 +733,53 @@ router.post('/prioritization/submit', (req, res) => {
     || !req.user?.personId || req.user.personId.toLowerCase() !== request.sponsorPersonId?.toLowerCase())) {
     throw new HttpError(403, 'Only the sponsor can prioritize this opportunity before it moves past prioritization.');
   }
+  const mode = req.body.mode === undefined ? 'complete' : req.body.mode;
+  if (mode !== 'draft' && mode !== 'complete') throw new HttpError(400, 'Submission mode must be draft or complete.');
   const questions = dataService.list('questions').filter((question) => question.isActive);
   const submitted = Array.isArray(req.body.answers) ? req.body.answers : [];
-  if (submitted.length !== questions.length || submitted.some((answer: { score?: number; justification?: string }) => !prioritizationScores.includes(Number(answer.score)) || (Number(answer.score) !== 0 && !String(answer.justification ?? '').trim())) || questions.some((question) => question.required !== false && submitted.find((answer: { questionId?: string }) => answer.questionId === question.id)?.score === 0)) {
+  const questionById = new Map(questions.map((question) => [question.id.toLowerCase(), question]));
+  const submittedByQuestion = new Map(submitted.map((answer: { questionId?: string }) => [String(answer.questionId ?? '').toLowerCase(), answer]));
+  const invalidAnswer = submittedByQuestion.size !== submitted.length || submitted.some((answer: { questionId?: string; score?: number }) =>
+    !questionById.has(String(answer.questionId ?? '').toLowerCase())
+    || answer.score !== undefined && !prioritizationScores.includes(Number(answer.score)));
+  const incomplete = questions.some((question) => {
+    const answer = submittedByQuestion.get(question.id.toLowerCase()) as { score?: number; justification?: string } | undefined;
+    return !answer || answer.score === undefined
+      || question.required !== false && Number(answer.score) === 0
+      || Number(answer.score) !== 0 && !String(answer.justification ?? '').trim();
+  });
+  if (invalidAnswer || mode === 'complete' && (submitted.length !== questions.length || incomplete)) {
     throw new HttpError(400, 'Every active prioritization question requires a rating and justification.');
   }
   const answers = dataService.list('answers');
   for (const submittedAnswer of submitted) {
+    const score = submittedAnswer.score as number | undefined;
+    const justification = String(submittedAnswer.justification ?? '').trim();
+    const methodology = String(submittedAnswer.methodology ?? '').trim();
+    if (mode === 'draft' && score === undefined && !justification && !methodology) continue;
     const current = answers.find((answer) => String(answer.requestId).toLowerCase() === String(req.body.requestId).toLowerCase()
       && String(answer.questionId).toLowerCase() === String(submittedAnswer.questionId).toLowerCase());
     const changes = {
-      value: scoreLabels[submittedAnswer.score], score: submittedAnswer.score,
-      comment: submittedAnswer.justification, justification: submittedAnswer.justification,
-      methodology: submittedAnswer.methodology ?? '',
+      ...(score !== undefined ? { value: scoreLabels[score], score } : {}),
+      comment: justification, justification,
+      methodology,
     };
     if (current) dataService.update('answers', current.id, changes);
     else dataService.create('answers', {
       id: id(answers.length + 1000, 'c'), requestId: req.body.requestId, questionId: submittedAnswer.questionId, ...changes,
     } as (typeof answers)[number]);
   }
+  if (mode === 'draft') {
+    res.json({ requestId: req.body.requestId, mode });
+    return;
+  }
   const breakdown = prioritizationBreakdown(req.body.requestId);
-  dataService.update('requests', req.body.requestId, { priorityScore: breakdown.priorityScore });
+  dataService.update('requests', req.body.requestId, { priorityScore: breakdown.priorityScore, phase: 'DQ Check' });
   const ranked = dataService.list('requests').filter((request) => request.priorityScore !== undefined)
     .sort((left, right) => Number(right.priorityScore ?? 0) - Number(left.priorityScore ?? 0));
   const rank = ranked.findIndex((request) => request.id === req.body.requestId) + 1;
   const quartile = ['Highest quartile', 'Upper-middle quartile', 'Lower-middle quartile', 'Lowest quartile'][Math.min(3, Math.ceil((rank / ranked.length) * 4) - 1)] ?? 'Unranked';
-  res.json({ requestId: req.body.requestId, quartile, topTen: rank > 0 && rank <= 10 });
+  res.json({ requestId: req.body.requestId, mode, quartile, topTen: rank > 0 && rank <= 10 });
 });
 router.get('/prioritization/ranking', asyncHandler(async (req, res) => {
   const siteId = await scopedSite(req);
@@ -726,6 +790,14 @@ router.get('/prioritization/ranking', asyncHandler(async (req, res) => {
     .sort((left, right) => right.priorityScore - left.priorityScore)
     .map((request, index, all) => ({ ...request, rank: index + 1, quartile: ['Highest quartile', 'Upper-middle quartile', 'Lower-middle quartile', 'Lowest quartile'][Math.min(3, Math.ceil(((index + 1) / all.length) * 4) - 1)], topTen: index < 10 }));
   res.json(rows);
+}));
+router.get('/users/directory', asyncHandler(async (req, res) => {
+  const search = String(req.query.search ?? '').trim();
+  if (search.length < 3) {
+    res.json([]);
+    return;
+  }
+  res.json(await searchEntraUsers(search));
 }));
 router.get('/users', (req, res) => {
   const search = req.query.search ? String(req.query.search).toLowerCase() : '';

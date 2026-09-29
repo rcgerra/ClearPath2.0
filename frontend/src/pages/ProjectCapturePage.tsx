@@ -67,102 +67,113 @@ export default function ProjectCapturePage() {
 
   return (
     <>
-      <h1 className="page-title">New Opportunity</h1>
-      <p className="page-subtitle">Describe the problem before proposing a solution.</p>
+      <header className="opportunity-intake-header">
+        <div className="opportunity-intake-header-copy">
+          <h1 className="page-title">New Opportunity</h1>
+        </div>
+        <p className="opportunity-required-note"><span className="required-marker" aria-hidden="true">*</span> Required fields</p>
+      </header>
 
       {error && <div className="alert error">{error}</div>}
 
-      <form className="card" onSubmit={handleSubmit}>
-        <div className="grid cols-4 opportunity-intake-top-row">
-          <div className="field">
-            <label htmlFor="shortTitle">Short Title</label>
-            <input id="shortTitle" name="shortTitle" required minLength={3} maxLength={100} />
+      <form id="new-opportunity-form" className="card opportunity-intake-form" onSubmit={handleSubmit}>
+        <section className="opportunity-form-section">
+          <div className="grid opportunity-intake-primary-row">
+            <div className="field opportunity-intake-title">
+              <label htmlFor="shortTitle">Short Title <span className="required-marker" aria-hidden="true">*</span></label>
+              <input id="shortTitle" name="shortTitle" required minLength={3} maxLength={100} />
+            </div>
+            <UserSelect id="sponsorPersonId" name="sponsorPersonId" label="Proposed Sponsor" personValue required searchable={false} />
+            <UserSelect id="delegatePersonId" name="delegatePersonId" label="Delegates" personValue searchable={false} />
           </div>
-          <UserSelect id="sponsorPersonId" name="sponsorPersonId" label="Proposed Sponsor" personValue required />
-          <LocationChipPicker id="location" name="location" siteId={person.data?.siteId ?? null} required />
-          <UserSelect id="delegatePersonId" name="delegatePersonId" label="Additional editor" personValue />
-        </div>
+        </section>
 
-        <div className="grid cols-2 opportunity-date-row opportunity-intake-date-row">
-          <div className="field">
-            <label htmlFor="neededBy">Needed By</label>
-            <input id="neededBy" name="neededBy" type="date" defaultValue={sixMonthsFromToday()} required />
+        <section className="opportunity-form-section">
+          <div className="grid opportunity-intake-location-timing">
+            <LocationChipPicker id="location" name="location" siteId={person.data?.siteId ?? null} required />
+            <div className="field">
+              <label htmlFor="neededBy">Needed By <span className="required-marker" aria-hidden="true">*</span></label>
+              <input id="neededBy" name="neededBy" type="date" defaultValue={sixMonthsFromToday()} required />
+            </div>
+            <div className="field opportunity-intake-rationale">
+              <label htmlFor="neededByJustification">Rationale <span className="required-marker" aria-hidden="true">*</span></label>
+              <textarea
+                id="neededByJustification"
+                name="neededByJustification"
+                required
+                maxLength={4000}
+                placeholder="Explain why the project must be done by this date and the impact if delayed (e.g., production loss, compliance risk, missed opportunity)."
+              />
+            </div>
           </div>
-          <div className="field">
-            <label htmlFor="neededByJustification">Rationale</label>
-            <textarea
-              id="neededByJustification"
-              name="neededByJustification"
-              required
-              maxLength={4000}
-              placeholder="Explain why the project must be done by this date and the impact if delayed (e.g., production loss, compliance risk, missed opportunity)."
-            />
+        </section>
+
+        <section className="opportunity-form-section">
+          <div className="grid opportunity-intake-context">
+            <div className="field">
+              <label htmlFor="currentState">Current State <span className="required-marker" aria-hidden="true">*</span></label>
+              <textarea
+                id="currentState"
+                name="currentState"
+                required
+                minLength={10}
+                maxLength={4000}
+                placeholder="Describe the current situation or problem. What isn't working as expected? Include details about the issue or opportunity you want to address and why it matters."
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="desiredFutureState">Desired Future State <span className="required-marker" aria-hidden="true">*</span></label>
+              <textarea
+                id="desiredFutureState"
+                name="desiredFutureState"
+                required
+                maxLength={4000}
+                placeholder="Describe the goal you want to achieve. How much of the problem do you expect to resolve? What specifically will change or improve?"
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="discoveryMethod">Discovery Method <span className="required-marker" aria-hidden="true">*</span></label>
+              <textarea
+                id="discoveryMethod"
+                name="discoveryMethod"
+                required
+                maxLength={4000}
+                placeholder="Explain how this issue or opportunity was identified. Examples include: cGMP audit, internal audit, GEMBA walkthrough, surveys, or other observations."
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="impactToOperations">Impact to Operations <span className="required-marker" aria-hidden="true">*</span></label>
+              <textarea
+                id="impactToOperations"
+                name="impactToOperations"
+                required
+                maxLength={4000}
+                placeholder="Describe the effect this issue/opportunity is having. Include measurable outcomes where possible, such as value lost or gained, number of incidents, frequency, downtime, or other quantifiable impacts."
+              />
+            </div>
+
+            <div className="opportunity-intake-additional-row">
+              <div className="field opportunity-intake-additional">
+                <label htmlFor="additionalInformation">Additional Information</label>
+                <textarea
+                  id="additionalInformation"
+                  name="additionalInformation"
+                  maxLength={4000}
+                  placeholder="Include any other relevant details or context that would help reviewers understand the situation or your proposed solution."
+                />
+              </div>
+              <div className="row-actions opportunity-intake-footer-actions">
+                <button type="button" onClick={() => navigate(-1)} disabled={submit.isPending}>Cancel</button>
+                <button className="primary" type="submit" disabled={submit.isPending}>
+                  {submit.isPending ? 'Submitting…' : 'Submit Opportunity'}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-
-        <div className="field">
-          <label htmlFor="currentState">Current State</label>
-          <textarea
-            id="currentState"
-            name="currentState"
-            required
-            minLength={10}
-            maxLength={4000}
-            placeholder="Describe the current situation or problem. What isn't working as expected? Include details about the issue or opportunity you want to address and why it matters."
-          />
-        </div>
-
-        <div className="field">
-          <label htmlFor="discoveryMethod">Discovery Method</label>
-          <textarea
-            id="discoveryMethod"
-            name="discoveryMethod"
-            required
-            maxLength={4000}
-            placeholder="Explain how this issue or opportunity was identified. Examples include: cGMP audit, internal audit, GEMBA walkthrough, surveys, or other observations."
-          />
-        </div>
-
-        <div className="field">
-          <label htmlFor="impactToOperations">Impact to Operations</label>
-          <textarea
-            id="impactToOperations"
-            name="impactToOperations"
-            required
-            maxLength={4000}
-            placeholder="Describe the effect this issue/opportunity is having. Include measurable outcomes where possible, such as value lost or gained, number of incidents, frequency, downtime, or other quantifiable impacts."
-          />
-        </div>
-
-        <div className="field">
-          <label htmlFor="desiredFutureState">Desired Future State</label>
-          <textarea
-            id="desiredFutureState"
-            name="desiredFutureState"
-            required
-            maxLength={4000}
-            placeholder="Describe the goal you want to achieve. How much of the problem do you expect to resolve? What specifically will change or improve?"
-          />
-        </div>
-
-        <div className="field">
-          <label htmlFor="additionalInformation">Additional Information</label>
-          <textarea
-            id="additionalInformation"
-            name="additionalInformation"
-            maxLength={4000}
-            placeholder="Include any other relevant details or context that would help reviewers understand the situation or your proposed solution."
-          />
-        </div>
-
-        <div className="row-actions">
-          <button className="primary" type="submit" disabled={submit.isPending}>
-            {submit.isPending ? 'Submitting…' : 'Submit Opportunity'}
-          </button>
-          <button type="button" onClick={() => navigate(-1)} disabled={submit.isPending}>
-            Cancel
-          </button>
-        </div>
+        </section>
       </form>
     </>
   );

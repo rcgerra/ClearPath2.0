@@ -12,6 +12,7 @@ export interface AuthUser {
   name: string;
   roles: Role[];
   departmentId?: string;
+  authProvider?: 'dev' | 'entra';
 }
 
 declare global {
@@ -46,7 +47,12 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
       name: payload.name,
       roles: payload.roles ?? [],
       departmentId: payload.departmentId,
+      authProvider: payload.authProvider,
     };
+    if (env.authMode === 'entra' && authenticatedUser.authProvider !== 'entra') {
+      res.status(401).json({ error: 'Sign in with Microsoft Entra ID.' });
+      return;
+    }
     req.user = authenticatedUser;
 
     const viewAsHeader = req.headers['x-clearpath-view-as'];

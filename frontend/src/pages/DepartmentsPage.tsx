@@ -125,9 +125,17 @@ export default function DepartmentsPage() {
       label: 'Department name',
       value: (row) => row.name,
       render: (row) => (
-        <span className="name-cell">
+        <span className="name-cell department-name-cell">
           <Link to={`/departments/${row.id}`} className="record-link">
             {row.name}
+          </Link>
+          <Link
+            to={`/departments/${row.id}`}
+            className="icon-button"
+            title={canEditDepartment(user, row) ? `Edit ${row.name}` : `View ${row.name}`}
+            aria-label={canEditDepartment(user, row) ? `Edit ${row.name}` : `View ${row.name}`}
+          >
+            {canEditDepartment(user, row) ? '✎' : '›'}
           </Link>
         </span>
       ),
@@ -175,22 +183,6 @@ export default function DepartmentsPage() {
       value: (row) => row.lastCheckIn ?? '',
       render: (row) => formatDate(row.lastCheckIn),
     },
-    {
-      key: 'edit',
-      label: '',
-      sortable: false,
-      width: '64px',
-      value: () => '',
-      render: (row) => (
-        <Link
-          to={`/departments/${row.id}`}
-          className="icon-button"
-          title={canEditDepartment(user, row) ? `Edit ${row.name}` : `View ${row.name}`}
-        >
-          {canEditDepartment(user, row) ? '✎' : '›'}
-        </Link>
-      ),
-    },
   ];
 
   return (
@@ -222,9 +214,9 @@ export default function DepartmentsPage() {
           initialSortKey="name"
           isLoading={departments.isLoading}
           emptyMessage="No departments match the current filters."
+          footer={<RowLegend />}
         />
       </div>
-      <RowLegend />
       <ListToolbar
         search={search}
         onSearch={setSearch}

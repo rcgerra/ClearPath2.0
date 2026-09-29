@@ -55,8 +55,10 @@ export function errorMessage(error: unknown): string {
 }
 
 export const authApi = {
+  config: () => api.get<{ authMode: 'dev' | 'entra'; tenantId?: string; clientId?: string }>('/auth/config').then((r) => r.data),
   users: (search?: string) => api.get<DirectoryUser[]>('/auth/users', { params: { search } }).then((r) => r.data),
   session: (userId: string) => api.get<{ token: string; user: AuthUser }>('/auth/session', { params: { userId } }).then((r) => r.data),
+  entraLogin: (idToken: string) => api.post<{ token: string; user: AuthUser }>('/auth/entra', { idToken }).then((r) => r.data),
   viewAs: (personId: string) => api.post<{ viewAsToken: string; user: AuthUser }>('/auth/view-as', { personId }).then((r) => r.data),
   me: () => api.get<{ user: AuthUser }>('/auth/me').then((r) => r.data.user),
 };
@@ -185,9 +187,9 @@ export const prioritizationApi = {
   updateQuestion: (id: string, body: WritePayload) => api.patch(`/prioritization/questions/${id}`, body).then((r) => r.data),
   answers: (requestId: string) =>
     api.get<Answer[]>(`/prioritization/requests/${requestId}/answers`).then((r) => r.data),
-  submit: (requestId: string, answers: Array<{ questionId: string; score: 0 | 1 | 5 | 10 | 15; justification: string; methodology?: string }>) =>
+  submit: (requestId: string, answers: Array<{ questionId: string; score?: 0 | 1 | 5 | 10 | 15; justification: string; methodology?: string }>, mode: 'draft' | 'complete') =>
     api
-      .post<{ requestId: string; quartile: string; topTen: boolean }>('/prioritization/submit', { requestId, answers })
+      .post<{ requestId: string; mode: 'draft' | 'complete'; quartile?: string; topTen?: boolean }>('/prioritization/submit', { requestId, answers, mode })
       .then((r) => r.data),
   ranking: () => api.get<RankedRequest[]>('/prioritization/ranking').then((r) => r.data),
 };
@@ -215,6 +217,7 @@ export const governanceApi = {
 export const usersApi = {
   search: (search?: string) => api.get<DirectoryUser[]>('/users', { params: { search } }).then((r) => r.data),
   get: (id: string) => api.get<DirectoryUser>(`/users/${id}`).then((r) => r.data),
+  searchDirectory: (search: string) => api.get<DirectoryUser[]>('/users/directory', { params: { search } }).then((r) => r.data),
 };
 
 export const adminApi = {

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { errorMessage, prioritizationApi } from '../api/client';
 import DataTable, { Column } from '../components/admin/DataTable';
@@ -21,6 +21,7 @@ function prioritizationStatus(request: ProjectRequest): string {
 
 export default function PrioritizationPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const isAdmin = user?.roles.includes('admin');
   const [searchParams] = useSearchParams();
@@ -30,7 +31,6 @@ export default function PrioritizationPage() {
   const [scope, setScope] = useState<OwnershipScope>(user?.personId || user?.email ? 'mine' : 'all');
   const [hideCompleted, setHideCompleted] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ quartile: string; topTen: boolean } | null>(null);
   const [answers, setAnswers] = useState<Record<string, DraftAnswer>>({});
   const requests = useQuery({ queryKey: ['sponsored-requests'], queryFn: prioritizationApi.requests });
   const questions = useQuery({ queryKey: ['questions'], queryFn: () => prioritizationApi.questions() });
@@ -55,16 +55,20 @@ export default function PrioritizationPage() {
   }, [existing.data, questions.data]);
 
   const submit = useMutation({
-    mutationFn: () => prioritizationApi.submit(requestId, (questions.data ?? []).map((question) => ({
-      questionId: question.id,
-      score: answers[question.id].score as Rating,
-      justification: answers[question.id].justification.trim(),
-      methodology: answers[question.id].methodology.trim() || undefined,
-    }))),
-    onSuccess: (response) => {
-      setResult(response);
+    mutationFn: (mode: 'draft' | 'complete') => prioritizationApi.submit(requestId, (questions.data ?? []).map((question) => {
+      const answer = answers[question.id] ?? { justification: '', methodology: '' };
+      return {
+        questionId: question.id,
+        score: answer.score,
+        justification: answer.justification.trim(),
+        methodology: answer.methodology.trim() || undefined,
+      };
+    }), mode),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ranking'] });
       queryClient.invalidateQueries({ queryKey: ['requests'] });
+      queryClient.invalidateQueries({ queryKey: ['sponsored-requests'] });
+      navigate('/prioritization');
     },
     onError: (err) => setError(errorMessage(err)),
   });
@@ -79,14 +83,17 @@ export default function PrioritizationPage() {
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    setResult(null);
     if (!requestId) return setError('Select a sponsored opportunity first.');
-    const incomplete = (questions.data ?? []).find((question) => {
-      const answer = answers[question.id];
-      return answer?.score === undefined || (answer.score !== 0 && !answer.justification.trim());
-    });
-    if (incomplete) return setError(`Complete the rating and strategy for “${incomplete.text}”.`);
-    submit.mutate();
+    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const mode = submitter?.value === 'draft' ? 'draft' : 'complete';
+    if (mode === 'complete') {
+      const incomplete = (questions.data ?? []).find((question) => {
+        const answer = answers[question.id];
+        return answer?.score === undefined || (answer.score !== 0 && !answer.justification.trim());
+      });
+      if (incomplete) return setError(`Complete the rating and strategy for “${incomplete.text}”.`);
+    }
+    submit.mutate(mode);
   }
 
   const categoryGroups = (['Impact', 'Complexity'] as const).flatMap((parent) =>
@@ -104,6 +111,14 @@ export default function PrioritizationPage() {
   const moderator = Boolean(user?.roles.some((role) => role === 'admin' || role === 'intake_moderator'));
   const isSponsor = (request: ProjectRequest) => Boolean(user?.personId && request.sponsorPersonId?.toLowerCase() === user.personId.toLowerCase());
   const locked = Boolean(selectedRequest && ((!moderator && !isSponsor(selectedRequest)) || workflowStageIndex(selectedRequest.phase) > 1 && !moderator));
+  const completedAnswerCount = (questions.data ?? []).filter((question) => {
+    const answer = answers[question.id];
+    return answer?.score !== undefined
+      && (answer.score === 0 || Boolean(answer.justification.trim()))
+      && (!question.required || answer.score !== 0);
+  }).length;
+  const canCompletePrioritization = Boolean(questions.data?.length)
+    && completedAnswerCount === questions.data?.length;
   const queueRows = (requests.data ?? []).filter((request) =>
     (scope === 'all' || isMine(request, user?.personId) || Boolean(user?.email && request.delegatePersonId?.toLowerCase() === user.email.toLowerCase()))
     && (!hideCompleted || prioritizationStatus(request) === 'Needs prioritization'));
@@ -154,13 +169,16 @@ export default function PrioritizationPage() {
 
   return (
     <main className="prioritization-page accent-prioritization">
-      <header className="prioritization-header">
-        <div><Link className="prioritization-cancel-button" to="/prioritization">← Cancel and return to list</Link><p className="eyebrow">Sponsor assessment</p><h1 className="page-title">Prioritize the opportunity</h1><p className="page-subtitle">Choose the best-supported response, then state the strategy for realizing it.</p></div>
+      <header className="prioritization-header prioritization-form-header">
+        <Link className="back-button prioritization-form-back" to="/prioritization" aria-label="Back to prioritization table">←</Link>
+        <h1 className="page-title">{selectedRequest?.shortTitle ?? selectedRequest?.title ?? selectedRequest?.name ?? 'Prioritization'}</h1>
       </header>
-      {selectedRequest && <div className="prioritization-project-strip"><strong>{selectedRequest.shortTitle ?? selectedRequest.title}</strong><span>{selectedRequest.sponsorName ?? 'Sponsor'}</span></div>}
+      <div className="prioritization-form-instruction">
+        <p>Answer the relevant questions and provide a rationale for each answer.</p>
+        <span>{completedAnswerCount} of {questions.data?.length ?? 0} complete</span>
+      </div>
       {locked && <p className="muted">This assessment is read-only after prioritization.</p>}
       {error && <div className="alert error">{error}</div>}
-      {result && <div className="prioritization-result" role="status"><strong>{result.quartile}</strong><span>{result.topTen ? 'Currently a top 10 opportunity' : 'Assessment saved'}</span></div>}
       <form onSubmit={handleSubmit}>
         <fieldset className="opportunity-fields" disabled={locked}>
         {categoryGroups.map((category) => <div className="prioritization-category" key={category.id}>
@@ -175,7 +193,16 @@ export default function PrioritizationPage() {
             </article>;
           })}
         </div>)}
-        <div className="prioritization-submit"><span>{Object.values(answers).filter((answer) => answer.score !== undefined && answer.justification.trim()).length} of {questions.data?.length ?? 0} complete</span>{!locked && <button className="primary" type="submit" disabled={!requestId || submit.isPending}>{submit.isPending ? 'Saving assessment…' : 'Submit prioritization'}</button>}</div>
+        <div className="prioritization-submit">
+          {!locked && <div className="prioritization-submit-actions">
+            <button type="submit" value="draft" formNoValidate disabled={!requestId || submit.isPending || questions.isLoading}>
+              {submit.isPending && submit.variables === 'draft' ? 'Saving draft…' : 'Save as draft'}
+            </button>
+            <button className="primary" type="submit" value="complete" disabled={!requestId || submit.isPending || questions.isLoading || !canCompletePrioritization}>
+              {submit.isPending && submit.variables === 'complete' ? 'Completing…' : 'Prioritization Complete'}
+            </button>
+          </div>}
+        </div>
         </fieldset>
       </form>
     </main>

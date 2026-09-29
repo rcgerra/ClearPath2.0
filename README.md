@@ -48,6 +48,27 @@ Fill in `backend/.env`:
   registration that is registered as an application user in the environment
 - `JWT_SECRET` — 32+ random characters
 
+### Entra ID sign-in
+
+The frontend uses MSAL with the tenant-specific authority and `ENTRA_CLIENT_ID`; the backend validates
+the returned ID token against that client ID, tenant issuer, and Microsoft signing keys. For an Entra
+deployment, set `AUTH_MODE=entra`, `ENTRA_TENANT_ID`, and `ENTRA_CLIENT_ID` in `backend/.env` or the
+deployment environment. No client secret is used by the browser app.
+
+The New Person form searches Microsoft Graph server-side. Set `GRAPH_CLIENT_ID` (defaults to
+`ENTRA_CLIENT_ID`) and `GRAPH_CLIENT_SECRET` in the backend environment; use a rotated secret and never
+put it in frontend configuration. Grant that app registration the Microsoft Graph **Application**
+permission `User.Read.All` and grant tenant admin consent. Graph search results are matched to the
+read-only Dataverse `systemuser` table by Entra object ID when possible, so a People record can retain
+its directory lookup. If there is no matching `systemuser`, name, email, and job title are still saved,
+but the lookup remains unlinked.
+
+Register the deployed frontend origin as an Entra **Single-page application** redirect URI. Local
+development uses `http://localhost:5173`. To allow sign-in by all users in the tenant, the Enterprise
+Application must not require user assignment. ClearPath does not enforce group membership; it does
+require the signed-in email to match an active user record. ClearPath roles continue to come from
+`ADMIN_EMAILS`, `PORTFOLIO_MANAGER_EMAILS`, and the person's `_People.role` value.
+
 Then run the two dev servers:
 
 ```powershell

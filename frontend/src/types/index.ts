@@ -7,6 +7,7 @@ export interface AuthUser {
   name: string;
   roles: Role[];
   departmentId?: string;
+  authProvider?: 'dev' | 'entra';
 }
 
 export interface Person {
@@ -342,6 +343,7 @@ export interface GovernanceItem {
 
 export interface DirectoryUser {
   id: string;
+  userId?: string;
   personId?: string;
   fullName: string;
   email?: string;

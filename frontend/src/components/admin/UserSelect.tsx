@@ -9,9 +9,10 @@ interface Props {
   defaultValue?: string;
   personValue?: boolean;
   required?: boolean;
+  searchable?: boolean;
 }
 
-export default function UserSelect({ id, name, label, defaultValue = '', personValue = false, required = false }: Props) {
+export default function UserSelect({ id, name, label, defaultValue = '', personValue = false, required = false, searchable = true }: Props) {
   const [search, setSearch] = useState('');
   const users = useQuery({
     queryKey: ['users', 'lookup', search],
@@ -21,15 +22,19 @@ export default function UserSelect({ id, name, label, defaultValue = '', personV
 
   return (
     <div className="field">
-      <label htmlFor={`${id}-search`}>{label}</label>
-      <input
-        id={`${id}-search`}
-        type="search"
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-        placeholder="Search by name"
-        aria-label={`Search ${label.toLowerCase()}`}
-      />
+      <label htmlFor={searchable ? `${id}-search` : id}>
+        {label}{required && <> <span className="required-marker" aria-hidden="true">*</span></>}
+      </label>
+      {searchable && (
+        <input
+          id={`${id}-search`}
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search by name"
+          aria-label={`Search ${label.toLowerCase()}`}
+        />
+      )}
       <select id={id} name={name} defaultValue={defaultValue} required={required}>
         <option value="">—</option>
         {selected && !users.data?.some((user) => (personValue ? user.personId : user.id) === defaultValue) && (

@@ -24,8 +24,12 @@ export const env = {
 
   jwtSecret: process.env.JWT_SECRET ?? 'change-me-in-production',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '8h',
-  /** Temporary user selection; 'entra' is reserved for the future Entra migration. */
+  /** Selects the local development selector or Microsoft Entra sign-in. */
   authMode: (process.env.AUTH_MODE ?? 'dev') as 'dev' | 'entra',
+  entraTenantId: process.env.ENTRA_TENANT_ID ?? '',
+  entraClientId: process.env.ENTRA_CLIENT_ID ?? '',
+  graphClientId: process.env.GRAPH_CLIENT_ID ?? process.env.ENTRA_CLIENT_ID ?? '',
+  graphClientSecret: process.env.GRAPH_CLIENT_SECRET ?? '',
   /** Serves in-memory sample data instead of Dataverse so the UI can be reviewed without credentials. */
   demoMode: bool(process.env.DEMO_MODE, false),
   /** Identity used locally when no reverse-proxy identity header is present. */
@@ -62,6 +66,9 @@ export const isDataverseConfigured = () =>
   Boolean(env.dataverse.url && env.dataverse.tenantId && env.dataverse.clientId && env.dataverse.clientSecret);
 
 export function assertProductionSecrets(): void {
+  if (env.authMode === 'entra' && (!env.entraTenantId || !env.entraClientId)) {
+    throw new Error('ENTRA_TENANT_ID and ENTRA_CLIENT_ID must be set when AUTH_MODE=entra.');
+  }
   if (env.nodeEnv !== 'production') return;
   if (env.demoMode) {
     throw new Error('DEMO_MODE cannot be enabled in production.');

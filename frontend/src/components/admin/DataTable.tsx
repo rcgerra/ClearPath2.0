@@ -23,6 +23,7 @@ interface Props<T> {
   emptyMessage?: string;
   isLoading?: boolean;
   onRowClick?: (row: T) => void;
+  footer?: ReactNode;
 }
 
 type Direction = 'asc' | 'desc';
@@ -47,6 +48,7 @@ export default function DataTable<T>({
   emptyMessage = 'No records found.',
   isLoading = false,
   onRowClick,
+  footer,
 }: Props<T>) {
   const [sortKey, setSortKey] = useState(initialSortKey ?? columns[0]?.key);
   const [direction, setDirection] = useState<Direction>('asc');
@@ -139,7 +141,16 @@ export default function DataTable<T>({
             ))}
         </tbody>
       </table>
-      {!isLoading && visible.length > 0 && (
+      {footer ? (
+        <div className="data-table-footer">
+          {footer}
+          {!isLoading && visible.length > 0 && (
+            <p className="muted table-count">
+              {visible.length} of {rows.length} records
+            </p>
+          )}
+        </div>
+      ) : !isLoading && visible.length > 0 && (
         <p className="muted table-count">
           {visible.length} of {rows.length} records
         </p>

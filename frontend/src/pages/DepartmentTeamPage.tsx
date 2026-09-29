@@ -63,7 +63,8 @@ export default function DepartmentTeamPage() {
   const [analyticsTableSortDirection, setAnalyticsTableSortDirection] = useState<'asc' | 'desc'>('asc');
   const [activeDetailDemandTab, setActiveDetailDemandTab] = useState<'project' | 'other'>('project');
   const [detailWeeks, setDetailWeeks] = useState(26);
-  const alertThreshold = 40;
+  const [alertThreshold, setAlertThreshold] = useState(32);
+  const [alertThresholdDraft, setAlertThresholdDraft] = useState('32');
   const [bulkAvailability, setBulkAvailability] = useState('40');
   const [addingAssignment, setAddingAssignment] = useState(false);
   const [addingNonProjectDemand, setAddingNonProjectDemand] = useState(false);
@@ -355,7 +356,10 @@ export default function DepartmentTeamPage() {
     }) => {
       let subcategoryId = body.subcategoryId;
       if (body.newActivityName && body.categoryId) {
-        subcategoryId = (await nonProjectDemandApi.createSubcategory({ categoryId: body.categoryId, name: body.newActivityName })).id;
+        subcategoryId = (await nonProjectDemandApi.createSubcategory({
+          categoryId: body.categoryId,
+          name: body.newActivityName,
+        })).id;
       }
       if (!subcategoryId) throw new Error('Select an activity or create a new one.');
       return nonProjectDemandApi.create({
@@ -385,7 +389,13 @@ export default function DepartmentTeamPage() {
   const normalize = useMutation({
     mutationFn: ({ capacityId, weeks }: { capacityId: string; weeks: number[] }) =>
       capacityApi.update(capacityId, { weeks }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: capacityKey }),
+    onSuccess: () => {
+      setScenarioActive(false);
+      setScenarioOverrides({});
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: capacityKey });
+      queryClient.invalidateQueries({ queryKey: ['capacity', 'all'] });
+    },
     onError: (err) => setError(errorMessage(err)),
   });
 
@@ -414,27 +424,6 @@ export default function DepartmentTeamPage() {
     },
     onError: (err) => setError(errorMessage(err)),
   });
-
-  /** Sets this week's availability to match total demand, only across the weeks shown in the table. */
-  function normalizeAvailability(row: CapacityRow) {
-    const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks();
-    const nextWeeks = row.weeks.slice();
-    for (let week = 0; week < detailWeeks; week += 1) {
-      nextWeeks[week] = Math.max(0, Math.min(MAX_HOURS, Math.round(demandWeeks[week] ?? 0)));
-    }
-    const weeksAbove50 = nextWeeks.slice(0, detailWeeks).filter((hours) => hours > 50).length;
-    if (
-      weeksAbove50 > 0 &&
-      !window.confirm(
-        `Normalizing ${row.personName ?? 'this person'}'s availability will set ${weeksAbove50} week${
-          weeksAbove50 === 1 ? '' : 's'
-        } above 50 hours. Continue?`,
-      )
-    ) {
-      return;
-    }
-    normalize.mutate({ capacityId: row.id, weeks: nextWeeks });
-  }
 
   const checkIn = useMutation({
     mutationFn: () => departmentsApi.update(id, { lastCheckIn: new Date().toISOString().slice(0, 10) }),
@@ -520,16 +509,27 @@ export default function DepartmentTeamPage() {
   const selected = rows.find((row) => row.id === selectedRow);
   const selectedDemand = selected ? demandByPerson.get(selected.personId?.toLowerCase() ?? '') ?? emptyWeeks() : [];
 
-  /** Equalize is pointless once availability already matches demand every week, even where demand is 0. */
+  /** Equalize is unnecessary when availability already matches demand for every visible week. */
   const selectedEqualizeDisabled = (() => {
     if (!selected) return true;
-    let alreadyMatches = true;
     for (let week = 0; week < detailWeeks; week += 1) {
-      const demandHours = selectedDemand[week] ?? 0;
-      if ((selected.weeks[week] ?? 0) !== demandHours) alreadyMatches = false;
+      if ((selected.weeks[week] ?? 0) !== (selectedDemand[week] ?? 0)) return false;
     }
-    return alreadyMatches;
+    return true;
   })();
+
+  function normalizeAvailability(row: CapacityRow) {
+    const demandWeeks = demandByPerson.get(row.personId?.toLowerCase() ?? '') ?? emptyWeeks();
+    const nextWeeks = row.weeks.slice();
+    for (let week = 0; week < detailWeeks; week += 1) {
+      nextWeeks[week] = Math.max(0, Math.min(MAX_HOURS, Math.round(demandWeeks[week] ?? 0)));
+    }
+    const weeksAbove50 = nextWeeks.slice(0, detailWeeks).filter((hours) => hours > 50).length;
+    if (weeksAbove50 > 0 && !window.confirm(
+      `Normalizing ${row.personName ?? 'this person'}'s availability will set ${weeksAbove50} week${weeksAbove50 === 1 ? '' : 's'} above 50 hours. Continue?`,
+    )) return;
+    normalize.mutate({ capacityId: row.id, weeks: nextWeeks });
+  }
 
   /** Demand for the selected person, split out per project for the detail table. */
   const selectedProjectDemand = useMemo(() => {
@@ -818,12 +818,12 @@ export default function DepartmentTeamPage() {
       <div className="workspace-tabs-row">
       <nav className="workspace-tabs" aria-label="Department workspace">
         {([
-          ['overview', 'Overview'],
-          ['assignments', 'Assignments'],
+          ['overview', 'Summary'],
+          ['team', 'Build the Team'],
+          ['assignments', 'View Assignments'],
           ['availability', 'Heat Map'],
-          ['risk', 'Risk'],
-          ['team', 'Roster'],
-          ['kpis', 'Group Demand'],
+          ['risk', 'Risks'],
+          ['kpis', 'Group Workload'],
           ['analytics', 'Analytics'],
         ] as Array<[DepartmentWorkspaceTab, string]>).map(([tab, label]) => (
           <button
@@ -1263,33 +1263,74 @@ export default function DepartmentTeamPage() {
 
       {activeTab === 'assignments' && (
         <div className="toolbar department-assignment-actions">
-          {editable && (
-            <button type="button" className="icon-button icon-button-add icon-button-add-labeled" title="Add new person" aria-label="Add new person" onClick={() => setAdding((value) => !value)}>
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="9" cy="7" r="3" />
-                <path d="M3 20v-1a6 6 0 0 1 6-6h0a6 6 0 0 1 4.2 1.7" />
-                <line x1="18" y1="8" x2="21" y2="8" />
-                <line x1="19.5" y1="6.5" x2="19.5" y2="9.5" />
-              </svg>
-              <span>Add person</span>
-            </button>
-          )}
           {selected && canManageRoster && (
             <>
-              <button type="button" disabled={selectedEqualizeDisabled} title="Set the selected person's availability to match total demand" onClick={() => normalizeAvailability(selected)}>
+              <button type="button" className="department-action-button" disabled={selectedEqualizeDisabled || normalize.isPending} title="Set the selected person's availability to match total demand" onClick={() => normalizeAvailability(selected)}>
                 Match availability to demand
               </button>
-              <div className="bulk-availability-control">
-                <button type="button" className="bulk-availability-submit" aria-label={`Set all visible weeks to ${bulkAvailability} hours for ${selected.personName ?? 'this person'}`} disabled={setAllAvailability.isPending || !/^(?:[0-9]|[1-3][0-9]|40)$/.test(bulkAvailability)} onClick={() => setAllAvailability.mutate({
-                  capacityId: selected.id,
-                  weeks: selected.weeks.map((value, week) => (week < detailWeeks ? Number(bulkAvailability) : value)),
-                })}>Apply</button>
+              <div
+                className="department-action-control department-action-control-clickable"
+                role="button"
+                tabIndex={0}
+                aria-label={`Set ${selected.personName ?? 'this person'} availability to ${bulkAvailability} hours`}
+                onClick={(event) => {
+                  if ((event.target as HTMLElement).tagName === 'INPUT' || setAllAvailability.isPending || !/^(?:[0-9]|[1-3][0-9]|40)$/.test(bulkAvailability)) return;
+                  setAllAvailability.mutate({
+                    capacityId: selected.id,
+                    weeks: selected.weeks.map((value, week) => (week < detailWeeks ? Number(bulkAvailability) : value)),
+                  });
+                }}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    if (!setAllAvailability.isPending && /^(?:[0-9]|[1-3][0-9]|40)$/.test(bulkAvailability)) {
+                      setAllAvailability.mutate({
+                        capacityId: selected.id,
+                        weeks: selected.weeks.map((value, week) => (week < detailWeeks ? Number(bulkAvailability) : value)),
+                      });
+                    }
+                  }
+                }}
+              >
                 <span>Set selected to</span>
-                <input type="number" min={0} max={40} step={1} value={bulkAvailability} onChange={(event) => setBulkAvailability(event.target.value)} onKeyDown={blockNonIntegerKeys} />
+                <input type="number" min={0} max={40} step={1} value={bulkAvailability} onClick={(event) => event.stopPropagation()} onChange={(event) => setBulkAvailability(event.target.value)} onKeyDown={blockNonIntegerKeys} aria-label="Selected person availability hours" />
                 <span>hours</span>
               </div>
             </>
           )}
+          <div
+            className="department-action-control department-action-control-clickable department-alert-level-control"
+            role="button"
+            tabIndex={0}
+            aria-label={`Set alert level to ${alertThresholdDraft} hours`}
+            aria-pressed={alertThreshold === Number(alertThresholdDraft)}
+            onClick={(event) => {
+              if ((event.target as HTMLElement).tagName === 'INPUT' || !/^(?:[0-9]|[1-5][0-9]|60)$/.test(alertThresholdDraft)) return;
+              setAlertThreshold(Number(alertThresholdDraft));
+            }}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                if (/^(?:[0-9]|[1-5][0-9]|60)$/.test(alertThresholdDraft)) setAlertThreshold(Number(alertThresholdDraft));
+              }
+            }}
+          >
+            <span>Alert level</span>
+            <input
+              type="number"
+              min={0}
+              max={MAX_HOURS}
+              step={1}
+              value={alertThresholdDraft}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => setAlertThresholdDraft(event.target.value)}
+              onKeyDown={blockNonIntegerKeys}
+              aria-label="Alert level in hours"
+            />
+            <span>hours</span>
+          </div>
         </div>
       )}
       {activeTab === 'assignments' && adding && (

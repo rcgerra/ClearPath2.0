@@ -62,14 +62,15 @@ function calculateBreakdown(
 
 const answerSchema = z.object({
   questionId: z.string().uuid(),
-  score: z.union([z.literal(0), z.literal(1), z.literal(5), z.literal(10), z.literal(15)]),
+  score: z.union([z.literal(0), z.literal(1), z.literal(5), z.literal(10), z.literal(15)]).optional(),
   justification: z.string().trim().max(4000).optional().default(''),
   methodology: z.string().trim().max(4000).optional(),
 });
 
 const submitSchema = z.object({
   requestId: z.string().uuid(),
-  answers: z.array(answerSchema).min(1).max(200),
+  mode: z.enum(['draft', 'complete']).default('complete'),
+  answers: z.array(answerSchema).max(200),
 });
 
 router.use(authenticate);
@@ -345,16 +346,32 @@ router.post(
       top: 500,
       includeFormattedValues: false,
     });
-    if (input.answers.length !== questions.length) {
+    if (input.mode === 'complete' && input.answers.length !== questions.length) {
       res.status(400).json({ error: 'Every active prioritization question requires an answer and justification.' });
       return;
+    }
+    const questionById = new Map(questions.map((question) => [String(question[Q.id]).toLowerCase(), question]));
+    const answerByQuestion = new Map(input.answers.map((answer) => [answer.questionId.toLowerCase(), answer]));
+    if (answerByQuestion.size !== input.answers.length || input.answers.some((answer) => !questionById.has(answer.questionId.toLowerCase()))) {
+      res.status(400).json({ error: 'An answer references an inactive or unknown question.' });
+      return;
+    }
+    if (input.mode === 'complete') {
+      const incomplete = questions.find((question) => {
+        const answer = answerByQuestion.get(String(question[Q.id]).toLowerCase());
+        return !answer || answer.score === undefined
+          || question[Q.required] !== false && answer.score === 0
+          || answer.score !== 0 && !answer.justification.trim();
+      });
+      if (incomplete) {
+        res.status(400).json({ error: 'Every active prioritization question requires an answer and justification.' });
+        return;
+      }
     }
     const categories = await dv.list('categories', {
       select: [C.id, C.name, C.weight, C.type], top: 100, includeFormattedValues: false,
     });
     const categoryById = new Map(categories.map((category) => [String(category[C.id]).toLowerCase(), category]));
-    const questionById = new Map(questions.map((question) => [String(question[Q.id]).toLowerCase(), question]));
-
     const existing = await dv.list('answers', {
       select: [A.id, A.questionId],
       filter: `${A.requestId} eq ${dv.encodeGuid(input.requestId)}`,
@@ -367,35 +384,30 @@ router.post(
 
     for (const answer of input.answers) {
       const question = questionById.get(answer.questionId.toLowerCase());
-      if (!question) {
-        res.status(400).json({ error: 'An answer references an inactive or unknown question.' });
-        return;
+      if (!question) continue;
+      if (answer.score !== undefined) {
+        const questionWeight = Number(question[Q.weight] ?? 1);
+        const categoryId = String(question[Q.categoryId] ?? '').toLowerCase();
+        const category = categoryById.get(categoryId);
+        const current = categoryTotals.get(categoryId) ?? {
+          parent: parentName(category?.[C.type]), weighted: 0, questionWeight: 0,
+          categoryWeight: Number(category?.[C.weight] ?? 1),
+        };
+        current.weighted += answer.score * questionWeight;
+        current.questionWeight += questionWeight;
+        categoryTotals.set(categoryId, current);
+      } else if (input.mode === 'draft' && !answer.justification && !answer.methodology) {
+        continue;
       }
-      if (question[Q.required] !== false && answer.score === 0) {
-        res.status(400).json({ error: 'Required questions must have an impact rating.' });
-        return;
-      }
-      if (answer.score !== 0 && !answer.justification.trim()) {
-        res.status(400).json({ error: 'Every rated question requires a justification.' });
-        return;
-      }
-      const questionWeight = Number(question[Q.weight] ?? 1);
-      const categoryId = String(question[Q.categoryId] ?? '').toLowerCase();
-      const category = categoryById.get(categoryId);
-      const current = categoryTotals.get(categoryId) ?? {
-        parent: parentName(category?.[C.type]), weighted: 0, questionWeight: 0,
-        categoryWeight: Number(category?.[C.weight] ?? 1),
-      };
-      current.weighted += answer.score * questionWeight;
-      current.questionWeight += questionWeight;
-      categoryTotals.set(categoryId, current);
 
       const record: Record<string, unknown> = {
-        [A.value]: SCORE_LABELS[answer.score],
-        [A.score]: answer.score,
         [A.comment]: answer.justification,
         [A.methodology]: answer.methodology ?? '',
       };
+      if (answer.score !== undefined) {
+        record[A.value] = SCORE_LABELS[answer.score];
+        record[A.score] = answer.score;
+      }
 
       const existingId = existingByQuestion.get(answer.questionId.toLowerCase());
       if (existingId) {
@@ -406,6 +418,11 @@ router.post(
         record[A.name] = `Answer ${answer.questionId.slice(0, 8)}`;
         await dv.create('answers', record);
       }
+    }
+
+    if (input.mode === 'draft') {
+      res.json({ requestId: input.requestId, mode: input.mode });
+      return;
     }
 
     const parentTotals = new Map<string, { weighted: number; weight: number }>();
@@ -421,10 +438,10 @@ router.post(
     const complexityScore = parentTotals.get('Complexity')?.weight
       ? parentTotals.get('Complexity')!.weighted / parentTotals.get('Complexity')!.weight : 0;
     const priorityScore = Math.round(combineParentScores(impactScore, complexityScore) * 100) / 100;
-    await dv.update('requests', input.requestId, { [R.priorityScore]: priorityScore });
+    await dv.update('requests', input.requestId, { [R.priorityScore]: priorityScore, [R.phase]: 'DQ Check' });
     const ranked = await dv.list('requests', { select: [R.id, R.priorityScore], orderBy: `${R.priorityScore} desc`, top: 500 });
     const rank = ranked.findIndex((record) => String(record[R.id]).toLowerCase() === input.requestId.toLowerCase()) + 1;
-    res.json({ requestId: input.requestId, quartile: quartileFor(rank, ranked.length), topTen: rank > 0 && rank <= 10 });
+    res.json({ requestId: input.requestId, mode: input.mode, quartile: quartileFor(rank, ranked.length), topTen: rank > 0 && rank <= 10 });
   }),
 );
 

@@ -6,11 +6,49 @@ import { asyncHandler, HttpError } from '../middleware/errorHandler';
 import { env } from '../config/env';
 import * as dv from '../dataverse/client';
 import { COLUMNS } from '../dataverse/fields';
+import { verifyEntraIdToken } from '../services/entraIdentity';
 
 const router = Router();
 
+router.get('/config', (_req, res) => {
+  res.json({
+    authMode: env.authMode,
+    ...(env.authMode === 'entra' ? { tenantId: env.entraTenantId, clientId: env.entraClientId } : {}),
+  });
+});
+
+router.post('/entra', asyncHandler(async (req, res) => {
+  if (env.authMode !== 'entra') throw new HttpError(404, 'Entra sign-in is not enabled.');
+  const { idToken } = z.object({ idToken: z.string().min(1).max(20000) }).parse(req.body);
+  let identity: Awaited<ReturnType<typeof verifyEntraIdToken>>;
+  try {
+    identity = await verifyEntraIdToken(idToken);
+  } catch {
+    throw new HttpError(401, 'The Entra ID token is invalid or expired.');
+  }
+  const selected = await userService.findActiveByEmail(identity.email);
+  if (!selected) throw new HttpError(403, 'Your Entra account is not linked to an active ClearPath user.');
+
+  const roles = new Set(parseRoles(identity.email));
+  if (selected.LegacyDataverseId) {
+    const P = COLUMNS.people;
+    const person = await dv.retrieve('people', selected.LegacyDataverseId, { select: [P.role] }) as Record<string, unknown>;
+    for (const role of parsePersonRoles(person[P.role])) roles.add(role);
+  }
+  const authUser: AuthUser = {
+    userId: String(selected.UserId),
+    personId: selected.LegacyDataverseId ?? undefined,
+    email: identity.email,
+    name: selected.DisplayName || identity.name,
+    roles: [...roles],
+    departmentId: selected.Department ?? undefined,
+    authProvider: 'entra',
+  };
+  res.json({ token: signToken(authUser), user: authUser });
+}));
+
 router.get('/users', asyncHandler(async (req, res) => {
-  // TODO(Entra): replace this public temporary directory with the signed-in Entra profile.
+  if (env.authMode === 'entra') throw new HttpError(404, 'The temporary user directory is disabled.');
   const users = await userService.list(req.query.search ? String(req.query.search) : undefined, false, 200);
   res.json(users.map((user) => ({
     id: String(user.UserId),
@@ -22,7 +60,7 @@ router.get('/users', asyncHandler(async (req, res) => {
 }));
 
 function parseRoles(email: string): Role[] {
-  // TODO(Entra): derive roles from Microsoft Entra ID groups/app roles after identity migration.
+  // App-level roles remain mapped from ClearPath's configured admin lists and People records.
   const normalized = email.toLowerCase();
   if (env.adminEmails.includes(normalized)) return ['admin', 'user'];
   if (env.portfolioManagerEmails.includes(normalized)) return ['portfolio_manager', 'user'];
@@ -37,8 +75,9 @@ function parsePersonRoles(raw: unknown): Role[] {
   return roles.includes('user') ? roles : ['user', ...roles];
 }
 
-/** Temporary passwordless session. TODO(Entra): validate an Entra access token instead. */
+/** Temporary passwordless session for local development only. */
 router.get('/session', asyncHandler(async (req, res) => {
+  if (env.authMode === 'entra') throw new HttpError(404, 'Temporary user sign-in is disabled.');
   const userId = z.string().min(1).parse(req.query.userId);
   const selected = await userService.get(userId);
   if (!selected || !selected.IsActive) throw new HttpError(403, 'Select an active user.');
@@ -57,6 +96,7 @@ router.get('/session', asyncHandler(async (req, res) => {
     name: selected.DisplayName,
     roles: [...roles],
     departmentId: selected.Department ?? undefined,
+    authProvider: 'dev',
   };
   res.json({ token: signToken(authUser), user: authUser });
 }));
@@ -77,6 +117,7 @@ router.post('/view-as', authenticate, requireRole('admin'), asyncHandler(async (
     name: String(record[P.name] ?? 'Selected person'),
     roles: parsePersonRoles(record[P.role]),
     departmentId: record[P.departmentId] ? String(record[P.departmentId]) : undefined,
+    authProvider: req.user?.authProvider,
   };
   res.json({ viewAsToken: signViewAsToken(user), user });
 }));

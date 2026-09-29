@@ -31,7 +31,7 @@ export default function PersonEditPage() {
   const current = person.data;
   const directory = useQuery({
     queryKey: ['users', isNew ? userSearch : current?.email],
-    queryFn: () => usersApi.search(isNew ? userSearch : current!.email!),
+    queryFn: () => usersApi.searchDirectory(isNew ? userSearch : current!.email!),
     enabled: isNew ? userSearch.length > 2 : Boolean(current?.email),
   });
 
@@ -84,7 +84,7 @@ export default function PersonEditPage() {
     save.mutate({
       name: selectedDirectoryUser?.fullName ?? text('name'),
       email: email || undefined,
-      userId: directoryUserId || undefined,
+      userId: selectedDirectoryUser?.userId || undefined,
       departmentId: departmentId || undefined,
       ...(canEditSite ? { siteId: siteId || undefined } : {}),
       employmentType: text('employmentType'),
@@ -121,7 +121,7 @@ export default function PersonEditPage() {
           {isNew && (
             <div className="grid cols-2">
               <div className="field">
-                <label htmlFor="userSearch">Search directory (read-only User table)</label>
+                <label htmlFor="userSearch">Search Microsoft Entra directory</label>
                 <input
                   id="userSearch"
                   value={userSearch}
@@ -130,7 +130,7 @@ export default function PersonEditPage() {
                 />
               </div>
               <div className="field">
-                <label htmlFor="userId">Linked directory user</label>
+                <label htmlFor="userId">Directory person</label>
                 <select id="userId" name="userId" value={directoryUserId} onChange={(event) => setDirectoryUserId(event.target.value)}>
                   <option value="">— not linked —</option>
                   {directory.data?.map((entry) => (
@@ -139,6 +139,7 @@ export default function PersonEditPage() {
                     </option>
                   ))}
                 </select>
+                {directory.isError && <p className="field-error">Directory search failed: {errorMessage(directory.error)}</p>}
               </div>
             </div>
           )}
