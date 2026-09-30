@@ -70,7 +70,6 @@ export default function GovernancePage() {
     {
       key: 'shortTitle',
       label: 'Short title',
-      width: '50%',
       value: (row) => row.shortTitle ?? row.title,
       render: (row) => (
         <Link className="record-link" to={`/governance/item/${row.id}`}>{row.shortTitle ?? row.title ?? 'Untitled'}</Link>

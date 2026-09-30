@@ -187,6 +187,26 @@ router.get('/auth/session', (req, res) => {
 
 router.use(authenticate);
 
+router.post('/auth/refresh', asyncHandler(async (req, res) => {
+  const selectedUser = dataService.findUser(req.user?.userId ?? '');
+  const person = selectedUser ? dataService.find('people', selectedUser.UserId) : undefined;
+  if (!selectedUser || !selectedUser.Active || !person) throw new HttpError(403, 'Your account is not linked to an active ClearPath user.');
+
+  const roles = new Set(parsePersonRoles(person.role));
+  if (env.adminEmails.includes(selectedUser.Email.toLowerCase())) roles.add('admin');
+  if (env.portfolioManagerEmails.includes(selectedUser.Email.toLowerCase())) roles.add('portfolio_manager');
+  const user = {
+    userId: selectedUser.UserId,
+    personId: person.id,
+    email: selectedUser.Email,
+    name: selectedUser.DisplayName,
+    roles: [...roles],
+    departmentId: person.departmentId,
+    authProvider: req.user?.authProvider ?? 'dev' as const,
+  };
+  res.json({ token: signToken(user), user });
+}));
+
 const scopedSite = (req: Request) => viewSiteId(req.user, typeof req.headers['x-clearpath-site'] === 'string' ? req.headers['x-clearpath-site'] : undefined);
 const atSite = (siteId: string | undefined, visibleSite: string | undefined) => !visibleSite || siteId?.toLowerCase() === visibleSite.toLowerCase();
 

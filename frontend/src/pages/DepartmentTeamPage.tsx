@@ -21,7 +21,8 @@ import type { CapacityRow, DemandRow, NonProjectDemandRow, Person } from '../typ
 
 const WEEKS = 104;
 const MAX_HOURS = 60;
-type DepartmentWorkspaceTab = 'overview' | 'team' | 'availability' | 'assignments' | 'kpis' | 'risk' | 'analytics';
+type DepartmentWorkspaceTab = 'overview' | 'team' | 'availability' | 'assignments' | 'kpis' | 'risk' | 'analytics' | 'change-log' | 'project-changes';
+type DepartmentLogEntry = { id: string; message: string; actorName: string; createdAt: string };
 
 function formatWholeNumber(value: number) {
   return Math.round(value).toLocaleString('en-US');
@@ -74,7 +75,31 @@ export default function DepartmentTeamPage() {
   const [departmentView, setDepartmentView] = useState<'details' | 'heatmap'>('details');
   const [teamOverviewCollapsed, setTeamOverviewCollapsed] = useState(false);
   const [analyticsCollapsed, setAnalyticsCollapsed] = useState(true);
+  const [changeLog, setChangeLog] = useState<DepartmentLogEntry[]>(() => {
+    try {
+      return (JSON.parse(localStorage.getItem(`clearpath-department-change-log-${id}`) ?? '[]') as DepartmentLogEntry[])
+        .filter((entry) => !/ added .* to | removed .* from /.test(entry.message));
+    } catch { return []; }
+  });
+  const [projectChanges, setProjectChanges] = useState<DepartmentLogEntry[]>(() => {
+    try { return JSON.parse(localStorage.getItem(`clearpath-department-project-changes-${id}`) ?? '[]') as DepartmentLogEntry[]; } catch { return []; }
+  });
   const gridRef = useRef<HTMLTableElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem(`clearpath-department-change-log-${id}`, JSON.stringify(changeLog));
+  }, [id, changeLog]);
+  useEffect(() => {
+    localStorage.setItem(`clearpath-department-project-changes-${id}`, JSON.stringify(projectChanges));
+  }, [id, projectChanges]);
+
+  function addChangeLogEntry(message: string) {
+    setChangeLog((current) => [{ id: `${Date.now()}-${current.length}`, message, actorName: user?.name ?? 'You', createdAt: new Date().toISOString() }, ...current]);
+  }
+
+  function addProjectChange(message: string) {
+    setProjectChanges((current) => [{ id: `${Date.now()}-${current.length}`, message, actorName: user?.name ?? 'You', createdAt: new Date().toISOString() }, ...current]);
+  }
 
   const department = useQuery({
     queryKey: ['department', id],
@@ -214,6 +239,13 @@ export default function DepartmentTeamPage() {
     return counts;
   }, [allDemand.data, nonProjectDemand.data]);
 
+  const departmentProjectAssignments = useMemo(() => {
+    const teamIds = new Set(rows.map((row) => row.personId?.toLowerCase()).filter(Boolean));
+    return (allDemand.data ?? [])
+      .filter((row) => row.personId && teamIds.has(row.personId.toLowerCase()) && row.isActive !== false && row.weeks.some((hours) => hours > 0))
+      .map((row) => ({ id: row.id, personName: row.personName ?? 'Unassigned', projectName: row.projectName ?? 'Unnamed project' }));
+  }, [allDemand.data, rows]);
+
   /** Per-person overallocation across the weeks shown in the table. */
   function overallocationFor(row: CapacityRow, demandWeeks: number[], horizon = WEEKS) {
     let weeksOver = 0;
@@ -282,7 +314,7 @@ export default function DepartmentTeamPage() {
   });
 
   const setDemandWeek = useMutation({
-    mutationFn: ({ demandId, week, hours }: { demandId: string; week: number; hours: number }) =>
+    mutationFn: ({ demandId, week, hours }: { demandId: string; week: number; hours: number; personName?: string }) =>
       demandApi.setWeeks(demandId, { week, hours }),
     onSuccess: (_result, variables) => {
       queryClient.setQueryData<DemandRow[]>(['demand', 'all'], (current) =>
@@ -292,6 +324,7 @@ export default function DepartmentTeamPage() {
             : row,
         ),
       );
+      addChangeLogEntry(`${user?.name ?? 'Someone'} updated demand for ${variables.personName ?? 'a team member'}`);
     },
     onError: (err) => setError(errorMessage(err)),
   });
@@ -316,6 +349,7 @@ export default function DepartmentTeamPage() {
     onSuccess: () => {
       setAdding(false);
       setError(null);
+      addChangeLogEntry(`${user?.name ?? 'Someone'} added a person to the department`);
       queryClient.invalidateQueries({ queryKey: capacityKey });
     },
     onError: (err) => setError(errorMessage(err)),
@@ -337,9 +371,12 @@ export default function DepartmentTeamPage() {
 
   const addAssignment = useMutation({
     mutationFn: (body: { projectId: string; personId: string }) => demandApi.create(body),
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       setAddingAssignment(false);
       setError(null);
+      const projectName = projects.data?.find((project) => project.id === variables.projectId)?.name ?? 'the project';
+      const personName = peopleById.get(variables.personId.toLowerCase())?.name ?? 'a person';
+      addProjectChange(`${user?.name ?? 'Someone'} added ${personName} to ${projectName}`);
       queryClient.invalidateQueries({ queryKey: ['demand', 'all'] });
     },
     onError: (err) => setError(errorMessage(err)),
@@ -382,7 +419,10 @@ export default function DepartmentTeamPage() {
   const setRowActive = useMutation({
     mutationFn: ({ capacityId, isActive }: { capacityId: string; isActive: boolean }) =>
       capacityApi.update(capacityId, { isActive }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: capacityKey }),
+    onSuccess: (_result, variables) => {
+      if (!variables.isActive) addChangeLogEntry(`${user?.name ?? 'Someone'} removed a person from the department`);
+      queryClient.invalidateQueries({ queryKey: capacityKey });
+    },
     onError: (err) => setError(errorMessage(err)),
   });
 
@@ -429,6 +469,7 @@ export default function DepartmentTeamPage() {
     mutationFn: () => departmentsApi.update(id, { lastCheckIn: new Date().toISOString().slice(0, 10) }),
     onSuccess: () => {
       setReviewChecklistOpen(false);
+      addChangeLogEntry(`${user?.name ?? 'Someone'} performed a periodic review`);
       queryClient.invalidateQueries({ queryKey: ['department', id] });
     },
     onError: (err) => setError(errorMessage(err)),
@@ -461,7 +502,7 @@ export default function DepartmentTeamPage() {
       return next;
     });
     const hours = Math.max(0, Math.min(MAX_HOURS, Math.round(Number(raw) || 0)));
-    if (hours !== currentHours) setDemandWeek.mutate({ demandId, week, hours });
+    if (hours !== currentHours) setDemandWeek.mutate({ demandId, week, hours, personName: allDemand.data?.find((row) => row.id === demandId)?.personName });
   }
 
   function commitNonProjectDemand(demandId: string, currentHours: number, week: number, raw: string) {
@@ -825,6 +866,8 @@ export default function DepartmentTeamPage() {
           ['risk', 'Risks'],
           ['kpis', 'Group Workload'],
           ['analytics', 'Analytics'],
+          ['change-log', 'Change Log'],
+          ['project-changes', 'Project Changes'],
         ] as Array<[DepartmentWorkspaceTab, string]>).map(([tab, label]) => (
           <button
             key={tab}
@@ -852,6 +895,40 @@ export default function DepartmentTeamPage() {
       </div>
 
       {error && <div className="alert error">{error}</div>}
+
+      {activeTab === 'change-log' && (
+        <section className="card project-timeline-panel">
+          <h2>Change Log</h2>
+          {changeLog.length === 0 ? <p className="muted">No department changes recorded in this session.</p> : (
+            <div className="project-timeline-list">
+              {changeLog.map((entry) => (
+                <article className="project-timeline-entry" key={entry.id}>
+                  <time dateTime={entry.createdAt}>{formatDate(entry.createdAt)}</time>
+                  <p>{entry.message}</p>
+                  {user?.roles.includes('admin') && <button type="button" onClick={() => setChangeLog((current) => current.filter((item) => item.id !== entry.id))}>Delete</button>}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {activeTab === 'project-changes' && (
+        <section className="card project-timeline-panel">
+          <h2>Project Changes</h2>
+          {projectChanges.length === 0 ? <p className="muted">No project team changes recorded in this session.</p> : (
+            <div className="project-timeline-list">
+              {projectChanges.map((entry) => (
+                <article className="project-timeline-entry" key={entry.id}>
+                  <time dateTime={entry.createdAt}>{formatDate(entry.createdAt)}</time>
+                  <p>{entry.message}</p>
+                  {user?.roles.includes('admin') && <button type="button" onClick={() => setProjectChanges((current) => current.filter((item) => item.id !== entry.id))}>Delete</button>}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {activeTab === 'overview' && (
         <div className="department-overview-layout">
@@ -919,6 +996,21 @@ export default function DepartmentTeamPage() {
               <button type="button" className="primary" onClick={() => selectWorkspaceTab('availability')}>Plan availability</button>
               <button type="button" onClick={() => selectWorkspaceTab('assignments')}>Review assignments</button>
             </div>
+          </section>
+
+          <section className="card department-project-assignments">
+            <div className="project-overview-heading">
+              <div>
+                <h2>Project assignments</h2>
+                <p className="muted">Active project assignments for people on this team.</p>
+              </div>
+              <button type="button" onClick={() => selectWorkspaceTab('assignments')}>View all</button>
+            </div>
+            {departmentProjectAssignments.length === 0 ? <p className="muted">No active project assignments.</p> : (
+              <ul className="department-project-assignment-list">
+                {departmentProjectAssignments.slice(0, 8).map((assignment) => <li key={assignment.id}><strong>{assignment.personName}</strong><span>{assignment.projectName}</span></li>)}
+              </ul>
+            )}
           </section>
         </div>
       )}

@@ -3,6 +3,9 @@ import path from 'node:path';
 import { completedStagesOnTransition } from '../services/requestWorkflow';
 
 const WORKFLOW_FILE = 'request_workflow_completions.csv';
+const CSV_WRITE_ATTEMPTS = 10;
+const CSV_WRITE_RETRY_DELAY_MS = 3000;
+const csvWriteRetryBuffer = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
 
 export type CsvRow = Record<string, string>;
 
@@ -275,6 +278,7 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
   const projects = projectRecords.map(({ row, id, name }) => ({
     id,
     name: name ?? 'Unnamed project',
+    siteId: sitesIndex.get(value(row, 'cr714_site', 'new_siteid', '_new_siteid_value')),
     code: value(row, 'new_projectcode', 'new_code'),
     started: booleanValue(row, 'cr714_started', 'new_started'),
     spotId: value(row, 'new_spotid'),
@@ -865,8 +869,8 @@ export class CsvDataService {
       this.sourceRows.set(file, rows);
       this.writeRows(file, rows);
     } catch (error) {
-      // Never let CSV persistence failures break an otherwise-successful in-memory edit.
-      console.warn(`Could not persist ${collection} record; the change is kept in memory only.`, error);
+      console.error(`Could not persist ${collection} record to its demo CSV.`, error);
+      throw error;
     }
   }
 
@@ -966,11 +970,19 @@ export class CsvDataService {
     if (!this.directory || !headers.length) return;
     const quote = (value: string) => /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
     const text = [headers.join(','), ...rows.map((row) => headers.map((header) => quote(row[header] ?? '')).join(','))].join('\n') + '\n';
-    try {
-      fs.writeFileSync(path.join(this.directory, file), text, 'utf8');
-    } catch (error) {
-      // Edits still apply in-memory for the session even if the CSV is locked (e.g. open in Excel).
-      console.warn(`Could not write ${file} back to disk; the change is kept in memory only.`, error);
+    const filePath = path.join(this.directory, file);
+    for (let attempt = 1; attempt <= CSV_WRITE_ATTEMPTS; attempt += 1) {
+      try {
+        fs.writeFileSync(filePath, text, 'utf8');
+        return;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (!['EBUSY', 'EPERM'].includes(code ?? '') || attempt === CSV_WRITE_ATTEMPTS) {
+          console.error(`Could not write ${file} back to disk after ${attempt} attempt${attempt === 1 ? '' : 's'}.`, error);
+          throw error;
+        }
+        Atomics.wait(csvWriteRetryBuffer, 0, 0, CSV_WRITE_RETRY_DELAY_MS);
+      }
     }
   }
 

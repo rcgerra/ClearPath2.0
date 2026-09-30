@@ -64,7 +64,7 @@ export default function PersonDemandChart({
   const y = (value: number) => PAD_TOP + plotHeight - scale(value);
 
   const ticks = [0, 0.5, 1].map((fraction) => Math.round(peak * fraction));
-  const labelEvery = weeks > 60 ? 8 : 4;
+  const labelEvery = weeks < 52 ? 1 : weeks === 104 ? 3 : 2;
 
   const stepPoints = Array.from({ length: weeks }, (_, index) => {
     const x = PAD_LEFT + index * colWidth;

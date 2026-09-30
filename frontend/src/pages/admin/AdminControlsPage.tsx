@@ -52,8 +52,8 @@ export default function AdminControlsPage() {
     setIsStarting(true);
     try {
       const session = await authApi.viewAs(personId);
-      queryClient.clear();
       startViewingAs(session.viewAsToken, session.user);
+      queryClient.clear();
       navigate('/');
     } catch (cause) {
       setError(errorMessage(cause));

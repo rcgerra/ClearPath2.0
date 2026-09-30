@@ -6,11 +6,11 @@ import DataTable, { Column } from '../components/admin/DataTable';
 import ListToolbar from '../components/admin/ListToolbar';
 import PersonCell from '../components/admin/PersonCell';
 import RowLegend from '../components/admin/RowLegend';
-import ScheduleHealthBadge from '../components/ScheduleHealthBadge';
 import { useAuthStore } from '../store/authStore';
 import { filterByScope, OwnershipScope, rowClassName } from '../utils/ownership';
 import { canEditProject } from '../utils/permissions';
 import { formatDate } from '../utils/dates';
+import { formatCount } from '../utils/format';
 import { calculateProjectScheduleHealth } from '../utils/projectSchedule';
 import { useSiteAccess } from '../utils/useSiteAccess';
 import type { Project } from '../types';
@@ -31,28 +31,17 @@ function demandTotal(weeks: number[]): number {
   return Object.keys(weeks).reduce((total, key) => total + (Number(weeks[Number(key)]) || 0), 0);
 }
 
-function demandToDate(weeks: number[]): number {
-  return Object.keys(weeks).reduce((total, key) => {
-    const week = Number(key);
-    return total + (week < 0 ? Number(weeks[week]) || 0 : 0);
-  }, 0);
-}
-
 interface ProjectKpis {
   teamMembers: number;
-  demandToDate: number;
   totalDemand: number;
   peopleOverAllocated: number;
-  weeksOverAllocated: number;
   hoursOverAllocated: number;
 }
 
 const EMPTY_KPIS: ProjectKpis = {
   teamMembers: 0,
-  demandToDate: 0,
   totalDemand: 0,
   peopleOverAllocated: 0,
-  weeksOverAllocated: 0,
   hoursOverAllocated: 0,
 };
 
@@ -94,11 +83,10 @@ export default function ProjectsPage() {
   }, [allDemand.data, allNonProjectDemand.data]);
 
   const projectDemandByProject = useMemo(() => {
-    const map = new Map<string, { demandToDate: number; totalDemand: number }>();
+    const map = new Map<string, { totalDemand: number }>();
     for (const row of allDemand.data ?? []) {
       if (!row.projectId) continue;
-      const current = map.get(row.projectId) ?? { demandToDate: 0, totalDemand: 0 };
-      current.demandToDate += demandToDate(row.weeks);
+      const current = map.get(row.projectId) ?? { totalDemand: 0 };
       current.totalDemand += demandTotal(row.weeks);
       map.set(row.projectId, current);
     }
@@ -124,11 +112,9 @@ export default function ProjectsPage() {
       const kpis: ProjectKpis = {
         ...EMPTY_KPIS,
         teamMembers: memberIds.size,
-        demandToDate: projectDemandByProject.get(project.id)?.demandToDate ?? 0,
         totalDemand: projectDemandByProject.get(project.id)?.totalDemand ?? 0,
       };
 
-      const overAllocatedWeeks = new Set<number>();
       for (const key of memberIds) {
         const availability = capacityByPerson.get(key) ?? emptyWeeks();
         const demand = demandByPerson.get(key) ?? emptyWeeks();
@@ -136,7 +122,6 @@ export default function ProjectsPage() {
         for (let week = 0; week < KPI_WEEKS; week += 1) {
           const over = (demand[week] ?? 0) - (availability[week] ?? 0);
           if (over > 0) {
-            overAllocatedWeeks.add(week);
             kpis.hoursOverAllocated += over;
             personIsOverAllocated = true;
           }
@@ -144,7 +129,6 @@ export default function ProjectsPage() {
         if (personIsOverAllocated) kpis.peopleOverAllocated += 1;
       }
 
-      kpis.weeksOverAllocated = overAllocatedWeeks.size;
       map.set(project.id, kpis);
     }
 
@@ -172,14 +156,19 @@ export default function ProjectsPage() {
       key: 'name',
       label: 'Project name',
       value: (row) => row.name,
-      render: (row) => (
-        <span className="name-cell">
-          <Link to={`/projects/${row.id}`} className="record-link">
-            {row.name}
-          </Link>
-          {row.started === false && <span className="pill pill-not-started">Not started</span>}
-        </span>
-      ),
+      render: (row) => {
+        const health = scheduleHealthByProject.get(row.id);
+        const isAtRisk = health?.status === 'at-risk' || health?.status === 'late';
+        return (
+          <span className="name-cell">
+            <Link to={`/projects/${row.id}`} className="record-link">
+              {row.name}
+            </Link>
+            {isAtRisk && <span className="project-risk-warning" role="img" aria-label="At risk" title="At risk">!</span>}
+            {row.started === false && <span className="pill pill-not-started">Not started</span>}
+          </span>
+        );
+      },
     },
     {
       key: 'spotId',
@@ -190,7 +179,7 @@ export default function ProjectsPage() {
     },
     {
       key: 'priorityScore',
-      label: 'Rating',
+      label: 'Priority',
       width: '92px',
       value: (row) => row.priorityScore,
       render: (row) => {
@@ -225,38 +214,17 @@ export default function ProjectsPage() {
     },
     {
       key: 'totalDemand',
-      label: 'Total demand',
-      width: '92px',
+      label: 'Hours',
+      width: '160px',
       value: (row) => kpisByProject.get(row.id)?.totalDemand ?? 0,
-    },
-    {
-      key: 'weeksOver',
-      label: 'Wks over',
-      width: '72px',
-      value: (row) => kpisByProject.get(row.id)?.weeksOverAllocated ?? 0,
       render: (row) => {
-        const value = kpisByProject.get(row.id)?.weeksOverAllocated ?? 0;
-        return <span style={{ color: value > 0 ? 'var(--danger)' : undefined }}>{value}</span>;
-      },
-    },
-    {
-      key: 'hoursOver',
-      label: 'Hrs over',
-      width: '72px',
-      value: (row) => kpisByProject.get(row.id)?.hoursOverAllocated ?? 0,
-      render: (row) => {
-        const value = kpisByProject.get(row.id)?.hoursOverAllocated ?? 0;
-        return <span style={{ color: value > 0 ? 'var(--danger)' : undefined }}>{value}</span>;
-      },
-    },
-    {
-      key: 'scheduleHealth',
-      label: 'Schedule',
-      width: '108px',
-      value: (row) => scheduleHealthByProject.get(row.id)?.label ?? '',
-      render: (row) => {
-        const health = scheduleHealthByProject.get(row.id);
-        return health ? <ScheduleHealthBadge health={health} /> : '—';
+        const kpis = kpisByProject.get(row.id) ?? EMPTY_KPIS;
+        const estimatedToDate = Math.round(scheduleHealthByProject.get(row.id)?.expectedDemandToDate ?? 0);
+        return (
+          <span title="Estimated cumulative hours to date based on the project schedule">
+            {formatCount(estimatedToDate)} / {formatCount(kpis.totalDemand)}
+          </span>
+        );
       },
     },
     {
@@ -312,9 +280,9 @@ export default function ProjectsPage() {
           initialSortKey="name"
           isLoading={projects.isLoading}
           emptyMessage="No projects match the current filters."
+          footer={<RowLegend />}
         />
       </div>
-      <RowLegend />
       <ListToolbar
         search={search}
         onSearch={setSearch}

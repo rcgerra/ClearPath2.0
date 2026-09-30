@@ -10,9 +10,10 @@ interface Props {
   personValue?: boolean;
   required?: boolean;
   searchable?: boolean;
+  nameOnly?: boolean;
 }
 
-export default function UserSelect({ id, name, label, defaultValue = '', personValue = false, required = false, searchable = true }: Props) {
+export default function UserSelect({ id, name, label, defaultValue = '', personValue = false, required = false, searchable = true, nameOnly = false }: Props) {
   const [search, setSearch] = useState('');
   const users = useQuery({
     queryKey: ['users', 'lookup', search],
@@ -45,7 +46,7 @@ export default function UserSelect({ id, name, label, defaultValue = '', personV
           if (!value) return null;
           return (
             <option key={value} value={value}>
-              {user.fullName}{user.email ? ` (${user.email})` : ''}
+              {user.fullName}{!nameOnly && user.email ? ` (${user.email})` : ''}
             </option>
           );
         })}

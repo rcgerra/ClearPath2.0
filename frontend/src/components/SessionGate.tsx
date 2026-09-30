@@ -1,10 +1,53 @@
 import { FormEvent, ReactNode, useEffect, useState } from 'react';
-import { PublicClientApplication } from '@azure/msal-browser';
+import { PublicClientApplication, type AuthenticationResult } from '@azure/msal-browser';
 import { useQuery } from '@tanstack/react-query';
 import { authApi, errorMessage } from '../api/client';
 import { useAuthStore } from '../store/authStore';
 
 const SESSION_USER_KEY = 'clearpath-selected-user';
+type EntraConfig = { tenantId: string; clientId: string };
+type EntraSession = Awaited<ReturnType<typeof authApi.entraLogin>>;
+
+let entraClientState: {
+  key: string;
+  client: PublicClientApplication;
+  initialized: Promise<void>;
+  redirectResult: Promise<AuthenticationResult | null> | null;
+  session: Promise<EntraSession | null> | null;
+} | null = null;
+
+function getEntraClient(config: EntraConfig) {
+  const key = `${config.tenantId}:${config.clientId}:${window.location.origin}`;
+  if (!entraClientState || entraClientState.key !== key) {
+    const client = new PublicClientApplication({
+      auth: {
+        clientId: config.clientId,
+        authority: `https://login.microsoftonline.com/${config.tenantId}`,
+        redirectUri: window.location.origin,
+      },
+      cache: { cacheLocation: 'sessionStorage' },
+    });
+    entraClientState = {
+      key,
+      client,
+      initialized: client.initialize(),
+      redirectResult: null,
+      session: null,
+    };
+  }
+  return entraClientState;
+}
+
+function completeEntraRedirect(config: EntraConfig) {
+  const state = getEntraClient(config);
+  state.session ??= state.initialized.then(async () => {
+    state.redirectResult ??= state.client.handleRedirectPromise();
+    const result = await state.redirectResult;
+    if (!result?.idToken) return null;
+    return authApi.entraLogin(result.idToken);
+  });
+  return state.session;
+}
 
 function SessionCard({ children }: { children: ReactNode }) {
   return (
@@ -19,7 +62,7 @@ function SessionCard({ children }: { children: ReactNode }) {
 
 /** Temporary passwordless user selection. TODO(Entra): replace with MSAL/Entra sign-in. */
 export default function SessionGate({ children }: { children: ReactNode }) {
-  const { token, user, setSession, logout } = useAuthStore();
+  const { token, user, viewingAs, setSession, logout } = useAuthStore();
   const [selectedUserId, setSelectedUserId] = useState(() => sessionStorage.getItem(SESSION_USER_KEY) ?? '');
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -28,8 +71,29 @@ export default function SessionGate({ children }: { children: ReactNode }) {
   const users = useQuery({ queryKey: ['auth-users', search], queryFn: () => authApi.users(search), enabled: !token && authConfig.data?.authMode === 'dev' });
 
   useEffect(() => {
-    if (authConfig.data?.authMode === 'entra' && token && user?.authProvider !== 'entra') logout();
-  }, [authConfig.data?.authMode, token, user?.authProvider, logout]);
+    const config = authConfig.data;
+    if (config?.authMode !== 'entra' || !config.tenantId || !config.clientId) return;
+    let cancelled = false;
+    setIsSigningIn(true);
+    completeEntraRedirect({ tenantId: config.tenantId, clientId: config.clientId })
+      .then((session) => {
+        if (!cancelled && session) {
+          sessionStorage.removeItem(SESSION_USER_KEY);
+          setSession(session.token, session.user);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setError(errorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setIsSigningIn(false);
+      });
+    return () => { cancelled = true; };
+  }, [authConfig.data?.authMode, authConfig.data?.tenantId, authConfig.data?.clientId, setSession]);
+
+  useEffect(() => {
+    if (authConfig.data?.authMode === 'entra' && token && !viewingAs && user?.authProvider !== 'entra') logout();
+  }, [authConfig.data?.authMode, token, viewingAs, user?.authProvider, logout]);
 
   useEffect(() => {
     if (!selectedUserId || token || authConfig.data?.authMode !== 'dev') return;
@@ -47,20 +111,9 @@ export default function SessionGate({ children }: { children: ReactNode }) {
     setIsSigningIn(true);
     setError(null);
     try {
-      const msal = new PublicClientApplication({
-        auth: {
-          clientId: config.clientId,
-          authority: `https://login.microsoftonline.com/${config.tenantId}`,
-          redirectUri: window.location.origin,
-        },
-        cache: { cacheLocation: 'sessionStorage' },
-      });
-      await msal.initialize();
-      const result = await msal.loginPopup({ scopes: ['openid', 'profile', 'email'], prompt: 'select_account' });
-      if (!result.idToken) throw new Error('Microsoft Entra did not return an ID token.');
-      const session = await authApi.entraLogin(result.idToken);
-      sessionStorage.removeItem(SESSION_USER_KEY);
-      setSession(session.token, session.user);
+      const msal = getEntraClient({ tenantId: config.tenantId, clientId: config.clientId });
+      await msal.initialized;
+      await msal.client.loginRedirect({ scopes: ['openid', 'profile', 'email'], prompt: 'select_account' });
     } catch (err) {
       setError(errorMessage(err));
     } finally {

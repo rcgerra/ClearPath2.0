@@ -42,6 +42,9 @@ export default function AccessListPage() {
         if (viewingAs) {
           const { viewAsToken, user: refreshedUser } = await authApi.viewAs(variables.id);
           startViewingAs(viewAsToken, refreshedUser);
+        } else if (user.authProvider === 'entra') {
+          const { token, user: refreshedUser } = await authApi.refresh();
+          setSession(token, refreshedUser);
         } else {
           const { token, user: refreshedUser } = await authApi.session(user.userId);
           setSession(token, refreshedUser);

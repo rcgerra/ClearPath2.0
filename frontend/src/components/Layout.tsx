@@ -271,7 +271,7 @@ export default function Layout() {
             </svg>
           ))}
         </div>
-        {user && (isAdmin || site) && (
+        {user && isAdmin && (
           <div className="app-site-selector">
             <label htmlFor="app-site-select">Site</label>
             {isAdmin ? (

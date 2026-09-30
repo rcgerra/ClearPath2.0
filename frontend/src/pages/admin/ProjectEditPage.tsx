@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { departmentsApi, errorMessage, lookupsApi, projectsApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
 import UserSelect from '../../components/admin/UserSelect';
+import { useAuthStore } from '../../store/authStore';
 import { useSiteAccess } from '../../utils/useSiteAccess';
 
 const STATUSES = ['Intake', 'Planning', 'Active', 'On hold', 'Complete', 'Cancelled'];
@@ -14,12 +15,21 @@ function dateInputValue(value?: string): string {
   return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
 }
 
+function appendProjectTimeline(projectId: string, message: string, actorName: string) {
+  const key = `clearpath-project-timeline-${projectId}`;
+  let entries: Array<{ id: string; message: string; actorName: string; createdAt: string }> = [];
+  try { entries = JSON.parse(localStorage.getItem(key) ?? '[]'); } catch { entries = []; }
+  entries.unshift({ id: `${Date.now()}-${entries.length}`, message, actorName, createdAt: new Date().toISOString() });
+  localStorage.setItem(key, JSON.stringify(entries));
+}
+
 export default function ProjectEditPage() {
   const { id } = useParams();
   const isNew = !id || id === 'new';
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { admin, site } = useSiteAccess();
+  const user = useAuthStore((state) => state.user);
   const [error, setError] = useState<string | null>(null);
   // Shared by the admin and front-end routes; return to whichever view we came from.
   const inAdmin = useLocation().pathname.startsWith('/admin');
@@ -36,7 +46,12 @@ export default function ProjectEditPage() {
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       isNew ? projectsApi.create(body) : projectsApi.update(id!, body),
-    onSuccess: () => {
+    onSuccess: (result, body) => {
+      const actor = user?.name ?? 'Someone';
+      const projectId = isNew ? result.id : id!;
+      if (isNew) appendProjectTimeline(projectId, `${actor} created the project`, actor);
+      else if (body.status === 'Active' && project.data?.status !== 'Active') appendProjectTimeline(projectId, `${actor} started the project`, actor);
+      else if (body.isActive === false || body.status === 'Complete' || body.status === 'Cancelled') appendProjectTimeline(projectId, `${actor} closed the project`, actor);
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['project', id] });
       navigate(listPath);

@@ -9,6 +9,7 @@ interface Props {
   personId: string;
   canEdit: boolean;
   title?: string;
+  kicker?: string;
   subtitle?: string;
   compact?: boolean;
   /** Skip the built-in title/collapse toolbar when the page already shows this information in its own header. */
@@ -17,7 +18,7 @@ interface Props {
 }
 
 /** Assigned skills for a person, grouped by category, shown as bubbles you click to assign/unassign when `canEdit` is true. */
-export default function SkillsCard({ personId, canEdit, title = 'Skills', subtitle, compact = false, hideHeader = false, collapsible = true }: Props) {
+export default function SkillsCard({ personId, canEdit, title = 'Skills', kicker, subtitle, compact = false, hideHeader = false, collapsible = true }: Props) {
   const contentId = useId();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(false);
@@ -159,6 +160,7 @@ export default function SkillsCard({ personId, canEdit, title = 'Skills', subtit
   if (compact) {
     return (
       <div className="home-skill-cloud">
+        {kicker && <span className="home-section-kicker home-skill-cloud-kicker">{kicker}</span>}
         <div className="home-skill-cloud-header">
           <h2>{title}</h2>
           {canEdit && (

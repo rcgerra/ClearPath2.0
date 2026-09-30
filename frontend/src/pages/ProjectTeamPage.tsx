@@ -22,7 +22,10 @@ import type { DemandRow, Person } from '../types';
 const WEEKS = 104;
 const DEFAULT_WEEKS_TO_SHOW = 26;
 const MAX_HOURS = 60;
-type ProjectWorkspaceTab = 'overview' | 'team' | 'kpis' | 'risk' | 'details';
+type ProjectWorkspaceTab = 'overview' | 'team' | 'kpis' | 'risk' | 'details' | 'timeline';
+type DemandChange = { week: number; previous: number; next: number };
+type DemandChangeAudit = { actorName: string; personName: string; performedAt: string; changes: DemandChange[] };
+type TimelineEntry = { id: string; message: string; actorName: string; personName?: string; createdAt: string; changes?: DemandChange[] };
 
 function emptyWeeks() {
   return new Array(WEEKS).fill(0);
@@ -68,7 +71,54 @@ export default function ProjectTeamPage() {
   const [teamSortDirection, setTeamSortDirection] = useState<'asc' | 'desc'>('desc');
   const [teamDemandCollapsed, setTeamDemandCollapsed] = useState(false);
   const [analyticsCollapsed, setAnalyticsCollapsed] = useState(false);
+  const [timeline, setTimeline] = useState<TimelineEntry[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(`clearpath-project-timeline-${id}`) ?? '[]') as TimelineEntry[];
+    } catch {
+      return [];
+    }
+  });
+  const [demandChangeModal, setDemandChangeModal] = useState<DemandChangeAudit[] | null>(null);
   const gridRef = useRef<HTMLTableElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem(`clearpath-project-timeline-${id}`, JSON.stringify(timeline));
+  }, [id, timeline]);
+
+  function addTimelineEntry(message: string, changes?: DemandChange[], personName?: string) {
+    setTimeline((current) => {
+      if (changes) {
+        const existing = current.find((entry) => entry.message === message && entry.changes);
+        if (existing) {
+          return current.map((entry) => entry.id === existing.id
+            ? { ...entry, changes: [...(entry.changes ?? []), ...changes], createdAt: new Date().toISOString() }
+            : entry);
+        }
+      }
+      return [{
+      id: `${Date.now()}-${current.length}`,
+      message,
+      actorName: user?.name ?? 'You',
+      personName,
+      createdAt: new Date().toISOString(),
+      changes,
+      }, ...current];
+    });
+  }
+
+  function removeTimelineEntry(entryId: string) {
+    setTimeline((current) => current.filter((entry) => entry.id !== entryId));
+  }
+
+  function addDepartmentProjectChange(message: string) {
+    const departmentId = project.data?.departmentId;
+    if (!departmentId) return;
+    const key = `clearpath-department-project-changes-${departmentId}`;
+    let entries: Array<{ id: string; message: string; actorName: string; createdAt: string }> = [];
+    try { entries = JSON.parse(localStorage.getItem(key) ?? '[]'); } catch { entries = []; }
+    entries.unshift({ id: `${Date.now()}-${entries.length}`, message, actorName: user?.name ?? 'You', createdAt: new Date().toISOString() });
+    localStorage.setItem(key, JSON.stringify(entries));
+  }
 
   const project = useQuery({ queryKey: ['project', id], queryFn: () => projectsApi.get(id), enabled: Boolean(id) });
   const team = useQuery({ queryKey: ['project-team', id], queryFn: () => projectsApi.team(id), enabled: Boolean(id) });
@@ -126,7 +176,7 @@ export default function ProjectTeamPage() {
   }, [rows]);
 
   const setWeek = useMutation({
-    mutationFn: ({ demandId, week, hours }: { demandId: string; week: number; hours: number }) =>
+    mutationFn: ({ demandId, week, hours }: { demandId: string; week: number; hours: number; previous: number; personName?: string }) =>
       demandApi.setWeeks(demandId, { week, hours }),
     onSuccess: (_result, variables) => {
       // .map() only visits real 0..length-1 indices, so it silently drops look-back (negative) weeks.
@@ -140,6 +190,12 @@ export default function ProjectTeamPage() {
         }),
       );
       queryClient.invalidateQueries({ queryKey: ['demand', 'all'] });
+      if (user?.personId?.toLowerCase() !== project.data?.managerPersonId?.toLowerCase()) {
+        const changes = [{ week: variables.week, previous: variables.previous, next: variables.hours }];
+        const actorName = user?.name ?? 'Someone';
+        const personName = variables.personName ?? 'a team member';
+        addTimelineEntry(`${actorName} updated demand for ${personName}`, changes, personName);
+      }
     },
     onError: (err) => setError(errorMessage(err)),
   });
@@ -147,10 +203,13 @@ export default function ProjectTeamPage() {
   const addPerson = useMutation({
     mutationFn: (body: { personId: string; functionId?: string; weeks?: number[] }) =>
       demandApi.create({ projectId: id, ...body }),
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       setAdding(false);
       setDuplicating(null);
       setError(null);
+      const personName = peopleById.get(variables.personId.toLowerCase())?.name ?? 'a person';
+      addTimelineEntry(`${user?.name ?? 'Someone'} added ${personName} to ${project.data?.name ?? 'the project'}`);
+      addDepartmentProjectChange(`${user?.name ?? 'Someone'} added ${personName} to ${project.data?.name ?? 'the project'}`);
       queryClient.invalidateQueries({ queryKey: teamKey });
       queryClient.invalidateQueries({ queryKey: ['demand', 'all'] });
     },
@@ -158,9 +217,14 @@ export default function ProjectTeamPage() {
   });
 
   const setRowActive = useMutation({
-    mutationFn: ({ demandId, isActive }: { demandId: string; isActive: boolean }) =>
+    mutationFn: ({ demandId, isActive }: { demandId: string; isActive: boolean; personName?: string }) =>
       demandApi.update(demandId, { isActive }),
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
+      if (!variables.isActive) {
+        const message = `${user?.name ?? 'Someone'} removed ${variables.personName ?? 'a person'} from ${project.data?.name ?? 'the project'}`;
+        addTimelineEntry(message);
+        addDepartmentProjectChange(message);
+      }
       queryClient.invalidateQueries({ queryKey: teamKey });
       queryClient.invalidateQueries({ queryKey: ['demand', 'all'] });
     },
@@ -171,6 +235,7 @@ export default function ProjectTeamPage() {
     mutationFn: () => projectsApi.update(id, { lastCheckIn: new Date().toISOString().slice(0, 10) }),
     onSuccess: () => {
       setReviewChecklistOpen(false);
+      addTimelineEntry(`${user?.name ?? 'Someone'} performed a periodic review`);
       queryClient.invalidateQueries({ queryKey: ['project', id] });
     },
     onError: (err) => setError(errorMessage(err)),
@@ -267,7 +332,7 @@ export default function ProjectTeamPage() {
       return next;
     });
     const hours = Math.max(0, Math.min(MAX_HOURS, Math.round(Number(raw) || 0)));
-    if (hours !== (row.weeks[week] ?? 0)) setWeek.mutate({ demandId: row.id, week, hours });
+    if (hours !== (row.weeks[week] ?? 0)) setWeek.mutate({ demandId: row.id, week, hours, previous: row.weeks[week] ?? 0, personName: row.personName });
   }
 
   /** Arrow keys and Enter move between cells, like a spreadsheet. */
@@ -468,6 +533,7 @@ export default function ProjectTeamPage() {
           ['kpis', 'KPIs'],
           ['risk', 'Risk'],
           ['details', 'Project details'],
+          ['timeline', 'Change Log'],
         ] as Array<[ProjectWorkspaceTab, string]>).map(([tab, label]) => (
           <button
             key={tab}
@@ -495,6 +561,48 @@ export default function ProjectTeamPage() {
       </div>
 
       {error && <div className="alert error">{error}</div>}
+
+      {activeTab === 'timeline' && (
+        <section className="card project-timeline-panel">
+          <h2>Project Timeline</h2>
+          {timeline.length === 0 ? <p className="muted">No project changes recorded in this session.</p> : (
+            <div className="project-timeline-list">
+              {timeline.map((entry) => (
+                <article className="project-timeline-entry" key={entry.id}>
+                  <time dateTime={entry.createdAt}>{formatDate(entry.createdAt)}</time>
+                  <p>{entry.message}</p>
+                  <div>
+                    {entry.changes && <button type="button" onClick={() => setDemandChangeModal([{ actorName: entry.actorName, personName: entry.personName ?? 'a team member', performedAt: entry.createdAt, changes: entry.changes ?? [] }])}>Details</button>}
+                    {user?.roles.includes('admin') && (
+                      <button type="button" className="project-timeline-delete" onClick={() => removeTimelineEntry(entry.id)} aria-label="Delete change log entry" title="Delete change log entry">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M9 7V4h6v3m-9 0 1 13h8l1-13" /></svg>
+                      </button>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {demandChangeModal && (
+        <SlideOverPanel open={Boolean(demandChangeModal)} title="Demand changes" onClose={() => setDemandChangeModal(null)}>
+          {demandChangeModal.map((audit) => (
+            <section key={`${audit.personName}-${audit.performedAt}`}>
+              <p><strong>{audit.actorName}</strong> updated demand for <strong>{audit.personName}</strong></p>
+              <p><strong>Performed:</strong> {formatDate(audit.performedAt)}</p>
+              <table className="data-table">
+                <thead><tr><th>Week changed</th><th>Previous</th><th>New</th><th>Amount changed</th></tr></thead>
+                <tbody>{audit.changes.map((change) => {
+                  const difference = change.next - change.previous;
+                  return <tr key={`${audit.performedAt}-${change.week}`}><td>{weekLabel(change.week)}</td><td>{change.previous} h</td><td>{change.next} h</td><td>{difference > 0 ? '+' : ''}{difference} h</td></tr>;
+                })}</tbody>
+              </table>
+            </section>
+          ))}
+        </SlideOverPanel>
+      )}
 
       {activeTab === 'overview' && (
         <div className="project-overview-layout">
@@ -667,6 +775,7 @@ export default function ProjectTeamPage() {
                 name="personId"
                 label={duplicating ? `Copy ${duplicating.personName ?? 'this row'}'s hours to` : 'Person'}
                 personValue
+                nameOnly
                 required
               />
             </div>
@@ -822,7 +931,7 @@ export default function ProjectTeamPage() {
                                   reactivating ||
                                   window.confirm(`Inactivate ${row.personName ?? 'this person'} on this project team?`)
                                 ) {
-                                  setRowActive.mutate({ demandId: row.id, isActive: reactivating });
+                                  setRowActive.mutate({ demandId: row.id, isActive: reactivating, personName: row.personName });
                                 }
                               }}
                             >

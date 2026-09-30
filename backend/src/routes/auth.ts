@@ -101,6 +101,29 @@ router.get('/session', asyncHandler(async (req, res) => {
   res.json({ token: signToken(authUser), user: authUser });
 }));
 
+router.post('/refresh', authenticate, asyncHandler(async (req, res) => {
+  const selected = await userService.findActiveByEmail(req.user?.email ?? '');
+  if (!selected) throw new HttpError(403, 'Your account is not linked to an active ClearPath user.');
+
+  const roles = new Set(parseRoles(req.user?.email ?? ''));
+  if (selected.LegacyDataverseId) {
+    const P = COLUMNS.people;
+    const person = await dv.retrieve('people', selected.LegacyDataverseId, { select: [P.role] }) as Record<string, unknown>;
+    for (const role of parsePersonRoles(person[P.role])) roles.add(role);
+  }
+
+  const authUser: AuthUser = {
+    userId: String(selected.UserId),
+    personId: selected.LegacyDataverseId ?? undefined,
+    email: selected.Email ?? req.user?.email ?? '',
+    name: selected.DisplayName,
+    roles: [...roles],
+    departmentId: selected.Department ?? undefined,
+    authProvider: req.user?.authProvider,
+  };
+  res.json({ token: signToken(authUser), user: authUser });
+}));
+
 router.post('/view-as', authenticate, requireRole('admin'), asyncHandler(async (req, res) => {
   const personId = z.string().min(1).parse(req.body?.personId);
   const P = COLUMNS.people;

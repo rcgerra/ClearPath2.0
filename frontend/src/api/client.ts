@@ -58,6 +58,7 @@ export const authApi = {
   config: () => api.get<{ authMode: 'dev' | 'entra'; tenantId?: string; clientId?: string }>('/auth/config').then((r) => r.data),
   users: (search?: string) => api.get<DirectoryUser[]>('/auth/users', { params: { search } }).then((r) => r.data),
   session: (userId: string) => api.get<{ token: string; user: AuthUser }>('/auth/session', { params: { userId } }).then((r) => r.data),
+  refresh: () => api.post<{ token: string; user: AuthUser }>('/auth/refresh').then((r) => r.data),
   entraLogin: (idToken: string) => api.post<{ token: string; user: AuthUser }>('/auth/entra', { idToken }).then((r) => r.data),
   viewAs: (personId: string) => api.post<{ viewAsToken: string; user: AuthUser }>('/auth/view-as', { personId }).then((r) => r.data),
   me: () => api.get<{ user: AuthUser }>('/auth/me').then((r) => r.data.user),

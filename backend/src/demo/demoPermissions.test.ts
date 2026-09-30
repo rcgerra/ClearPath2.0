@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import type { AuthUser, Role } from '../middleware/auth';
 import { canAssignRequestDelegate, canEditAssignedRecord, canEditAvailability, canEditDemand, canEditRequest } from './demoPermissions';
@@ -73,6 +76,14 @@ test('workflow completion occurs when a stage is exited or intake finishes', () 
   assert.deepEqual(completedStagesOnTransition('Unknown', 'Processed'), []);
 });
 
+test('demo projects preserve imported site assignments for site-scoped users', { skip: !env.demoMode }, () => {
+  const amanda = demoDataService.list('people').find((person) => person.email.toLowerCase() === 'amanda.cunningham@takeda.com');
+  assert.ok(amanda);
+  const assignedProjects = demoDataService.list('projects').filter((project) => project.managerPersonId === amanda.id);
+  assert.ok(assignedProjects.length > 0);
+  assert.ok(assignedProjects.every((project) => Boolean(project.siteId)));
+});
+
 test('demo requests retain completion timestamps across later phase changes', () => {
   const data = CsvDataService.empty();
   data.create('requests', { id: 'test-request', phase: 'Draft' } as DemoData['requests'][number]);
@@ -82,6 +93,23 @@ test('demo requests retain completion timestamps across later phase changes', ()
   data.update('requests', 'test-request', { phase: 'DQ Check' });
   assert.equal(data.workflowCompletedAt('test-request').Draft, draftCompleted);
   assert.match(data.workflowCompletedAt('test-request').Prioritization, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('demo CSV edits persist across data service instances', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'clearpath-demo-csv-'));
+  try {
+    fs.cpSync(path.resolve(__dirname, '../../demo-data'), directory, { recursive: true });
+    const firstSession = new CsvDataService(directory);
+    const project = firstSession.list('projects')[0];
+    assert.ok(project);
+    const updatedName = `${project.name} - persisted`;
+    firstSession.update('projects', project.id, { name: updatedName });
+
+    const nextSession = new CsvDataService(directory);
+    assert.equal(nextSession.find('projects', project.id)?.name, updatedName);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('deactivating non-project work clears future hours without changing past hours', () => {

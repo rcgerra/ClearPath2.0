@@ -10,11 +10,14 @@ import { calculateProjectScheduleHealth } from '../utils/projectSchedule';
 import { formatCount } from '../utils/format';
 
 const ISSUE_STATUSES = new Set(['late', 'at-risk', 'watch', 'needs-dates']);
+const HIGH_PRIORITY_SCORE = 10;
 
 type Tab = 'capacity' | 'performance';
+type IssueFilter = 'high-priority' | 'all';
 
 export default function PortfolioManagementPage() {
   const [tab, setTab] = useState<Tab>('capacity');
+  const [issueFilter, setIssueFilter] = useState<IssueFilter>('high-priority');
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.list() });
   const demand = useQuery({ queryKey: ['demand', 'all'], queryFn: () => demandApi.list() });
   const nonProjectDemand = useQuery({ queryKey: ['non-project-demand', 'all'], queryFn: () => nonProjectDemandApi.list() });
@@ -46,12 +49,15 @@ export default function PortfolioManagementPage() {
   }).filter(({ health }) => ISSUE_STATUSES.has(health.status))
     .sort((first, second) => {
       const severity: Record<string, number> = { late: 0, 'at-risk': 1, 'needs-dates': 2, watch: 3 };
-      return severity[first.health.status] - severity[second.health.status]
+      return (second.project.priorityScore ?? -1) - (first.project.priorityScore ?? -1)
+        || severity[first.health.status] - severity[second.health.status]
         || second.health.reasons.length - first.health.reasons.length
         || first.project.name.localeCompare(second.project.name);
     }), [conflicts, demand.data, projects.data]);
 
   const issueCount = projectIssues.length;
+  const highPriorityIssues = projectIssues.filter(({ project }) => (project.priorityScore ?? -1) >= HIGH_PRIORITY_SCORE);
+  const visibleProjectIssues = issueFilter === 'high-priority' ? highPriorityIssues : projectIssues;
   const lateCount = projectIssues.filter(({ health }) => health.status === 'late').length;
   const allocationIssueCount = projectIssues.filter(({ conflictCount }) => conflictCount > 0).length;
 
@@ -99,14 +105,37 @@ export default function PortfolioManagementPage() {
           >
             <div className="portfolio-performance-summary">
               <div><strong>{formatCount(issueCount)}</strong><span>Projects with issues</span></div>
+              <div><strong>{formatCount(highPriorityIssues.length)}</strong><span>High-priority issues</span></div>
               <div><strong>{formatCount(lateCount)}</strong><span>Late projects</span></div>
               <div><strong>{formatCount(allocationIssueCount)}</strong><span>Allocation risk</span></div>
+            </div>
+            <div className="portfolio-performance-filters" role="group" aria-label="Filter project issues by priority">
+              <span>Show</span>
+              <button
+                type="button"
+                aria-pressed={issueFilter === 'high-priority'}
+                className={issueFilter === 'high-priority' ? 'active' : ''}
+                onClick={() => setIssueFilter('high-priority')}
+              >
+                High priority (10+)
+                <span>{formatCount(highPriorityIssues.length)}</span>
+              </button>
+              <button
+                type="button"
+                aria-pressed={issueFilter === 'all'}
+                className={issueFilter === 'all' ? 'active' : ''}
+                onClick={() => setIssueFilter('all')}
+              >
+                All issues
+                <span>{formatCount(issueCount)}</span>
+              </button>
             </div>
             <div className="card table-card">
               <table className="data-table portfolio-performance-table">
                 <thead>
                   <tr>
                     <th>Project</th>
+                    <th>Priority</th>
                     <th>Status</th>
                     <th>Issues</th>
                     <th>Allocation</th>
@@ -114,11 +143,16 @@ export default function PortfolioManagementPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {projectIssues.map(({ project, health, conflictCount }) => (
+                  {visibleProjectIssues.map(({ project, health, conflictCount }) => (
                     <tr key={project.id}>
                       <th scope="row">
                         <Link to={`/projects/${project.id}`} className="record-link">{project.name}</Link>
                       </th>
+                      <td>
+                        <span className={`portfolio-priority-score${(project.priorityScore ?? -1) >= HIGH_PRIORITY_SCORE ? ' is-high' : ''}`}>
+                          {project.priorityScore == null ? 'Not scored' : `${project.priorityScore >= HIGH_PRIORITY_SCORE ? 'High · ' : ''}${project.priorityScore}/15`}
+                        </span>
+                      </td>
                       <td><ScheduleHealthBadge health={health} /></td>
                       <td>
                         <ul className="portfolio-issue-list">
@@ -129,10 +163,10 @@ export default function PortfolioManagementPage() {
                       <td><Link to={`/projects/${project.id}`} className="table-action-link">Review</Link></td>
                     </tr>
                   ))}
-                  {!projects.isLoading && projectIssues.length === 0 && (
-                    <tr><td colSpan={5}>No project issues found.</td></tr>
+                  {!projects.isLoading && visibleProjectIssues.length === 0 && (
+                    <tr><td colSpan={6}>{issueFilter === 'high-priority' ? 'No high-priority project issues found.' : 'No project issues found.'}</td></tr>
                   )}
-                  {projects.isLoading && <tr><td colSpan={5}>Loading project performance…</td></tr>}
+                  {projects.isLoading && <tr><td colSpan={6}>Loading project performance…</td></tr>}
                 </tbody>
               </table>
             </div>
