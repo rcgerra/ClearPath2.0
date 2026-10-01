@@ -22,6 +22,7 @@ import type {
   Question,
   RankedRequest,
   ScoringCategory,
+  StageDurationAnalytics,
   Role,
   Skill,
   SkillCategory,
@@ -98,6 +99,7 @@ export const projectsApi = {
 export const requestsApi = {
   list: (params?: { mine?: boolean; departmentId?: string; status?: string }) =>
     api.get<ProjectRequest[]>('/requests', { params }).then((r) => r.data),
+  stageDurations: () => api.get<StageDurationAnalytics[]>('/requests/analytics/stage-durations').then((r) => r.data),
   get: (id: string) => api.get<ProjectRequest>(`/requests/${id}`).then((r) => r.data),
   create: (body: WritePayload) => api.post<{ id: string }>('/requests', body).then((r) => r.data),
   update: (id: string, body: WritePayload) => api.patch(`/requests/${id}`, body).then((r) => r.data),

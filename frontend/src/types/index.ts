@@ -123,6 +123,13 @@ export interface ProjectRequest {
   workflowCompletedAt?: Record<string, string>;
 }
 
+export interface StageDurationAnalytics {
+  windowDays: 30 | 60 | 90;
+  stage: string;
+  sampleCount: number;
+  averageHours: number;
+}
+
 /** Disposition values captured on the intake form; new requests always start Pending. */
 export const REQUEST_DISPOSITIONS = ['Pending', 'Endorsed', 'Not Endorsed', 'Cancelled'] as const;
 

@@ -121,6 +121,10 @@ router.get('/', asyncHandler(async (req, res) => {
     .filter((request) => !siteId || (request.siteId ?? peopleSites.get(String(request.requesterPersonId ?? '').toLowerCase()))?.toLowerCase() === siteId.toLowerCase()));
 }));
 
+router.get('/analytics/stage-durations', asyncHandler(async (_req, res) => {
+  res.json(await requestRepository.stageDurationAnalytics());
+}));
+
 router.get('/:id', asyncHandler(async (req, res) => {
   const record = await requestRepository.findByIdentifier(req.params.id);
   const details = toRequest(record);
@@ -158,7 +162,7 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   const current = await requestRepository.findByIdentifier(req.params.id);
   if (!current) throw new HttpError(404, 'Opportunity not found.');
   if (!canEditRequest(req.user, toRequest(current))) throw new HttpError(403, 'You cannot edit this opportunity at its current phase.');
-  const moderator = req.user?.roles.some((role) => role === 'admin' || role === 'intake_moderator');
+  const moderator = req.user?.roles.some((role) => role === 'admin' || role === 'portfolio_manager' || role === 'intake_moderator');
   const submitting = input.phase === 'Prioritization' && input.status === 'Submitted' && requestStageIndex(current.Phase) === 0;
   if (submitting) opportunitySubmissionSchema.parse({ ...toRequest(current), ...req.body });
   if (!moderator && (['disposition', 'isActive', 'priorityScore', 'projectId'].some((key) => key in input)

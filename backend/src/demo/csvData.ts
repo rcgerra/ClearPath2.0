@@ -317,9 +317,9 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
     isActive: booleanValue(row, 'cr714_isactive', 'statecode'),
     priorityScore: numberValue(row, 'cr714_priorityscore') ?? 0,
     requesterPersonId: peopleIndex.get(value(row, 'cr714_requester', '_cr714_requester_value')),
-    requesterName: undefined as string | undefined,
+    requesterName: value(row, 'cr714_requestername', 'Created By') || undefined,
     delegatePersonId: peopleIndex.get(value(row, 'cr714_delegate', '_cr714_delegate_value', 'cr714_delegates')),
-    delegateName: undefined as string | undefined,
+    delegateName: value(row, 'cr714_delegatename', 'Delegates') || undefined,
     sponsorPersonId: peopleIndex.get(value(row, 'cr714_sponsor', '_cr714_sponsor_value', 'cr714_sponsor.azureactivedirectoryobjectid')),
     sponsorName: undefined as string | undefined,
     sponsorNameFlat: value(row, 'cr714_sponsornameflat') ?? '',
@@ -336,8 +336,8 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
     additionalInformation: value(row, 'cr714_additionalinformation') ?? '',
   }));
   for (const request of requests) {
-    request.requesterName = personName(request.requesterPersonId);
-    request.delegateName = personName(request.delegatePersonId);
+    request.requesterName = personName(request.requesterPersonId) ?? request.requesterName;
+    request.delegateName = personName(request.delegatePersonId) ?? request.delegateName;
     request.sponsorName = personName(request.sponsorPersonId) ?? (request.sponsorNameFlat || undefined);
     request.departmentName = departmentName(request.departmentId);
   }
@@ -797,6 +797,41 @@ export class CsvDataService {
       .map((row) => [row.stage, row.completedAt]));
   }
 
+  public stageDurationAnalytics() {
+    const windows = [30, 60, 90];
+    const now = Date.now();
+    const durations = (this.sourceRows.get(WORKFLOW_FILE) ?? []).flatMap((row) => {
+      const request = this.find('requests', row.requestId);
+      const completedAt = Date.parse(row.completedAt);
+      if (!request || !Number.isFinite(completedAt)) return [];
+      const requestRows = (this.sourceRows.get(WORKFLOW_FILE) ?? [])
+        .filter((candidate) => candidate.requestId.toLowerCase() === row.requestId.toLowerCase())
+        .sort((first, second) => Date.parse(first.completedAt) - Date.parse(second.completedAt));
+      const index = requestRows.indexOf(row);
+      const previousAt = index > 0 ? Date.parse(requestRows[index - 1].completedAt) : Date.parse(request.submittedOn);
+      if (!Number.isFinite(previousAt)) return [];
+      return [{ stage: row.stage, completedAt, durationHours: Math.max(0, completedAt - previousAt) / 3_600_000 }];
+    });
+
+    return windows.flatMap((windowDays) => {
+      const cutoff = now - windowDays * 86_400_000;
+      const byStage = new Map<string, number[]>();
+      durations.forEach((duration) => {
+        if (duration.completedAt >= cutoff) {
+          const values = byStage.get(duration.stage) ?? [];
+          values.push(duration.durationHours);
+          byStage.set(duration.stage, values);
+        }
+      });
+      return [...byStage.entries()].map(([stage, values]) => ({
+        windowDays,
+        stage,
+        sampleCount: values.length,
+        averageHours: values.reduce((sum, value) => sum + value, 0) / values.length,
+      }));
+    });
+  }
+
   private recordWorkflowCompletion(requestId: string, stages: string[]): void {
     const rows = this.sourceRows.get(WORKFLOW_FILE) ?? [];
     const completedAt = new Date().toISOString();
@@ -909,6 +944,7 @@ export class CsvDataService {
         name: ['new_name', 'new_projectname'],
         code: ['new_projectcode', 'new_code'],
         status: ['new_status'],
+        started: ['cr714_started', 'new_started'],
         isActive: ['cr714_isactive'],
         priorityScore: ['new_priorityscore', 'cr714_priorityscore'],
         problemStatement: ['new_problemstatement', 'cr714_problemstatement'],

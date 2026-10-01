@@ -186,11 +186,11 @@ export default function HomePage() {
         if (row.isActive !== false && row.personId.toLowerCase() === personId.toLowerCase()) addWeeks(availability, row.weeks);
       }
       for (const row of demand.data ?? []) {
-        if (row.isActive !== false && activeProjectIds.has(row.projectId.toLowerCase()) && row.personId?.toLowerCase() === personId.toLowerCase()) addWeeks(committed, row.weeks);
+        if (row.isActive !== false && row.personId?.toLowerCase() === personId.toLowerCase()) addWeeks(committed, row.weeks);
       }
     }
     return { availability, committed };
-  }, [activePersonIds, activeProjectIds, capacity.data, demand.data, personId]);
+  }, [activePersonIds, capacity.data, demand.data, personId]);
   const personalProjectDemand = useMemo(() => {
     const totals = new Map<string, { id: string; name?: string; weeks: number[] }>();
     const normalizedPersonId = personId?.toLowerCase();
@@ -232,6 +232,7 @@ export default function HomePage() {
     { id: 'other-work', label: 'Other work', spotId: undefined, hours: personalOtherWorkTotal, color: '#63804d', to: undefined },
   ];
   const personalDemandTotal = personalDemandItems.reduce((total, item) => total + item.hours, 0);
+  const personalCommittedTotal = personalDemandTotal;
   let demandPieCursor = 0;
   const personalDemandSlices = personalDemandItems.filter((item) => item.hours > 0).map((item) => {
     const start = demandPieCursor;
@@ -241,7 +242,6 @@ export default function HomePage() {
   const personalDemandPie = personalDemandSlices.length
     ? `conic-gradient(${personalDemandSlices.map((item) => `${item.color} ${item.start}% ${item.end}%`).join(', ')})`
     : 'conic-gradient(var(--light-grey) 0% 100%)';
-  const personalCommittedTotal = personalOutlook.committed.reduce((total, hours) => total + hours, 0);
   const personalCapacityTotal = personalOutlook.availability.reduce((total, hours) => total + hours, 0);
   const functionMatrixRows = useMemo(() => departmentGapSeries.map((department) => ({
     ...department,

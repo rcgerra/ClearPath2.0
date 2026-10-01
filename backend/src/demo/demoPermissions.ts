@@ -28,9 +28,10 @@ export function canEditDemand(
 
 export function canEditRequest(
   user: AuthUser | undefined,
-  request: { phase?: string | null; requesterPersonId?: string; sponsorPersonId?: string; delegatePersonId?: string },
+  request: { phase?: string | null; status?: string | null; requesterPersonId?: string; sponsorPersonId?: string; delegatePersonId?: string },
 ): boolean {
-  if (user?.roles.includes('admin') || user?.roles.includes('intake_moderator')) return true;
+  if (user?.roles.includes('admin') || user?.roles.includes('portfolio_manager') || user?.roles.includes('intake_moderator')) return true;
+  if (request.status?.toLowerCase() === 'submitted') return false;
   if (![0, 1].includes(requestStageIndex(request.phase))) return false;
   return samePerson(user?.personId, request.requesterPersonId)
     || samePerson(user?.personId, request.sponsorPersonId)
@@ -39,8 +40,8 @@ export function canEditRequest(
 
 export function canAssignRequestDelegate(
   user: AuthUser | undefined,
-  request: { phase?: string | null; requesterPersonId?: string },
+  request: { phase?: string | null; status?: string | null; requesterPersonId?: string },
 ): boolean {
-  return Boolean(user?.roles.includes('admin') || user?.roles.includes('intake_moderator')
+  return Boolean(user?.roles.includes('admin') || user?.roles.includes('portfolio_manager') || user?.roles.includes('intake_moderator')
     || (canEditRequest(user, request) && samePerson(user?.personId, request.requesterPersonId)));
 }

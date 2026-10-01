@@ -56,7 +56,10 @@ test('request editing follows assignments and lifecycle', () => {
     assert.equal(canEditRequest(user(personId), { ...request, phase: 'DQ Check' }), false);
   }
   assert.equal(canEditRequest(user('moderator', ['intake_moderator']), { ...request, phase: 'Processed' }), true);
+  assert.equal(canEditRequest(user('portfolio-manager', ['portfolio_manager']), { ...request, phase: 'Processed' }), true);
   assert.equal(canEditRequest(user('admin', ['admin']), { ...request, phase: 'Processed' }), true);
+  assert.equal(canEditRequest(user('owner'), { ...request, status: 'Submitted' }), false);
+  assert.equal(canEditRequest(user('portfolio-manager', ['portfolio_manager']), { ...request, status: 'Submitted' }), true);
   assert.equal(canEditRequest(user('other'), request), false);
   assert.equal(canEditRequest(user('other', ['demand_moderator']), request), false);
   assert.equal(canEditRequest(user('owner'), { ...request, phase: 'Unknown' }), false);

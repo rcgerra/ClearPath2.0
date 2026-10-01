@@ -42,7 +42,8 @@ export function canEditDemand(user: AuthUser | null | undefined, project?: Proje
 }
 
 export function canEditRequest(user: AuthUser | null | undefined, request?: ProjectRequest) {
-  if (isAdmin(user) || user?.roles.includes('intake_moderator')) return true;
+  if (isAdmin(user) || user?.roles.includes('portfolio_manager') || user?.roles.includes('intake_moderator')) return true;
+  if (request?.status?.toLowerCase() === 'submitted') return false;
   if (!request || ![0, 1].includes(workflowStageIndex(request.phase))) return false;
   return same(user?.personId, request.requesterPersonId)
     || same(user?.personId, request.sponsorPersonId)

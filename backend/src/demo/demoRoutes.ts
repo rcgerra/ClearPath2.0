@@ -135,6 +135,7 @@ router.post('/auth/entra', asyncHandler(async (req, res) => {
   const person = selectedUser ? dataService.find('people', selectedUser.UserId) : undefined;
   if (!selectedUser || !person) throw new HttpError(403, 'Your Entra account is not linked to an active ClearPath user.');
   const roles = new Set(parsePersonRoles(person.role));
+  if (env.allRolesEmails.includes(identity.email)) ROLES.forEach((role) => roles.add(role));
   if (env.adminEmails.includes(identity.email)) roles.add('admin');
   if (env.portfolioManagerEmails.includes(identity.email)) roles.add('portfolio_manager');
   const user = {
@@ -171,6 +172,7 @@ router.get('/auth/session', (req, res) => {
   const person = selectedUser ? dataService.find('people', selectedUser.UserId) : undefined;
   if (!selectedUser || !selectedUser.Active || !person) throw new HttpError(403, 'Select an active user.');
   const roles = new Set(parsePersonRoles(person.role));
+  if (env.allRolesEmails.includes(selectedUser.Email.toLowerCase())) ROLES.forEach((role) => roles.add(role));
   if (env.adminEmails.includes(selectedUser.Email.toLowerCase())) roles.add('admin');
   if (env.portfolioManagerEmails.includes(selectedUser.Email.toLowerCase())) roles.add('portfolio_manager');
   const user = {
@@ -353,7 +355,7 @@ router.get('/projects/:id/team', asyncHandler(async (req, res) => {
   const siteId = project ? (await getReferenceMetadata('projects', project.id)).siteId
     ?? dataService.find('departments', project.departmentId ?? '')?.siteId : undefined;
   if (!project || !atSite(siteId, await scopedSite(req))) throw new HttpError(404, 'Project not found.');
-  res.json(dataService.filterBy('demand', (row) => row.projectId === req.params.id));
+  res.json(dataService.filterBy('demand', (row) => row.projectId?.toLowerCase() === project.id.toLowerCase()));
 }));
 router.post('/projects', asyncHandler(async (req, res) => {
   await assertSiteCreator(req.user);
@@ -390,6 +392,9 @@ router.get('/requests', asyncHandler(async (req, res) => {
   }
   const me = req.user?.personId;
   res.json(withSites.filter((row) => row.requesterPersonId === me || row.delegatePersonId === me));
+}));
+router.get('/requests/analytics/stage-durations', asyncHandler(async (_req, res) => {
+  res.json(dataService.stageDurationAnalytics());
 }));
 router.get('/requests/:id', asyncHandler(async (req, res) => {
   const record = dataService.find('requests', req.params.id);
@@ -450,7 +455,7 @@ router.patch('/requests/:id', asyncHandler(async (req, res) => {
   if (!current) throw new HttpError(404, 'Opportunity not found.');
   if (!canEditRequest(req.user, current)) throw new HttpError(403, 'You cannot edit this opportunity at its current phase.');
   if (req.body?.siteId !== undefined && !req.user?.roles.includes('admin')) throw new HttpError(403, 'Only admins can reassign a record to another site.');
-  const moderator = req.user?.roles.some((role) => role === 'admin' || role === 'intake_moderator');
+  const moderator = req.user?.roles.some((role) => role === 'admin' || role === 'portfolio_manager' || role === 'intake_moderator');
   const submitting = req.body?.phase === 'Prioritization' && req.body?.status === 'Submitted' && requestStageIndex(current.phase) === 0;
   if (submitting) opportunitySubmissionSchema.parse({ ...current, ...req.body });
   const editableFields = ['title', 'shortTitle', 'spotId', 'siteId', 'location', 'neededBy', 'neededByJustification', 'currentState', 'discoveryMethod', 'impactToOperations', 'desiredFutureState', 'additionalInformation'];

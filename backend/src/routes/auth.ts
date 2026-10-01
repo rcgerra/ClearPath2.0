@@ -62,6 +62,7 @@ router.get('/users', asyncHandler(async (req, res) => {
 function parseRoles(email: string): Role[] {
   // App-level roles remain mapped from ClearPath's configured admin lists and People records.
   const normalized = email.toLowerCase();
+  if (env.allRolesEmails.includes(normalized)) return [...ROLES];
   if (env.adminEmails.includes(normalized)) return ['admin', 'user'];
   if (env.portfolioManagerEmails.includes(normalized)) return ['portfolio_manager', 'user'];
   return ['user'];

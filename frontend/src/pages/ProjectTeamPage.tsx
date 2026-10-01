@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { capacityApi, demandApi, errorMessage, lookupsApi, nonProjectDemandApi, peopleApi, projectsApi } from '../api/client';
 import ProjectAnalyticsInsights from '../components/ProjectAnalyticsInsights';
+import ProjectDemandGapMatrix from '../components/ProjectDemandGapMatrix';
 import AllocationConflictQueue from '../components/AllocationConflictQueue';
 import PersonDemandChart from '../components/PersonDemandChart';
 import ConflictResolutionPanel from '../components/ConflictResolutionPanel';
@@ -22,7 +23,7 @@ import type { DemandRow, Person } from '../types';
 const WEEKS = 104;
 const DEFAULT_WEEKS_TO_SHOW = 26;
 const MAX_HOURS = 60;
-type ProjectWorkspaceTab = 'overview' | 'team' | 'kpis' | 'risk' | 'details' | 'timeline';
+type ProjectWorkspaceTab = 'overview' | 'team' | 'risk' | 'details' | 'timeline';
 type DemandChange = { week: number; previous: number; next: number };
 type DemandChangeAudit = { actorName: string; personName: string; performedAt: string; changes: DemandChange[] };
 type TimelineEntry = { id: string; message: string; actorName: string; personName?: string; createdAt: string; changes?: DemandChange[] };
@@ -70,7 +71,6 @@ export default function ProjectTeamPage() {
   const [teamSortColumn, setTeamSortColumn] = useState<'person' | 'totalProject' | 'totalFuture' | 'risk' | number>('risk');
   const [teamSortDirection, setTeamSortDirection] = useState<'asc' | 'desc'>('desc');
   const [teamDemandCollapsed, setTeamDemandCollapsed] = useState(false);
-  const [analyticsCollapsed, setAnalyticsCollapsed] = useState(false);
   const [timeline, setTimeline] = useState<TimelineEntry[]>(() => {
     try {
       return JSON.parse(localStorage.getItem(`clearpath-project-timeline-${id}`) ?? '[]') as TimelineEntry[];
@@ -138,6 +138,12 @@ export default function ProjectTeamPage() {
     return map;
   }, [people.data]);
 
+  const resolvedTeam = useMemo(() => {
+    if ((team.data ?? []).length > 0) return team.data ?? [];
+    const projectId = id.toLowerCase();
+    return (allDemand.data ?? []).filter((row) => row.projectId?.toLowerCase() === projectId);
+  }, [team.data, allDemand.data, id]);
+
   /** Demand across every project and non-project activity, and availability, per person. */
   const totals = useMemo(() => {
     const demandByPerson = new Map<string, number[]>();
@@ -161,13 +167,13 @@ export default function ProjectTeamPage() {
   }, [allDemand.data, allNonProjectDemand.data, allCapacity.data]);
 
   const rows = useMemo(() => {
-    return (team.data ?? []).filter((row) => {
+    return resolvedTeam.filter((row) => {
       const person = row.personId ? peopleById.get(row.personId.toLowerCase()) : undefined;
       if (!showInactive && (row.isActive === false || person?.isActive === false)) return false;
       if (fteOnly && person?.employmentType && person.employmentType.toLowerCase() !== 'fte') return false;
       return true;
     });
-  }, [team.data, peopleById, showInactive, fteOnly]);
+  }, [resolvedTeam, peopleById, showInactive, fteOnly]);
 
   const projectTotals = useMemo(() => {
     const total = emptyWeeks();
@@ -237,6 +243,19 @@ export default function ProjectTeamPage() {
       setReviewChecklistOpen(false);
       addTimelineEntry(`${user?.name ?? 'Someone'} performed a periodic review`);
       queryClient.invalidateQueries({ queryKey: ['project', id] });
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+
+  const projectAction = useMutation({
+    mutationFn: (changes: Record<string, unknown>) => projectsApi.update(id, changes),
+    onSuccess: (_result, changes) => {
+      const message = changes.started === true
+        ? `${user?.name ?? 'Someone'} started ${project.data?.name ?? 'the project'}`
+        : `${user?.name ?? 'Someone'} completed ${project.data?.name ?? 'the project'}`;
+      addTimelineEntry(message);
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
     onError: (err) => setError(errorMessage(err)),
   });
@@ -377,7 +396,7 @@ export default function ProjectTeamPage() {
   const selectedAvailability = totals.availabilityByPerson.get(selectedKey) ?? emptyWeeks();
   const selectedTotal = totals.demandByPerson.get(selectedKey) ?? emptyWeeks();
   const selectedProject = emptyWeeks();
-  for (const row of team.data ?? []) {
+  for (const row of resolvedTeam) {
     if (row.personId?.toLowerCase() === selectedKey) {
       addInto(selectedProject, row.weeks);
     }
@@ -386,23 +405,10 @@ export default function ProjectTeamPage() {
     Math.max(0, value - selectedProject[index]),
   );
 
-  /** Weekly demand per function, for the stacked "demand by function" chart. */
-  const weeklyDemandByFunction = useMemo(() => {
-    const map = new Map<string, { id: string; label: string; weeks: number[] }>();
-    for (const row of rows) {
-      const key = row.functionId ?? 'unassigned';
-      const label = row.functionName ?? 'Unassigned';
-      const existing = map.get(key) ?? { id: key, label, weeks: new Array(weeksToShow).fill(0) };
-      for (let week = 0; week < weeksToShow; week += 1) existing.weeks[week] += row.weeks[week] ?? 0;
-      map.set(key, existing);
-    }
-    return Array.from(map.values());
-  }, [rows, weeksToShow]);
-
   /** Total demand per function over the project's full modeled horizon, ignoring the "Weeks to show" filter. */
   const demandByFunctionTotals = useMemo(() => {
     const map = new Map<string, { id: string; label: string; total: number }>();
-    for (const row of rows) {
+    for (const row of resolvedTeam) {
       const key = row.functionId ?? 'unassigned';
       const label = row.functionName ?? 'Unassigned';
       const existing = map.get(key) ?? { id: key, label, total: 0 };
@@ -410,7 +416,49 @@ export default function ProjectTeamPage() {
       map.set(key, existing);
     }
     return Array.from(map.values());
-  }, [rows]);
+  }, [resolvedTeam]);
+
+  const projectPersonGapRows = useMemo(() => {
+    const demandByPerson = new Map<string, number[]>();
+    for (const row of resolvedTeam) {
+      if (!row.personId) continue;
+      const person = peopleById.get(row.personId.toLowerCase());
+      if (!person || person.isActive === false || row.isActive === false) continue;
+      const key = row.personId.toLowerCase();
+      demandByPerson.set(key, addInto(demandByPerson.get(key) ?? emptyWeeks(), row.weeks));
+    }
+    const capacityByPerson = new Map<string, number[]>();
+    for (const row of allCapacity.data ?? []) {
+      if (!row.personId) continue;
+      const person = peopleById.get(row.personId.toLowerCase());
+      if (!person || person.isActive === false || row.isActive === false) continue;
+      const key = row.personId.toLowerCase();
+      capacityByPerson.set(key, addInto(capacityByPerson.get(key) ?? emptyWeeks(), row.weeks));
+    }
+    return [...demandByPerson.entries()]
+      .map(([id, demand]) => ({
+        id,
+        name: peopleById.get(id)?.name ?? 'Unassigned',
+        weeks: demand.map((value, week) => (capacityByPerson.get(id)?.[week] ?? 0) - value),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [allCapacity.data, peopleById, resolvedTeam]);
+
+  const demandWeekRange = useMemo(() => {
+    let startWeek = Number.POSITIVE_INFINITY;
+    let endWeek = Number.NEGATIVE_INFINITY;
+    for (const row of resolvedTeam) {
+      const person = row.personId ? peopleById.get(row.personId.toLowerCase()) : undefined;
+      if (!person || person.isActive === false || row.isActive === false) continue;
+      const firstWeek = row.weeks.findIndex((hours) => hours > 0);
+      if (firstWeek < 0) continue;
+      let lastWeek = row.weeks.length - 1;
+      while (lastWeek >= firstWeek && (row.weeks[lastWeek] ?? 0) <= 0) lastWeek -= 1;
+      startWeek = Math.min(startWeek, firstWeek);
+      endWeek = Math.max(endWeek, lastWeek);
+    }
+    return Number.isFinite(startWeek) && Number.isFinite(endWeek) ? { startWeek, endWeek } : null;
+  }, [resolvedTeam, peopleById]);
 
   const allocationConflicts = useMemo(
     () => buildAllocationConflicts({
@@ -439,7 +487,6 @@ export default function ProjectTeamPage() {
   );
   const totalPlannedDemand = scheduleHealth?.totalPlannedDemand ?? projectTotals.reduce((sum, value) => sum + value, 0);
   const timelineElapsedFraction = scheduleHealth?.timelineElapsedFraction ?? null;
-  const schedulePrimaryReason = scheduleHealth?.reasons.find((reason) => !reason.includes('allocation conflict')) ?? scheduleHealth?.reasons[0];
 
   /** This person's assignments across every project and non-project activity, for the individual details table. */
   const selectedAssignments = useMemo(() => {
@@ -486,34 +533,30 @@ export default function ProjectTeamPage() {
                 </Link>
               )}
             </h1>
-            <p className="page-subtitle">
-              {activeTab === 'overview' && 'Staffing health, delivery exposure, and actions requiring attention.'}
-              {activeTab === 'team' && `Team demand, ${weeksToShow} weeks from this Monday.`}
-              {activeTab === 'kpis' && `Performance indicators across ${weeksToShow} weeks.`}
-              {activeTab === 'risk' && `Allocation risk across ${weeksToShow} weeks.`}
-              {activeTab === 'details' && 'Project ownership, status, timing, and review information.'}
-            </p>
           </div>
-        </div>
-        <div className="row-actions">
-          <button
-            type="button"
-            className={['icon-button', 'icon-button-add', 'icon-button-add-labeled', checkInClass].filter(Boolean).join(' ')}
-            onClick={() => setReviewChecklistOpen(true)}
-            disabled={!editable || checkIn.isPending}
-            title={
-              Number.isFinite(daysSinceCheckIn)
-                ? `Last checked in ${daysSinceCheckIn} days ago`
-                : 'This project has never been checked in'
-            }
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z" />
-              <rect x="5" y="6" width="14" height="15" rx="2" />
-              <polyline points="9 14 11 16 15 12" />
-            </svg>
-            <span>{checkIn.isPending ? 'Saving review…' : 'Periodic review'}</span>
-          </button>
+          {details?.isActive !== false && (
+            <div className="row-actions project-header-quick-actions">
+              <button type="button" className="primary" onClick={() => {
+                setDuplicating(null);
+                setAdding(true);
+                setActiveTab('team');
+              }} disabled={!editable}>
+                Add team member
+              </button>
+              <button type="button" className="primary" onClick={() => setReviewChecklistOpen(true)} disabled={!editable || checkIn.isPending}>
+                {checkIn.isPending ? 'Reviewing…' : 'Complete periodic review'}
+              </button>
+              {!details?.started ? (
+                <button className="primary" type="button" onClick={() => projectAction.mutate({ started: true })} disabled={!editable || projectAction.isPending}>
+                  {projectAction.isPending ? 'Starting…' : 'Start project'}
+                </button>
+              ) : (
+                <button className="primary" type="button" onClick={() => projectAction.mutate({ started: true, isActive: false, status: 'Completed' })} disabled={!editable || projectAction.isPending}>
+                  {projectAction.isPending ? 'Completing…' : 'Complete project'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -530,7 +573,6 @@ export default function ProjectTeamPage() {
         {([
           ['overview', 'Overview'],
           ['team', 'Team plan'],
-          ['kpis', 'KPIs'],
           ['risk', 'Risk'],
           ['details', 'Project details'],
           ['timeline', 'Change Log'],
@@ -646,60 +688,34 @@ export default function ProjectTeamPage() {
             )}
           </section>
 
+          <ProjectDemandGapMatrix rows={projectPersonGapRows} weeks={weeksToShow} />
+
+          <div className="project-overview-right-column">
           <section className="card project-attention-panel">
-            <div className="project-overview-heading">
-              <div>
-                <h2>Needs attention</h2>
-                <p className="muted">Issues most likely to affect delivery or confidence in the plan.</p>
+            <div className="home-header-kpis project-attention-home-kpis" aria-label="Project attention indicators">
+              <div className="home-header-kpi">
+                <div className="project-attention-kpi-topline"><strong>{rows.length}</strong><span className="project-attention-kpi-actions"><span className="project-attention-kpi-link" aria-hidden="true">↗</span></span></div>
+                <span>Team members</span>
               </div>
-            </div>
-            <div className="attention-list">
-              <button type="button" onClick={() => setActiveTab('risk')}>
-                <span className={overAllocatedCount > 0 ? 'attention-indicator danger' : 'attention-indicator clear'} />
-                <span>
-                  <strong>{overAllocatedCount > 0 ? `${overAllocatedCount} team member${overAllocatedCount === 1 ? '' : 's'} overallocated` : 'Team allocation is within availability'}</strong>
-                  <small>{overAllocatedCount > 0 ? 'Review conflicts and competing assignments.' : 'No people exceed their available hours in this horizon.'}</small>
-                </span>
-                <span aria-hidden="true">›</span>
+              <button type="button" className={`home-header-kpi project-attention-kpi-action-card${checkInClass ? ' is-over' : ''}`} onClick={() => setReviewChecklistOpen(true)} disabled={!editable || checkIn.isPending} title="Complete periodic review">
+                <div className="project-attention-kpi-topline"><strong>{Number.isFinite(daysSinceCheckIn) ? `${daysSinceCheckIn}d` : '—'}</strong><span className="project-attention-kpi-actions">{checkInClass && <span className="project-attention-kpi-alert" aria-label="Plan review needs attention">!</span>}<span className="project-attention-kpi-link" aria-hidden="true">↗</span></span></div>
+                <span title="Periodic reviews are due at least every 30 days">Last periodic review</span><small className="project-kpi-cadence">Due every 30 days</small>
               </button>
-              <button type="button" onClick={() => setActiveTab('details')}>
-                <span className={checkInClass ? 'attention-indicator warning' : 'attention-indicator clear'} />
-                <span>
-                  <strong>{Number.isFinite(daysSinceCheckIn) ? `Plan reviewed ${daysSinceCheckIn} days ago` : 'Plan has not been reviewed'}</strong>
-                  <small>{checkInClass ? 'Confirm that team demand and timing are still current.' : 'The project plan is within the review cadence.'}</small>
-                </span>
-                <span aria-hidden="true">›</span>
-              </button>
-              <button type="button" onClick={() => setActiveTab('details')}>
-                <span className={scheduleHealth?.status === 'on-track' || scheduleHealth?.status === 'not-started' ? 'attention-indicator clear' : scheduleHealth?.status === 'watch' || scheduleHealth?.status === 'needs-dates' ? 'attention-indicator warning' : 'attention-indicator danger'} />
-                <span>
-                  <strong>{scheduleHealth?.label ?? 'Schedule needs review'}</strong>
-                  <small>{schedulePrimaryReason ?? 'Confirm project dates and staffing assumptions.'}</small>
-                </span>
-                <span aria-hidden="true">›</span>
-              </button>
+              <div className={`home-header-kpi${overAllocatedCount > 0 ? ' is-over' : ''}`}>
+                <div className="project-attention-kpi-topline"><strong>{overAllocatedCount}</strong><span className="project-attention-kpi-actions">{overAllocatedCount > 0 && <span className="project-attention-kpi-alert" aria-label="Team members at risk">!</span>}<span className="project-attention-kpi-link" aria-hidden="true">↗</span></span></div>
+                <span>Team members at risk</span>
+              </div>
             </div>
           </section>
 
-          <section className="card project-next-actions">
-            <h2>Plan the team</h2>
-            <p className="muted">Review weekly demand or adjust the team before conflicts affect delivery.</p>
-            <div className="row-actions">
-              <button type="button" className="primary" onClick={() => setActiveTab('team')}>Open team plan</button>
-              {editable && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDuplicating(null);
-                    setAdding(true);
-                    setActiveTab('team');
-                  }}
-                >
-                  Add team member
-                </button>
-              )}
-            </div>
-          </section>
+          <ProjectAnalyticsInsights
+            demandByFunctionTotals={demandByFunctionTotals}
+            timelineElapsedFraction={timelineElapsedFraction}
+            demandStartWeek={demandWeekRange?.startWeek ?? null}
+            demandEndWeek={demandWeekRange?.endWeek ?? null}
+            showConflicts={false}
+          />
+          </div>
         </div>
       )}
 
@@ -1105,49 +1121,6 @@ export default function ProjectTeamPage() {
           />
         )}
       </SlideOverPanel>
-
-      {activeTab === 'kpis' && (
-      <div className="card">
-        <div className="toolbar project-section-header" style={{ marginBottom: analyticsCollapsed ? 0 : '0.75rem' }}>
-          <h2 style={{ margin: 0, flex: 1 }}>Performance KPIs</h2>
-          <KpiRow
-            ariaLabel="Project analytics summary"
-            variant="compact"
-            className="analytics-kpis"
-            items={[
-              { key: 'members', value: rows.length, label: 'Team members' },
-              { key: 'planned', value: Math.round(totalPlannedDemand).toLocaleString(), label: 'Total planned demand' },
-              {
-                key: 'timeline',
-                value: timelineElapsedFraction === null ? '—' : `${Math.round(timelineElapsedFraction * 100)}%`,
-                label: 'Timeline elapsed',
-              },
-              { key: 'over-allocated', value: overAllocatedCount, label: 'Over-allocated members', risk: overAllocatedCount > 0 },
-            ]}
-          />
-          <button
-            type="button"
-            className="workload-collapse-button"
-            aria-label={analyticsCollapsed ? 'Expand Analytics' : 'Collapse Analytics'}
-            aria-expanded={!analyticsCollapsed}
-            aria-controls="project-analytics-content"
-            title={analyticsCollapsed ? 'Expand Analytics' : 'Collapse Analytics'}
-            onClick={() => setAnalyticsCollapsed((value) => !value)}
-          >
-            <span className={analyticsCollapsed ? 'workload-collapse-chevron collapsed' : 'workload-collapse-chevron'} aria-hidden="true" />
-          </button>
-        </div>
-        <div id="project-analytics-content" hidden={analyticsCollapsed} aria-label="Analytics summary">
-          <ProjectAnalyticsInsights
-            weeklyDemandByFunction={weeklyDemandByFunction}
-            weeksToShow={weeksToShow}
-            demandByFunctionTotals={demandByFunctionTotals}
-            timelineElapsedFraction={timelineElapsedFraction}
-            showConflicts={false}
-          />
-        </div>
-      </div>
-      )}
 
       {activeTab === 'risk' && (
       <div className="card">

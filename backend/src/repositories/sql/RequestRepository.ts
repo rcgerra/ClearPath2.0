@@ -27,6 +27,13 @@ export interface RequestListFilters {
   status?: string;
 }
 
+export interface StageDurationAnalytics {
+  windowDays: number;
+  stage: string;
+  sampleCount: number;
+  averageHours: number;
+}
+
 export class RequestRepository extends BaseRepository<Request> implements RequestRepositoryContract {
   public constructor() {
     super('Requests');
@@ -153,6 +160,30 @@ export class RequestRepository extends BaseRepository<Request> implements Reques
       { requestId },
     );
     return Object.fromEntries(rows.map((row) => [row.Stage, row.CompletedAt.toISOString()]));
+  }
+
+  public async stageDurationAnalytics(): Promise<StageDurationAnalytics[]> {
+    return this.query<StageDurationAnalytics>(
+      `WITH completionHistory AS (
+         SELECT c.[RequestId], c.[Stage], c.[CompletedAt],
+                LAG(c.[CompletedAt]) OVER (PARTITION BY c.[RequestId] ORDER BY c.[CompletedAt]) AS [PreviousCompletedAt]
+           FROM dbo.[RequestWorkflowCompletions] c
+       ), durations AS (
+         SELECT c.[Stage], c.[CompletedAt],
+                DATEDIFF_BIG(SECOND, COALESCE(c.[PreviousCompletedAt], r.[SubmittedOn]), c.[CompletedAt]) / 3600.0 AS [DurationHours]
+           FROM completionHistory c
+           INNER JOIN dbo.[Requests] r ON r.[RequestId] = c.[RequestId]
+          WHERE c.[CompletedAt] >= DATEADD(DAY, -90, SYSUTCDATETIME())
+       )
+       SELECT windows.[WindowDays] AS [windowDays], durations.[Stage] AS [stage],
+              COUNT(*) AS [sampleCount], AVG(durations.[DurationHours]) AS [averageHours]
+         FROM durations
+         CROSS JOIN (VALUES (30), (60), (90)) windows([WindowDays])
+        WHERE durations.[CompletedAt] >= DATEADD(DAY, -windows.[WindowDays], SYSUTCDATETIME())
+        GROUP BY windows.[WindowDays], durations.[Stage]
+        ORDER BY windows.[WindowDays], durations.[Stage]`,
+      {},
+    );
   }
 
   public async deactivate(requestId: number): Promise<boolean> {

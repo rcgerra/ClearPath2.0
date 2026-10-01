@@ -37,6 +37,7 @@ export const env = {
   /** Always granted the admin role, regardless of their _People record. */
   adminEmails: list(process.env.ADMIN_EMAILS),
   portfolioManagerEmails: list(process.env.PORTFOLIO_MANAGER_EMAILS),
+  allRolesEmails: list(process.env.ALL_ROLES_EMAILS),
 
   dataverse: {
     url: (process.env.DATAVERSE_URL ?? '').replace(/\/+$/, ''),

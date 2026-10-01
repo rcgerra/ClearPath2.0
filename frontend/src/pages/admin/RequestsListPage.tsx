@@ -7,6 +7,7 @@ import DataTable, { Column } from '../../components/admin/DataTable';
 import ListToolbar from '../../components/admin/ListToolbar';
 import PersonCell from '../../components/admin/PersonCell';
 import RowLegend from '../../components/admin/RowLegend';
+import StageDurationChart from '../../components/StageDurationChart';
 import { DEFAULT_REQUEST_PHASE, phaseOrder } from '../../constants/phases';
 import { useAuthStore } from '../../store/authStore';
 import { rowClassName } from '../../utils/ownership';
@@ -17,6 +18,7 @@ export default function RequestsListPage() {
   const [search, setSearch] = useState('');
   const [hideInactive, setHideInactive] = useState(true);
   const requests = useQuery({ queryKey: ['requests'], queryFn: () => requestsApi.list() });
+  const stageDurations = useQuery({ queryKey: ['request-stage-durations'], queryFn: requestsApi.stageDurations });
   const ranking = useQuery({ queryKey: ['ranking'], queryFn: prioritizationApi.ranking });
 
   const rows = (requests.data ?? []).filter((row) => !hideInactive || row.isActive !== false);
@@ -118,6 +120,7 @@ export default function RequestsListPage() {
         placeholder="Search opportunities or requesters…"
         toggles={[{ label: 'Hide inactive', checked: hideInactive, onChange: setHideInactive }]}
       />
+      <StageDurationChart data={stageDurations.data ?? []} isLoading={stageDurations.isLoading} />
       <div className="card table-card">
         <DataTable
           rows={rows}
