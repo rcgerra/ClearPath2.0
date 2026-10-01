@@ -8688,7 +8688,19 @@ button.assign-me-button.primary:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   flex: 1;
-  padding: 0.9rem 1.1rem;
+  padding: 0.7rem 1.1rem;
+  min-height: 0;
+}
+
+.app-main:has(.opportunity-workflow) .accent-section-header {
+  margin-bottom: 0.7rem;
+  padding-block: 0.7rem;
+}
+
+.opportunity-intake-form > .opportunity-fields {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   min-height: 0;
 }
 
@@ -8707,6 +8719,13 @@ button.assign-me-button.primary:hover:not(:disabled) {
 }
 
 .opportunity-intake-form > .opportunity-form-section:last-child {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.opportunity-intake-form > .opportunity-fields > .opportunity-form-section:last-child {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -8772,18 +8791,13 @@ button.assign-me-button.primary:hover:not(:disabled) {
   min-height: 3.75rem;
 }
 
-.opportunity-intake-footer-actions > button {
-  height: 3.75rem;
-  min-height: 3.75rem;
-}
-
 @media (max-width: 700px) {
   .opportunity-intake-header {
     flex-wrap: wrap;
   }
 
   .opportunity-intake-form {
-    padding: 0.85rem;
+    padding: 0.7rem 0.85rem;
     min-height: 0;
   }
 
@@ -8799,6 +8813,7 @@ button.assign-me-button.primary:hover:not(:disabled) {
   .opportunity-intake-rationale {
     grid-column: auto;
   }
+
 }
 
 @media (min-width: 701px) and (max-width: 1000px) {
@@ -8829,6 +8844,28 @@ button.assign-me-button.primary:hover:not(:disabled) {
   .app-main:has(.opportunity-intake-header) {
     min-height: calc(100vh - 120px);
   }
+
+  .app-body:has(.opportunity-workflow) {
+    align-items: stretch;
+  }
+
+  .app-main:has(.opportunity-workflow) {
+    min-height: calc(100vh - 120px);
+  }
+
+  .app-main:has(.opportunity-workflow) > .accent-section {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .app-main:has(.opportunity-workflow) > .accent-section > div[id] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
 }
 
 @media (max-width: 900px) {
@@ -8837,21 +8874,8 @@ button.assign-me-button.primary:hover:not(:disabled) {
   }
 }
 
-.opportunity-review-fields {
-  margin-bottom: 1rem;
-  padding: 0.8rem 0.9rem 0;
-  border-radius: 6px;
-  background: var(--accent-wash);
-}
-
-.opportunity-review-fields h2 {
-  margin: 0 0 0.75rem;
-  font-size: 0.78rem;
-  color: var(--accent-ink);
-}
-
 .opportunity-workflow {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.7rem;
 }
 
 .opportunity-workflow-heading {
@@ -8954,7 +8978,7 @@ button.assign-me-button.primary:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.35rem 0.5rem;
+  padding: 0.7rem 0.5rem;
 }
 
 .opportunity-workflow[data-collapsed="true"] .opportunity-workflow-heading {

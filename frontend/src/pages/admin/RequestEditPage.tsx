@@ -1,12 +1,11 @@
 import { FormEvent, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { errorMessage, lookupsApi, requestsApi } from '../../api/client';
+import { errorMessage, requestsApi } from '../../api/client';
 import AccentSection from '../../components/admin/AccentSection';
 import UserSelect from '../../components/admin/UserSelect';
 import LocationChipPicker from '../../components/LocationChipPicker';
-import { DEFAULT_REQUEST_PHASE, REQUEST_PHASES, REQUEST_WORKFLOW, workflowStageIndex } from '../../constants/phases';
-import { REQUEST_DISPOSITIONS } from '../../types';
+import { REQUEST_WORKFLOW, workflowStageIndex } from '../../constants/phases';
 import { useAuthStore } from '../../store/authStore';
 import { canEditRequest } from '../../utils/permissions';
 
@@ -19,10 +18,9 @@ export default function RequestEditPage() {
   const backTo = isAdminPortal ? '/admin/requests' : '/requests';
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
-  const [workflowCollapsed, setWorkflowCollapsed] = useState(false);
+  const [workflowCollapsed, setWorkflowCollapsed] = useState(true);
 
   const request = useQuery({ queryKey: ['request', id], queryFn: () => requestsApi.get(id!), enabled: Boolean(id) });
-  const sites = useQuery({ queryKey: ['lookups', 'sites'], queryFn: () => lookupsApi.list('sites') });
 
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) => requestsApi.update(id!, body),
@@ -57,7 +55,6 @@ export default function RequestEditPage() {
     const changes = {
       shortTitle: text('shortTitle'),
       title: text('shortTitle'),
-      ...(user?.roles.includes('admin') ? { siteId: String(form.get('siteId') ?? '') } : {}),
       location: text('location'),
       neededBy: text('neededBy'),
       neededByJustification: text('neededByJustification'),
@@ -69,10 +66,6 @@ export default function RequestEditPage() {
     };
     save.mutate({
       ...changes,
-      ...(moderator ? {
-        ...(!submitting ? { phase: text('phase') } : {}),
-        disposition: text('disposition'),
-      } : {}),
       ...(canAssignDelegate ? { sponsorPersonId: text('sponsorPersonId'), delegatePersonId: text('delegatePersonId') } : {}),
       ...(submitting ? { phase: 'Prioritization', status: 'Submitted' } : {}),
     });
@@ -89,7 +82,7 @@ export default function RequestEditPage() {
     <AccentSection
       accent="requests"
       title={current?.shortTitle ?? current?.title ?? 'Opportunity details'}
-      subtitle={current?.requesterName ? `Shared by ${current.requesterName}` : 'Opportunity details'}
+      subtitle={current?.requesterName ? `Shared by ${current.requesterName}` : undefined}
       actions={
         isAdminPortal ? <>
           <Link to={`/prioritization?requestId=${id}`}>
@@ -138,124 +131,111 @@ export default function RequestEditPage() {
         {!editable && <p className="muted">{current.phase && current.phase !== 'Draft' && current.phase !== 'Prioritization'
           ? 'This opportunity is read-only after prioritization.'
           : 'You can view this opportunity. Only its owner, sponsor, delegate, intake moderator or an admin can edit it.'}</p>}
-        <form className="card" onSubmit={handleSubmit} key={current?.id ?? 'edit'}>
+        <form className="card opportunity-intake-form" onSubmit={handleSubmit} key={current?.id ?? 'edit'}>
           <fieldset className="opportunity-fields" disabled={!editable}>
-          <div className="field">
-            <label htmlFor="shortTitle">Short Title</label>
-            <input id="shortTitle" name="shortTitle" required minLength={3} maxLength={100} defaultValue={current?.shortTitle ?? ''} />
-          </div>
-
-          <div className="grid cols-2 opportunity-date-row">
-            <div className="field">
-              <label htmlFor="neededBy">Needed By</label>
-              <input id="neededBy" name="neededBy" type="date" required defaultValue={current?.neededBy?.slice(0, 10) ?? ''} />
-            </div>
-            <div className="field">
-              <label htmlFor="neededByJustification">Rationale</label>
-              <textarea id="neededByJustification" name="neededByJustification" required maxLength={4000} defaultValue={current?.neededByJustification ?? ''} />
-            </div>
-          </div>
-
-          {user?.roles.includes('admin') && <div className="field" style={{ maxWidth: 320 }}>
-            <label htmlFor="siteId">Site</label>
-            <select id="siteId" name="siteId" defaultValue={current?.siteId ?? ''}>
-              <option value="">Unassigned</option>
-              {sites.data?.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
-            </select>
-          </div>}
-
-          <div className="field">
-            <LocationChipPicker id="location" name="location" defaultValue={current?.location ?? ''} siteId={user?.roles.includes('admin') ? undefined : current?.siteId ?? null} required />
-          </div>
-
-          <div className="grid cols-2">
-            <fieldset className="opportunity-fields" disabled={!canAssignDelegate}>
-              <UserSelect id="sponsorPersonId" name="sponsorPersonId" label="Proposed Sponsor" personValue required defaultValue={current?.sponsorPersonId} />
-            </fieldset>
-            <fieldset className="opportunity-fields" disabled={!canAssignDelegate}>
-              <UserSelect id="delegatePersonId" name="delegatePersonId" label="Who else should be able to make changes to this opportunity?" personValue defaultValue={current?.delegatePersonId} />
-            </fieldset>
-          </div>
-
-          <div className="field">
-            <label htmlFor="currentState">Current State</label>
-            <textarea id="currentState" name="currentState" required minLength={10} maxLength={4000} defaultValue={current?.currentState ?? ''} />
-          </div>
-
-          <div className="grid cols-2">
-            <div className="field">
-              <label htmlFor="discoveryMethod">Discovery Method</label>
-              <textarea
-                id="discoveryMethod"
-                name="discoveryMethod"
-                required
-                maxLength={4000}
-                defaultValue={current?.discoveryMethod ?? ''}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="impactToOperations">Impact to Operations</label>
-              <textarea
-                id="impactToOperations"
-                name="impactToOperations"
-                required
-                maxLength={4000}
-                defaultValue={current?.impactToOperations ?? ''}
-              />
-            </div>
-          </div>
-
-          <div className="grid cols-2">
-            <div className="field">
-              <label htmlFor="desiredFutureState">Desired Future State</label>
-              <textarea
-                id="desiredFutureState"
-                name="desiredFutureState"
-                required
-                maxLength={4000}
-                defaultValue={current?.desiredFutureState ?? ''}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="additionalInformation">Additional Information</label>
-              <textarea
-                id="additionalInformation"
-                name="additionalInformation"
-                maxLength={4000}
-                defaultValue={current?.additionalInformation ?? ''}
-              />
-            </div>
-          </div>
-
-          {moderator && <section className="opportunity-review-fields" aria-label="Intake review">
-            <h2>Intake review</h2>
-            <div className="grid cols-2">
-              <div className="field">
-                <label htmlFor="phase">Phase</label>
-                <select id="phase" name="phase" defaultValue={current?.phase ?? DEFAULT_REQUEST_PHASE}>
-                  {current?.phase && !REQUEST_PHASES.some((phase) => phase === current.phase) && <option value={current.phase}>{current.phase}</option>}
-                  {REQUEST_PHASES.map((phase) => (
-                    <option key={phase} value={phase}>
-                      {REQUEST_WORKFLOW.find((step) => step.phase === phase)?.title}
-                    </option>
-                  ))}
-                </select>
+          <section className="opportunity-form-section">
+            <div className="grid opportunity-intake-primary-row">
+              <div className="field opportunity-intake-title">
+                <label htmlFor="shortTitle">Short Title <span className="required-marker" aria-hidden="true">*</span></label>
+                <input id="shortTitle" name="shortTitle" required minLength={3} maxLength={100} defaultValue={current?.shortTitle ?? ''} />
               </div>
+              <fieldset className="opportunity-fields" disabled={!canAssignDelegate}>
+                <UserSelect id="sponsorPersonId" name="sponsorPersonId" label="Proposed Sponsor" personValue required searchable={false} defaultValue={current?.sponsorPersonId} />
+              </fieldset>
+              <fieldset className="opportunity-fields" disabled={!canAssignDelegate}>
+                <UserSelect id="delegatePersonId" name="delegatePersonId" label="Delegates" personValue searchable={false} defaultValue={current?.delegatePersonId} />
+              </fieldset>
+            </div>
+          </section>
+
+          <section className="opportunity-form-section">
+            <div className="grid opportunity-intake-location-timing">
+              <LocationChipPicker id="location" name="location" defaultValue={current?.location ?? ''} siteId={user?.roles.includes('admin') ? undefined : current?.siteId ?? null} required />
               <div className="field">
-                <label htmlFor="disposition">Disposition</label>
-                <select id="disposition" name="disposition" defaultValue={current?.disposition ?? 'Pending'}>
-                  {REQUEST_DISPOSITIONS.map((disposition) => (
-                    <option key={disposition} value={disposition}>
-                      {disposition}
-                    </option>
-                  ))}
-                </select>
+                <label htmlFor="neededBy">Needed By <span className="required-marker" aria-hidden="true">*</span></label>
+                <input id="neededBy" name="neededBy" type="date" required defaultValue={current?.neededBy?.slice(0, 10) ?? ''} />
+              </div>
+              <div className="field opportunity-intake-rationale">
+                <label htmlFor="neededByJustification">Rationale <span className="required-marker" aria-hidden="true">*</span></label>
+                <textarea
+                  id="neededByJustification"
+                  name="neededByJustification"
+                  required
+                  maxLength={4000}
+                  defaultValue={current?.neededByJustification ?? ''}
+                  placeholder="Explain why the project must be done by this date and the impact if delayed (e.g., production loss, compliance risk, missed opportunity)."
+                />
               </div>
             </div>
-          </section>}
+          </section>
 
+          <section className="opportunity-form-section">
+            <div className="grid opportunity-intake-context">
+              <div className="field">
+                <label htmlFor="currentState">Current State <span className="required-marker" aria-hidden="true">*</span></label>
+                <textarea
+                  id="currentState"
+                  name="currentState"
+                  required
+                  minLength={10}
+                  maxLength={4000}
+                  defaultValue={current?.currentState ?? ''}
+                  placeholder="Describe the current situation or problem. What isn't working as expected? Include details about the issue or opportunity you want to address and why it matters."
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="desiredFutureState">Desired Future State <span className="required-marker" aria-hidden="true">*</span></label>
+                <textarea
+                  id="desiredFutureState"
+                  name="desiredFutureState"
+                  required
+                  maxLength={4000}
+                  defaultValue={current?.desiredFutureState ?? ''}
+                  placeholder="Describe the goal you want to achieve. How much of the problem do you expect to resolve? What specifically will change or improve?"
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="discoveryMethod">Discovery Method <span className="required-marker" aria-hidden="true">*</span></label>
+                <textarea
+                  id="discoveryMethod"
+                  name="discoveryMethod"
+                  required
+                  maxLength={4000}
+                  defaultValue={current?.discoveryMethod ?? ''}
+                  placeholder="Explain how this issue or opportunity was identified. Examples include: cGMP audit, internal audit, GEMBA walkthrough, surveys, or other observations."
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="impactToOperations">Impact to Operations <span className="required-marker" aria-hidden="true">*</span></label>
+                <textarea
+                  id="impactToOperations"
+                  name="impactToOperations"
+                  required
+                  maxLength={4000}
+                  defaultValue={current?.impactToOperations ?? ''}
+                  placeholder="Describe the effect this issue/opportunity is having. Include measurable outcomes where possible, such as value lost or gained, number of incidents, frequency, downtime, or other quantifiable impacts."
+                />
+              </div>
+
+              <div className="opportunity-intake-additional-row">
+                <div className="field opportunity-intake-additional">
+                  <label htmlFor="additionalInformation">Additional Information</label>
+                  <textarea
+                    id="additionalInformation"
+                    name="additionalInformation"
+                    maxLength={4000}
+                    defaultValue={current?.additionalInformation ?? ''}
+                    placeholder="Include any other relevant details or context that would help reviewers understand the situation or your proposed solution."
+                  />
+                </div>
+              </div>
+
+            </div>
+          </section>
           </fieldset>
-          <div className="row-actions">
+          <div className="row-actions opportunity-intake-footer-actions">
             {editable && <button type="submit" value="draft" formNoValidate disabled={save.isPending}>
               {save.isPending ? 'Saving…' : isDraft ? 'Save as Draft' : 'Save changes'}
             </button>}
