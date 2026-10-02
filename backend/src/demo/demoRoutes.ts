@@ -910,7 +910,7 @@ router.patch('/demand/:id/weeks', asyncHandler(async (req, res) => {
   }
   const record = dataService.updateWeeks('demand', req.params.id, req.body ?? {});
   if (!record) throw new HttpError(404, 'Demand row not found.');
-  res.json({ id: record.id, weeks: record.weeks });
+  res.json({ id: record.id, weeks: record.weeks, pastWeeks: record.pastWeeks });
 }));
 
 router.patch('/demand/:id', asyncHandler(async (req, res) => {

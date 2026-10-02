@@ -1,5 +1,5 @@
 import { BaseRepository } from '../../database/BaseRepository';
-import { decodeArray, encodeArray, MAX_POSITIONS, setWeekRange, setWeekValue } from '../../utils/arrayParser';
+import { decodeArray, encodeArray, MAX_POSITIONS, setWeekRange } from '../../utils/arrayParser';
 import { DemandAllocation, DemandAllocationInput } from '../interfaces';
 
 export interface DemandView extends DemandAllocation {
@@ -12,8 +12,30 @@ export interface DemandView extends DemandAllocation {
   FunctionName: string | null;
   DemandHours: string;
   Weeks: number[];
+  PastWeeks: number[];
   StartWeek: number | null;
   EndWeek: number | null;
+}
+
+const WEEK_MS = 7 * 86_400_000;
+
+function currentWeekStart(): Date {
+  const monday = new Date();
+  monday.setUTCHours(0, 0, 0, 0);
+  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+  return monday;
+}
+
+function weekStartForOffset(offset: number): string {
+  const monday = currentWeekStart();
+  monday.setUTCDate(monday.getUTCDate() + offset * 7);
+  return monday.toISOString().slice(0, 10);
+}
+
+function weekOffsetForDate(dateValue: Date): number {
+  const date = new Date(dateValue);
+  date.setUTCHours(0, 0, 0, 0);
+  return Math.round((date.getTime() - currentWeekStart().getTime()) / WEEK_MS);
 }
 
 export interface DemandFilters {
@@ -78,9 +100,22 @@ export class DemandRepository extends BaseRepository<DemandAllocation> {
   }
 
   public async setWeek(demandId: number, week: number, hours: number): Promise<DemandView | null> {
-    const current = await this.findByIdentifier(String(demandId));
-    if (!current) return null;
-    await this.replaceWeeks(demandId, decodeArray(setWeekValue(current.DemandHours, week, hours)));
+    const weekStart = weekStartForOffset(week);
+    const existing = await this.query<{ DemandWeekId: number }>(
+      'SELECT [DemandWeekId] FROM dbo.[DemandWeeks] WHERE [DemandAllocationId] = @demandId AND [WeekStartDate] = @weekStart',
+      { demandId, weekStart },
+    );
+    if (existing[0]) {
+      await this.execute('UPDATE dbo.[DemandWeeks] SET [Hours] = @hours, [IsActive] = 1 WHERE [DemandWeekId] = @id', {
+        id: existing[0].DemandWeekId,
+        hours,
+      });
+    } else {
+      await this.execute(
+        'INSERT dbo.[DemandWeeks] ([DemandAllocationId], [WeekStartDate], [Hours]) VALUES (@demandId, @weekStart, @hours)',
+        { demandId, weekStart, hours },
+      );
+    }
     return this.findByIdentifier(String(demandId));
   }
 
@@ -107,9 +142,33 @@ export class DemandRepository extends BaseRepository<DemandAllocation> {
   }
 
   private group(rows: DemandRow[]): DemandView[] {
-    const grouped = new Map<number, { row: DemandRow; weeks: number[] }>();
-    for (const row of rows) { const current = grouped.get(row.DemandAllocationId) ?? { row, weeks: [] }; if (row.WeekStartDate && row.Hours !== null) current.weeks.push(row.Hours); grouped.set(row.DemandAllocationId, current); }
-    return [...grouped.values()].map(({ row, weeks }) => ({ ...row, DemandApiId: row.DemandApiId ?? String(row.DemandAllocationId), ProjectApiId: row.ProjectApiId, DemandHours: encodeArray(weeks, MAX_POSITIONS), Weeks: decodeArray(encodeArray(weeks, MAX_POSITIONS)) }));
+    const grouped = new Map<number, { row: DemandRow; weeks: number[]; pastWeeks: number[] }>();
+    for (const row of rows) {
+      const current = grouped.get(row.DemandAllocationId) ?? {
+        row,
+        weeks: new Array(MAX_POSITIONS).fill(0),
+        pastWeeks: new Array(MAX_POSITIONS).fill(0),
+      };
+      if (row.WeekStartDate && row.Hours !== null) {
+        const offset = weekOffsetForDate(row.WeekStartDate);
+        if (offset >= 0 && offset < MAX_POSITIONS) current.weeks[offset] = row.Hours;
+        else if (offset < 0 && -offset <= MAX_POSITIONS) current.pastWeeks[-offset - 1] = row.Hours;
+      }
+      grouped.set(row.DemandAllocationId, current);
+    }
+    return [...grouped.values()].map(({ row, weeks, pastWeeks }) => ({
+      ...row,
+      DemandApiId: row.DemandApiId ?? String(row.DemandAllocationId),
+      ProjectApiId: row.ProjectApiId,
+      ProjectName: row.ProjectName,
+      PersonApiId: row.PersonApiId,
+      PersonName: row.PersonName,
+      FunctionApiId: row.FunctionApiId,
+      FunctionName: row.FunctionName,
+      DemandHours: encodeArray(weeks, MAX_POSITIONS),
+      Weeks: weeks,
+      PastWeeks: pastWeeks,
+    }));
   }
 
   private demandSql(): string { return `SELECT da.*, COALESCE(CONVERT(varchar(36), da.[LegacyDataverseId]), CONVERT(varchar(20), da.[DemandAllocationId])) AS DemandApiId, COALESCE(CONVERT(varchar(36), p.[LegacyDataverseId]), CONVERT(varchar(20), p.[ProjectId])) AS ProjectApiId, p.[Name] AS ProjectName, person.[LegacyDataverseId] AS PersonApiId, person.[Name] AS PersonName, f.[LegacyDataverseId] AS FunctionApiId, f.[Name] AS FunctionName, dw.[WeekStartDate], dw.[Hours], NULL AS StartWeek, NULL AS EndWeek FROM dbo.[DemandAllocations] da JOIN dbo.[Projects] p ON p.[ProjectId] = da.[ProjectId] LEFT JOIN dbo.[People] person ON person.[PersonId] = da.[PersonId] LEFT JOIN dbo.[Functions] f ON f.[FunctionId] = da.[FunctionId] LEFT JOIN dbo.[DemandWeeks] dw ON dw.[DemandAllocationId] = da.[DemandAllocationId] AND dw.[IsActive] = 1`; }

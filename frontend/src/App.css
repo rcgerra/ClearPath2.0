@@ -2215,6 +2215,7 @@
 
 .my-workload-card {
   container-type: inline-size;
+  background: var(--white);
 }
 
 .my-work-shell {
@@ -2272,27 +2273,20 @@
   }
 }
 
-.app-main > .my-workload-card {
-  border-top: 2px solid var(--sorairo-blue);
-}
-
 .my-workload-card .overage-chip-row {
   margin: 0 0 0.75rem;
 }
 
 .my-workload-card .weekly-matrix .matrix-label {
-  width: 33%;
   min-width: 0;
-  max-width: 33%;
   white-space: normal;
   overflow-wrap: anywhere;
   line-height: 1.25;
 }
 
 .my-workload-card .weekly-matrix .matrix-label-column {
-  width: 33%;
+  width: 22%;
   min-width: 0;
-  max-width: 33%;
 }
 
 @media print {

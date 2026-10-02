@@ -120,7 +120,7 @@ export const demandApi = {
     weeks?: number[];
   }) => api.post<{ id: string }>('/demand', body).then((r) => r.data),
   setWeeks: (id: string, body: { week?: number; startWeek?: number; endWeek?: number; hours: number }) =>
-    api.patch<{ id: string; weeks: number[] }>(`/demand/${id}/weeks`, body).then((r) => r.data),
+    api.patch<{ id: string; weeks: number[]; pastWeeks?: number[] }>(`/demand/${id}/weeks`, body).then((r) => r.data),
   update: (id: string, body: WritePayload) => api.patch(`/demand/${id}`, body).then((r) => r.data),
   remove: (id: string) => api.delete(`/demand/${id}`),
 };

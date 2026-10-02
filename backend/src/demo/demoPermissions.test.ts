@@ -107,9 +107,14 @@ test('demo CSV edits persist across data service instances', () => {
     assert.ok(project);
     const updatedName = `${project.name} - persisted`;
     firstSession.update('projects', project.id, { name: updatedName });
+    const demand = firstSession.list('demand')[0];
+    assert.ok(demand);
+    firstSession.updateWeeks('demand', demand.id, { week: -1, hours: 13 });
 
     const nextSession = new CsvDataService(directory);
     assert.equal(nextSession.find('projects', project.id)?.name, updatedName);
+    const persistedDemand = nextSession.find('demand', demand.id) as (typeof demand & { pastWeeks?: number[] }) | undefined;
+    assert.equal(persistedDemand?.pastWeeks?.[0], 13);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

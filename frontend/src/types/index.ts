@@ -145,6 +145,7 @@ export interface DemandRow {
   functionName?: string;
   demandHours: string | null;
   weeks: number[];
+  pastWeeks?: number[];
   startWeek?: number;
   endWeek?: number;
   status?: string;

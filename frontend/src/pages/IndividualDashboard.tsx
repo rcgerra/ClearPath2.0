@@ -676,13 +676,13 @@ export default function IndividualDashboard() {
                           className={`icon-button non-project-demand-toggle ${subcategory.demand.isActive === false ? 'success' : 'danger'}`}
                           title={
                             subcategory.demand.isActive === false
-                              ? `Reopen ${subcategory.name}`
-                              : `Mark ${subcategory.name} as finished and stop tracking`
+                              ? 'Reopen this item'
+                              : 'Close this item'
                           }
                           aria-label={
                             subcategory.demand.isActive === false
                               ? `Reopen ${subcategory.name}`
-                              : `Mark ${subcategory.name} as finished and stop tracking`
+                              : `Close ${subcategory.name}`
                           }
                           onClick={() =>
                             setNonProjectDemandActive.mutate({
@@ -693,14 +693,13 @@ export default function IndividualDashboard() {
                         >
                           {subcategory.demand.isActive === false ? (
                             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                              <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
-                              <circle cx="12" cy="12" r="2.5" />
-                              <line x1="3" y1="3" x2="21" y2="21" />
+                              <path d="M3 11a9 9 0 1 1 2.64 6.36" />
+                              <path d="M3 4v7h7" />
                             </svg>
                           ) : (
                             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                              <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
-                              <circle cx="12" cy="12" r="2.5" />
+                              <circle cx="12" cy="12" r="9" />
+                              <path d="m8 12 2.5 2.5L16 9" />
                             </svg>
                           )}
                         </button>

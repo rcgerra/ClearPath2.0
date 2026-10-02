@@ -13,7 +13,7 @@ import KpiRow from '../components/KpiRow';
 import SlideOverPanel from '../components/SlideOverPanel';
 import UserSelect from '../components/admin/UserSelect';
 import { useAuthStore } from '../store/authStore';
-import { weekLabelShort, weekLabel, currentWeekStart, PLANNING_HORIZONS } from '../utils/arrayParser';
+import { weekLabelShort, weekLabel, currentWeekStart, PLANNING_HORIZONS, weekValue } from '../utils/arrayParser';
 import { formatDate } from '../utils/dates';
 import { canEditDemand, canEditProject } from '../utils/permissions';
 import { buildAllocationConflicts, type AllocationConflict } from '../utils/allocationRisk';
@@ -185,12 +185,15 @@ export default function ProjectTeamPage() {
     mutationFn: ({ demandId, week, hours }: { demandId: string; week: number; hours: number; previous: number; personName?: string }) =>
       demandApi.setWeeks(demandId, { week, hours }),
     onSuccess: (_result, variables) => {
-      // .map() only visits real 0..length-1 indices, so it silently drops look-back (negative) weeks.
-      // Object.assign (not spread) is required too, since spread also skips negative-indexed keys.
       queryClient.setQueryData<DemandRow[]>(teamKey, (current) =>
         current?.map((row) => {
           if (row.id !== variables.demandId) return row;
-          const weeks: number[] = Object.assign([], row.weeks);
+          if (variables.week < 0) {
+            const pastWeeks = [...(row.pastWeeks ?? [])];
+            pastWeeks[-variables.week - 1] = variables.hours;
+            return { ...row, pastWeeks };
+          }
+          const weeks = [...row.weeks];
           weeks[variables.week] = variables.hours;
           return { ...row, weeks };
         }),
@@ -267,17 +270,15 @@ export default function ProjectTeamPage() {
     [weeksToShow, lookDirection],
   );
 
-  /** Sums every week ever recorded for a row, including look-back edits stored on negative indices
-   *  (which Array#reduce/slice silently skip since they aren't real array elements). */
+  /** Sums demand across forward and historical weeks. */
   const totalProjectDemandFor = (row: DemandRow) =>
-    Object.keys(row.weeks).reduce((sum, key) => sum + (Number(row.weeks[key as unknown as number]) || 0), 0);
+    row.weeks.reduce((sum, hours) => sum + (Number(hours) || 0), 0)
+      + (row.pastWeeks ?? []).reduce((sum, hours) => sum + (Number(hours) || 0), 0);
 
   /** Look ahead: total across the visible forward window. Look back: total across the visible past window. */
   const totalWindowDemandFor = (row: DemandRow) => {
     if (lookDirection === 'back') {
-      let total = 0;
-      for (let week = 1; week <= weeksToShow; week += 1) total += row.weeks[-week] ?? 0;
-      return total;
+      return (row.pastWeeks ?? []).slice(0, weeksToShow).reduce((sum, hours) => sum + hours, 0);
     }
     return row.weeks.slice(0, weeksToShow).reduce((sum, value) => sum + value, 0);
   };
@@ -320,7 +321,7 @@ export default function ProjectTeamPage() {
       }
       if (teamSortColumn === 'totalProject') return direction * (totalProjectDemandFor(a) - totalProjectDemandFor(b));
       if (teamSortColumn === 'totalFuture') return direction * (totalWindowDemandFor(a) - totalWindowDemandFor(b));
-      return direction * ((a.weeks[teamSortColumn] ?? 0) - (b.weeks[teamSortColumn] ?? 0));
+      return direction * (weekValue(a.weeks, teamSortColumn, a.pastWeeks) - weekValue(b.weeks, teamSortColumn, b.pastWeeks));
     });
   }, [rows, teamSortColumn, teamSortDirection, weeksToShow, lookDirection, riskByPerson]);
 
@@ -351,7 +352,8 @@ export default function ProjectTeamPage() {
       return next;
     });
     const hours = Math.max(0, Math.min(MAX_HOURS, Math.round(Number(raw) || 0)));
-    if (hours !== (row.weeks[week] ?? 0)) setWeek.mutate({ demandId: row.id, week, hours, previous: row.weeks[week] ?? 0, personName: row.personName });
+    const previous = weekValue(row.weeks, week, row.pastWeeks);
+    if (hours !== previous) setWeek.mutate({ demandId: row.id, week, hours, previous, personName: row.personName });
   }
 
   /** Arrow keys and Enter move between cells, like a spreadsheet. */
@@ -965,7 +967,7 @@ export default function ProjectTeamPage() {
                     {columns.map((week) => {
                       const key = `${row.id}:${week}`;
                       const hasHistory = week >= -rowHistoryWeeks;
-                      const value = week < 0 && !hasHistory ? '' : draft[key] ?? String(row.weeks[week] ?? 0);
+                      const value = week < 0 && !hasHistory ? '' : draft[key] ?? String(weekValue(row.weeks, week, row.pastWeeks));
                       const utilization = utilizationFor(row.personId, week);
                       const over = utilization !== null && utilization > 1;
                       return (
@@ -1027,7 +1029,11 @@ export default function ProjectTeamPage() {
                 <td className="matrix-total-cell">{rows.reduce((sum, row) => sum + totalProjectDemandFor(row), 0) ?? 0}</td>
                 <td className="matrix-total-cell">{rows.reduce((sum, row) => sum + totalWindowDemandFor(row), 0) ?? 0}</td>
                 {columns.map((week) => (
-                  <td key={week}>{projectTotals[week] || ''}</td>
+                  <td key={week}>
+                    {(week < 0
+                      ? rows.reduce((sum, row) => sum + weekValue(row.weeks, week, row.pastWeeks), 0)
+                      : projectTotals[week]) || ''}
+                  </td>
                 ))}
               </tr>
             </tfoot>

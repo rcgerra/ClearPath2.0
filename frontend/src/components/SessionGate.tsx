@@ -72,7 +72,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const config = authConfig.data;
-    if (config?.authMode !== 'entra' || !config.tenantId || !config.clientId) return;
+    if (token || config?.authMode !== 'entra' || !config.tenantId || !config.clientId) return;
     let cancelled = false;
     setIsSigningIn(true);
     completeEntraRedirect({ tenantId: config.tenantId, clientId: config.clientId })
@@ -89,7 +89,7 @@ export default function SessionGate({ children }: { children: ReactNode }) {
         if (!cancelled) setIsSigningIn(false);
       });
     return () => { cancelled = true; };
-  }, [authConfig.data?.authMode, authConfig.data?.tenantId, authConfig.data?.clientId, setSession]);
+  }, [authConfig.data?.authMode, authConfig.data?.tenantId, authConfig.data?.clientId, setSession, token]);
 
   useEffect(() => {
     if (authConfig.data?.authMode === 'entra' && token && !viewingAs && user?.authProvider !== 'entra') logout();

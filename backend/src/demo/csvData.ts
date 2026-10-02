@@ -375,6 +375,7 @@ export function loadDemoData(directory = process.env.DEMO_CSV_DIR ?? path.resolv
       functionName: functionRecords.find((record) => record.id === functionId)?.name ?? person?.functionName,
       demandHours: null,
       weeks,
+      pastWeeks: weeksValue(row, 'clearpath_pastweeks'),
       startWeek: weeks.findIndex((hours) => hours > 0),
       endWeek: weeks.reduce((lastWeek, hours, week) => (hours > 0 ? week : lastWeek), 0),
       status: value(row, 'new_status', 'statuscode') ?? 'Planned',
@@ -855,11 +856,17 @@ export class CsvDataService {
   }
 
   public updateWeeks<Collection extends 'capacity' | 'demand'>(collection: Collection, recordId: string, changes: Record<string, unknown>) {
-    const record = this.find(collection, recordId) as (DemoData[Collection][number] & { weeks: number[] }) | undefined;
+    const record = this.find(collection, recordId) as (DemoData[Collection][number] & { weeks: number[]; pastWeeks?: number[] }) | undefined;
     if (!record) return undefined;
     const { week, startWeek, endWeek, hours } = changes;
     if (Number.isFinite(week)) {
-      record.weeks[Number(week)] = Number(hours);
+      const weekIndex = Number(week);
+      if (weekIndex < 0) {
+        record.pastWeeks ??= new Array(1333).fill(0);
+        record.pastWeeks[-weekIndex - 1] = Number(hours);
+      } else {
+        record.weeks[weekIndex] = Number(hours);
+      }
     } else if (Number.isFinite(startWeek) && Number.isFinite(endWeek)) {
       for (let index = Number(startWeek); index <= Number(endWeek) && index < record.weeks.length; index += 1) {
         record.weeks[index] = Number(hours);
@@ -893,6 +900,9 @@ export class CsvDataService {
       const file = binding?.file ?? this.fileFor(collection);
       if (!file || !this.directory) return;
       const rows = this.sourceRows.get(file) ?? [];
+      if (collection === 'demand' && 'pastWeeks' in (record as Record<string, unknown>)) {
+        for (const sourceRow of rows) sourceRow.clearpath_pastweeks ??= '';
+      }
       const template = rows[0] ?? {};
       const row = binding?.row ?? Object.fromEntries(Object.keys(template).map((header) => [header, '']));
       if (isNew || !binding) rows.push(row);
@@ -978,7 +988,7 @@ export class CsvDataService {
         projectId: ['clearpath_projectid'],
       },
       capacity: { id: ['new_capacityid'], weeklyBaseline: ['new_weeklybaseline', 'cr714_weeklybaseline'], notes: ['new_notes', 'cr714_notes'], weeks: ['cr714_availabilityhours', 'new_availabilityhours'] },
-      demand: { id: ['new_demandid'], status: ['new_status'], weeks: ['cr714_demandhours', 'new_demandhours'] },
+      demand: { id: ['new_demandid'], status: ['new_status'], weeks: ['cr714_demandhours', 'new_demandhours'], pastWeeks: ['clearpath_pastweeks'] },
       programs: { id: ['cr714__programsid'], name: ['cr714_name', 'cr714_longname'] }, functions: { id: ['new_functionsid'], name: ['new_name', 'new_functionname'] },
       locations: { id: ['cr714__locationsid'], name: ['cr714_name'] }, sites: { id: ['new_sitesid'], name: ['new_name', 'new_sitename'] }, skillsets: { name: ['new_name'] },
       categories: { name: ['cr714_name'], weight: ['cr714_categoryweight'], parent: ['cr714_categorytype'], categoryType: ['cr714_categorytype'], notes: ['cr714_notes'], isActive: ['cr714_isactive'] },
@@ -997,7 +1007,7 @@ export class CsvDataService {
       const candidates = fields[collection]?.[key];
       if (!candidates) continue;
       const column = candidates.find((candidate) => Object.prototype.hasOwnProperty.call(row, candidate));
-      if (column) row[column] = key === 'weeks' && Array.isArray(value) ? value.join(';') : String(value ?? '');
+      if (column) row[column] = (key === 'weeks' || key === 'pastWeeks') && Array.isArray(value) ? value.join(';') : String(value ?? '');
     }
   }
 
